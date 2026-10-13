@@ -4,3 +4,5 @@ pydantic-settings==2.9.1
 SQLAlchemy==2.0.40
 pyodbc==5.2.0
 alembic==1.15.2
+argon2-cffi==23.1.0
+email-validator==2.2.0

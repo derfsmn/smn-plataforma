@@ -9,6 +9,9 @@ class Configuracion(BaseSettings):
 
     api_entorno: str = "desarrollo"
     api_origenes_permitidos: str = "http://localhost:3000"
+    # Dirección pública de la web; se usa para armar las ligas de invitación y de contraseña
+    web_url: str = "http://localhost:3000"
+    sesion_horas: int = 12
 
     bd_servidor: str = "localhost"
     bd_puerto: int = 1433
@@ -16,6 +19,10 @@ class Configuracion(BaseSettings):
     bd_usuario: str = "sa"
     mssql_sa_password: str = ""
     bd_driver: str = "ODBC Driver 18 for SQL Server"
+
+    @property
+    def es_desarrollo(self) -> bool:
+        return self.api_entorno == "desarrollo"
 
     @property
     def origenes(self) -> list[str]:

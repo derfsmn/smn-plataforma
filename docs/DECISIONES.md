@@ -4,6 +4,10 @@ Registro de decisiones tomadas por Diego. La más reciente arriba. No se cambian
 
 | Fecha | Decisión | Motivo / nota |
 |---|---|---|
+| 2026-10-13 | Etapa 3 se construye y prueba en local (SQL Server en Docker en el equipo de Diego); por ahora no se involucra a Sistemas | Decisión de Diego |
+| 2026-10-13 | Todos los usuarios (internos y externos) entran por invitación de un administrador; mientras no haya correo, la liga se copia y se envía a mano | Etapa 3 |
+| 2026-10-13 | La plataforma tiene tema claro, oscuro y automático, a elección de cada usuario | Pedido de Diego |
+| 2026-10-13 | Carpeta del proyecto: `C:\Users\diego\OneDrive\Documentos\SMN\SMN-TransformacionDigital`, con OneDrive deshabilitado para ella | Decisión de Diego. Si OneDrive se reactiva, excluir node_modules, .venv y .git |
 | 2026-10-13 | Interfaz visualmente atractiva y moderna, con animaciones | Requisito de Diego para adopción |
 | 2026-10-13 | Nombre: **SMN - Transformación digital** | |
 | 2026-10-13 | Acceso con usuario y contraseña propios; **sin integración con Microsoft 365**; correo para invitaciones, recuperación y avisos | Decisión de Diego |

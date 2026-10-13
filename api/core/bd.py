@@ -1,7 +1,9 @@
 """Conexión a SQL Server."""
+from collections.abc import Iterator
 from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import configuracion
 
@@ -18,3 +20,17 @@ def bd_disponible() -> bool:
         return True
     except Exception:
         return False
+
+
+@lru_cache
+def _fabrica() -> sessionmaker[Session]:
+    return sessionmaker(bind=motor(), expire_on_commit=False)
+
+
+def obtener_bd() -> Iterator[Session]:
+    """Dependencia de FastAPI: una sesión de base por petición."""
+    bd = _fabrica()()
+    try:
+        yield bd
+    finally:
+        bd.close()

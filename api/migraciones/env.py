@@ -3,9 +3,10 @@ from alembic import context
 from sqlalchemy import create_engine
 
 from core.config import configuracion
+from nucleo.modelos import Base
 
-# Cuando existan modelos SQLAlchemy, se asigna aquí su metadata para autogenerar migraciones.
-target_metadata = None
+# Metadata de los modelos, para comparar con `alembic revision --autogenerate`
+target_metadata = Base.metadata
 
 
 def run_migrations_online() -> None:

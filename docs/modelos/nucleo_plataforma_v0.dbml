@@ -1,5 +1,5 @@
 // SMN - Transformación digital · Modelo del núcleo (cascarón) v0
-// Corte: 2026-10-13 · Estado: PROPUESTA, sin validar con Sistemas
+// Corte: 2026-10-13 · Estado: identidad y acceso IMPLEMENTADOS (migración 0002); el resto es propuesta
 // Decisiones de Diego 2026-10-13: SQL Server; usuario y contraseña propios, sin Microsoft 365; nombre SMN - Transformación digital
 // Convención: snake_case. Esquema "nucleo"; cada módulo usa su propio esquema (compras, rrhh, ...).
 
@@ -47,20 +47,33 @@ Table restablecimiento_contrasena {
   expira_en datetime
   usado_en datetime [null]
   solicitado_desde_ip varchar
-  Note: 'Liga de un solo uso enviada por correo.'
+  Note: 'Liga de un solo uso (30 min si la pide la persona; 24 h si la genera un administrador).'
+}
+
+Table sesion {
+  sesion_id bigint [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id]
+  token_hash varchar [unique, note: 'SHA-256 del valor de la cookie httpOnly']
+  creada_en datetime
+  expira_en datetime
+  revocada_en datetime [null, note: 'Al salir, cambiar contraseña o desactivar la cuenta']
+  ip varchar
+  agente varchar
 }
 
 Table invitacion {
   invitacion_id int [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id, note: 'Cuenta creada como invitado al invitar']
   correo varchar
   organizacion_id int [ref: > organizacion_externa.organizacion_id, null]
-  modulo_id int [ref: > modulo.modulo_id]
+  modulo_id int [ref: > modulo.modulo_id, null]
   rol_id int [ref: > rol.rol_id]
   invitado_por int [ref: > usuario.usuario_id]
   token_hash varchar
   expira_en datetime
   usada_en datetime [null]
-  Note: 'Alta de externos por invitación de un interno.'
+  creada_en datetime
+  Note: 'Alta de internos y externos por invitación de un administrador. Liga de un solo uso, 7 días.'
 }
 
 // ===================== Módulos y permisos =====================
@@ -71,7 +84,8 @@ Table modulo {
   codigo_iniciativa varchar [null, note: 'TD001...']
   nombre varchar
   area varchar
-  responsable_id int [ref: > usuario.usuario_id]
+  descripcion varchar [null]
+  responsable_id int [ref: > usuario.usuario_id, null]
   estado varchar [note: 'en_diseno / piloto / activo / retirado']
   tiene_portal_externo boolean
   orden_menu int
@@ -82,15 +96,17 @@ Table modulo {
 
 Table permiso {
   permiso_id int [pk, increment]
-  modulo_id int [ref: > modulo.modulo_id]
+  modulo_id int [ref: > modulo.modulo_id, null, note: 'Nulo = permiso de plataforma (nucleo.*)']
   codigo varchar [unique, note: 'compras.solicitud.ver']
   descripcion varchar
 }
 
 Table rol {
   rol_id int [pk, increment]
+  codigo varchar [unique, note: 'admin, compras_responsable, proveedor...']
   modulo_id int [ref: > modulo.modulo_id, null, note: 'Nulo = rol de plataforma']
   nombre varchar
+  descripcion varchar [null]
   para_tipo_usuario varchar [note: 'interno / externo']
 }
 

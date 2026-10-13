@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Nunito } from "next/font/google";
 import "./globals.css";
+import { scriptTema } from "@/lib/tema";
 
 // Sustituta de la tipografía del logotipo hasta tener la oficial
 const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito" });
@@ -12,7 +13,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es-MX" className={nunito.variable}>
+    <html lang="es-MX" className={nunito.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: scriptTema }} />
+      </head>
       <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   );

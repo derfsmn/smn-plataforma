@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { urlApi } from "@/lib/api";
 
 type Salud = { api: string; base_de_datos: string; entorno: string };
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function EstadoApi() {
   const [salud, setSalud] = useState<Salud | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/salud`)
+    fetch(`${urlApi()}/api/salud`)
       .then((r) => r.json())
       .then(setSalud)
       .catch(() => setError(true));
@@ -24,7 +24,7 @@ export function EstadoApi() {
   return (
     <dl className="grid gap-3 sm:grid-cols-3">
       {filas.map(([nombre, valor]) => (
-        <div key={nombre} className="rounded-xl border border-smn-gris-100 bg-white p-4">
+        <div key={nombre} className="rounded-xl border border-smn-gris-100 bg-superficie p-4">
           <dt className="text-sm text-smn-gris-500">{nombre}</dt>
           <dd className="mt-1 font-bold">
             <span

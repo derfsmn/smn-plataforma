@@ -11,7 +11,7 @@ Contexto completo para personas y agentes: **[AGENTS.md](AGENTS.md)**. Estado ac
 ## Arrancar todo con Docker
 
 ```powershell
-copy .env.ejemplo .env      # y cambia MSSQL_SA_PASSWORD
+copy entorno.ejemplo .env      # y cambia MSSQL_SA_PASSWORD
 docker compose up --build
 ```
 
@@ -19,7 +19,17 @@ docker compose up --build
 - API: http://localhost:8000/api/salud (documentación en http://localhost:8000/docs)
 - SQL Server: localhost,1433 (usuario `sa`, base `smn_td`)
 
-La API crea la base `smn_td` si no existe y aplica las migraciones al arrancar.
+La API crea la base `smn_td` si no existe, aplica las migraciones y carga los catálogos al arrancar.
+
+**La primera vez**, con todo corriendo, crea tu usuario administrador en otra terminal:
+
+```powershell
+docker compose exec api python -m scripts.crear_admin
+```
+
+Te pide nombre, correo y contraseña (10 caracteres o más). Después entra a http://localhost:3000 con ese correo.
+A las demás personas se les invita desde **Administración → Usuarios**; la plataforma da una liga para enviarles.
+En desarrollo funciona con `localhost`, `127.0.0.1` o la IP de tu equipo (útil para probar desde el celular en la misma red).
 
 ## Desarrollar sin Docker (más rápido para editar)
 
@@ -34,8 +44,10 @@ pip install -r requirements-dev.txt
 copy ..\.env .env
 python -m scripts.preparar_bd
 alembic upgrade head
+python -m scripts.semilla
+python -m scripts.crear_admin
 uvicorn main:app --reload
-pytest
+pytest            # crea y usa la base smn_td_pruebas
 ```
 
 Web (desde `web/`):
@@ -50,7 +62,6 @@ npm run dev
 ```
 api/      FastAPI: core (configuración y BD), nucleo, ia, modulos, migraciones (Alembic), tests
 web/      Next.js: app (pantallas), public/marca (logos optimizados)
-db/       semillas de datos ficticios
 docs/     estado, decisiones, modelos .dbml, referencias
 marca/    logos oficiales originales, sin modificar
 ```

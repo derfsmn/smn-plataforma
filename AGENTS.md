@@ -85,16 +85,22 @@ smn-transformacion-digital/
 
 - Convención: `snake_case`, nombres de negocio en español.
 - **El DBML es la fuente de verdad del modelo**: primero se cambia el `.dbml`, después la migración.
-- Núcleo: `docs/modelos/nucleo_plataforma_v0.dbml` (17 tablas: usuario, organizacion_externa, invitacion, restablecimiento_contrasena, modulo, permiso, rol, rol_permiso, usuario_rol, archivo, notificacion, bitacora, ia_tarea, ia_presupuesto, ia_llamada, indicador, indicador_valor).
+- Núcleo: `docs/modelos/nucleo_plataforma_v0.dbml` (18 tablas: usuario, organizacion_externa, invitacion, restablecimiento_contrasena, sesion, modulo, permiso, rol, rol_permiso, usuario_rol, archivo, notificacion, bitacora, ia_tarea, ia_presupuesto, ia_llamada, indicador, indicador_valor). Ya existen en la base (migración `0002`): las 11 de identidad, acceso, módulos y bitácora. Modelos SQLAlchemy en `api/nucleo/modelos.py`.
+- Catálogos (módulos, permisos, roles) en `api/scripts/semilla.py`; se aplican al arrancar y no pisan lo que se cambió desde la plataforma. Primer administrador: `docker compose exec api python -m scripts.crear_admin`.
 - Compras: `docs/modelos/modelo_semaforo_v3.dbml` (30 tablas) → esquema `compras`. `compras.proveedor` se liga a `nucleo.organizacion_externa` por RFC.
 - `bitacora` es solo inserción.
 
 ## 6. Seguridad de acceso
 
-- Contraseñas: mínimo 10 caracteres, hash (argon2 o bcrypt), nunca en texto.
-- Recuperación: liga de un solo uso por correo, con expiración.
-- Bloqueo temporal tras 5 intentos fallidos; cierre de sesión por inactividad.
-- Internos: los da de alta un administrador. Externos: por invitación de un interno.
+- Contraseñas: mínimo 10 caracteres, hash Argon2 (`api/core/seguridad.py`), nunca en texto.
+- Sesión: cookie `smn_td_sesion` httpOnly, SameSite=Lax (Secure fuera de desarrollo), 12 h; en la base solo el SHA-256 del token (`nucleo.sesion`). La web nunca guarda la sesión en localStorage; pide `/api/auth/yo`.
+- Tokens de ligas (invitación, restablecimiento) también se guardan solo como SHA-256.
+- Recuperación: liga de un solo uso (30 min). Mientras no hay correo de salida (etapa 4), en desarrollo la liga sale en la consola de la API y el administrador puede generar una liga de 24 h desde Usuarios.
+- Bloqueo de 15 min tras 5 intentos fallidos. Mismo mensaje de error exista o no el correo.
+- Internos y externos entran **solo por invitación** de un administrador (liga de 7 días). El rol se elige explícitamente; no hay rol por omisión.
+- Permisos: cada ruta usa `requiere("<permiso>")`. El rol `admin` no puede perder `nucleo.usuarios.administrar` ni `nucleo.roles.administrar`; nadie puede desactivarse ni quitarse el rol de admin a sí mismo.
+- Desactivar a alguien, cambiar o restablecer su contraseña cierra sus sesiones.
+- Todo cambio de usuarios, roles y módulos, y cada inicio de sesión (bueno o fallido), queda en `nucleo.bitacora`.
 - Cuentas sin uso en 90 días se desactivan (propuesta).
 - Aviso de privacidad aceptado y registrado para externos.
 - Todo por HTTPS.
@@ -105,7 +111,8 @@ smn-transformacion-digital/
 - Colores medidos en el logo oficial: **naranja #DE951B**, **negro #222221**, blanco y grises. (#F5A01A era solo referencia; prevalece #DE951B.)
 - **El verde no es color de marca**; solo para el estado "verde" de un semáforo.
 - Tipografía: Nunito como sustituta hasta tener la oficial (el manual no la incluye).
-- **Visualmente atractiva y moderna, con animaciones** (requisito de Diego): portada con tarjetas por iniciativa, transiciones suaves, microinteracciones, números y gráficas animados, esqueletos de carga, avisos tipo toast, modo oscuro opcional.
+- **Visualmente atractiva y moderna, con animaciones** (requisito de Diego): portada con tarjetas por iniciativa, transiciones suaves, microinteracciones, números y gráficas animados, esqueletos de carga, avisos tipo toast.
+- **Tema claro, oscuro o automático** (elige el usuario; se guarda en su navegador). En código usar los tokens `bg-superficie` (tarjetas), `text-tinta` (texto principal), `smn-gris-*` y `aviso-*`, que cambian solos con el tema; no escribir `bg-white` ni colores fijos. Naranja y negro de marca no cambian. Variante `dark:` disponible (ver `web/app/globals.css` y `web/lib/tema.ts`).
 - Animaciones de 150–400 ms; nada se mueve solo salvo la carga; respetar `prefers-reduced-motion`; menos animación en celular.
 - Responsiva, diseñada primero para celular; en celular las tablas se vuelven tarjetas.
 

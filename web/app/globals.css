@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
-/* Colores de marca medidos en el logo oficial (ver AGENTS.md, sección 7) */
+/* Modo oscuro: lo activa data-tema="oscuro" en <html> (ver lib/tema.ts) */
+@custom-variant dark (&:where([data-tema="oscuro"], [data-tema="oscuro"] *));
+
+/* Colores de marca medidos en el logo oficial (ver AGENTS.md, sección 7).
+   Naranja y negro de marca no cambian entre temas; grises, superficie y tinta sí. */
 @theme {
   --color-smn-naranja: #de951b;
   --color-smn-negro: #222221;
@@ -9,12 +13,51 @@
   --color-smn-gris-300: #c9c9c6;
   --color-smn-gris-500: #8a8a86;
   --color-smn-gris-700: #4a4a47;
+  --color-superficie: #ffffff;
+  --color-tinta: #222221;
+  --color-aviso-fondo: #f8ecd6;
+  --color-aviso-texto: #7a500c;
   --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tema oscuro. Se repite en la consulta de medios para que no parpadee antes de que corra el script. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --color-smn-gris-50: #141413;
+    --color-smn-gris-100: #2a2a28;
+    --color-smn-gris-300: #4d4d4a;
+    --color-smn-gris-500: #9b9b96;
+    --color-smn-gris-700: #cfcfca;
+    --color-superficie: #1e1e1d;
+    --color-tinta: #f3f3f0;
+    --color-aviso-fondo: #3a2c12;
+    --color-aviso-texto: #f2c879;
+    color-scheme: dark;
+  }
+}
+:root[data-tema="oscuro"] {
+  --color-smn-gris-50: #141413;
+  --color-smn-gris-100: #2a2a28;
+  --color-smn-gris-300: #4d4d4a;
+  --color-smn-gris-500: #9b9b96;
+  --color-smn-gris-700: #cfcfca;
+  --color-superficie: #1e1e1d;
+  --color-tinta: #f3f3f0;
+  --color-aviso-fondo: #3a2c12;
+  --color-aviso-texto: #f2c879;
+  color-scheme: dark;
 }
 
 body {
   background: var(--color-smn-gris-50);
-  color: var(--color-smn-negro);
+  color: var(--color-tinta);
+}
+
+/* Cambio de tema con círculo que se expande desde el botón (View Transitions) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 @media (prefers-reduced-motion: reduce) {

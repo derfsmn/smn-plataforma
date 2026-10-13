@@ -1,4 +1,4 @@
-# Copia este archivo como .env y cambia los valores. .env nunca se sube a Git.
+# Copia este archivo como .env (en la raíz del proyecto) y cambia los valores. .env nunca se sube a Git.
 
 # SQL Server (contenedor local de desarrollo)
 # La contraseña debe tener al menos 8 caracteres, mayúsculas, minúsculas, números y símbolo.
@@ -8,6 +8,8 @@ BD_NOMBRE=smn_td
 # API
 API_ENTORNO=desarrollo
 API_ORIGENES_PERMITIDOS=http://localhost:3000
+# Dirección de la web; con ella se arman las ligas de invitación y de contraseña
+WEB_URL=http://localhost:3000
 
 # Web
 NEXT_PUBLIC_API_URL=http://localhost:8000
