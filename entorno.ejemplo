@@ -1,0 +1,13 @@
+# Copia este archivo como .env y cambia los valores. .env nunca se sube a Git.
+
+# SQL Server (contenedor local de desarrollo)
+# La contraseña debe tener al menos 8 caracteres, mayúsculas, minúsculas, números y símbolo.
+MSSQL_SA_PASSWORD=Cambiar-Esta-Clave-2026
+BD_NOMBRE=smn_td
+
+# API
+API_ENTORNO=desarrollo
+API_ORIGENES_PERMITIDOS=http://localhost:3000
+
+# Web
+NEXT_PUBLIC_API_URL=http://localhost:8000

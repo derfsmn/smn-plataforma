@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Colores de marca medidos en el logo oficial (ver AGENTS.md, sección 7) */
+@theme {
+  --color-smn-naranja: #de951b;
+  --color-smn-negro: #222221;
+  --color-smn-gris-50: #f6f6f5;
+  --color-smn-gris-100: #ececea;
+  --color-smn-gris-300: #c9c9c6;
+  --color-smn-gris-500: #8a8a86;
+  --color-smn-gris-700: #4a4a47;
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-smn-gris-50);
+  color: var(--color-smn-negro);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

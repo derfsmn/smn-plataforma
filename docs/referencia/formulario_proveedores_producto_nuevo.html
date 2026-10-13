@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propuesta de producto nuevo · SMN</title>
+<!-- Maqueta funcional (prototipo). No envía datos a ningún servidor: al "Enviar" muestra el JSON que recibiría el backend. -->
+<style>
+:root{
+  --naranja:#F5A01A; --naranja-osc:#C97E0A; --naranja-claro:#FEF3E0;
+  --negro:#1A1A1A; --gris-900:#2E2E2E; --gris-600:#6B6B6B; --gris-300:#D6D6D6; --gris-100:#F4F4F4;
+  --blanco:#FFFFFF; --error:#C62828; --ok:#2E7D32;
+  --fondo:var(--gris-100); --tarjeta:var(--blanco); --texto:var(--negro); --texto-2:var(--gris-600); --borde:var(--gris-300);
+  --radio:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--fondo);color:var(--texto);font-size:15px;line-height:1.45}
+header{background:var(--negro);color:var(--blanco);padding:14px 16px}
+.hwrap{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{height:40px;min-width:140px;border:1.5px dashed var(--naranja);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--naranja);padding:0 10px}
+header h1{font-size:18px;margin:0;font-weight:600}
+header p{margin:2px 0 0;color:#BDBDBD;font-size:13px}
+main{max-width:900px;margin:0 auto;padding:16px}
+.progreso{position:sticky;top:0;z-index:5;background:var(--fondo);padding:10px 0 12px}
+.barra{height:8px;background:var(--gris-300);border-radius:99px;overflow:hidden}
+.barra span{display:block;height:100%;width:0;background:var(--naranja);transition:width .25s}
+.pasos{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.pasos button{border:1px solid var(--borde);background:var(--blanco);border-radius:99px;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--gris-900)}
+.pasos button.activo{background:var(--negro);color:var(--blanco);border-color:var(--negro)}
+.pasos button.listo::before{content:"✓ ";color:var(--ok)}
+.pasos button.activo.listo::before{color:var(--naranja)}
+section.paso{display:none;background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:20px}
+section.paso.visible{display:block}
+section h2{margin:0 0 4px;font-size:19px}
+section h2 small{color:var(--naranja-osc);font-weight:600;font-size:13px;display:block;margin-bottom:2px}
+.intro{color:var(--texto-2);margin:0 0 16px;font-size:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px}
+.full{grid-column:1/-1}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+label.campo{display:block;font-weight:600;font-size:14px;margin-bottom:5px}
+.req{color:var(--naranja-osc)}
+.ayuda{display:block;font-weight:400;color:var(--texto-2);font-size:12.5px;margin-top:2px}
+input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{width:100%;padding:9px 11px;border:1px solid var(--borde);border-radius:8px;font:inherit;background:var(--blanco);color:var(--texto)}
+textarea{min-height:70px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--naranja);outline-offset:1px;border-color:var(--naranja)}
+.contador{font-size:12px;color:var(--texto-2);text-align:right}
+.opciones{display:flex;flex-wrap:wrap;gap:8px}
+.opciones label{display:flex;align-items:center;gap:6px;border:1px solid var(--borde);border-radius:8px;padding:7px 10px;font-size:14px;cursor:pointer;background:var(--blanco)}
+.opciones label:has(input:checked){border-color:var(--naranja);background:var(--naranja-claro)}
+.opciones input{accent-color:var(--naranja)}
+.error{color:var(--error);font-size:12.5px;margin-top:4px;display:none}
+.con-error .error{display:block}
+.con-error input,.con-error select,.con-error textarea,.con-error .zona{border-color:var(--error)}
+.repetible{border:1px solid var(--borde);border-radius:8px;padding:14px;margin-bottom:12px;background:var(--gris-100);position:relative}
+.repetible h3{margin:0 0 10px;font-size:14.5px}
+.quitar{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--error);cursor:pointer;font-size:13px}
+.btn{border:none;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+.btn-pri{background:var(--naranja);color:var(--negro)}
+.btn-pri:hover{background:var(--naranja-osc);color:var(--blanco)}
+.btn-sec{background:var(--blanco);border:1px solid var(--gris-900);color:var(--gris-900)}
+.btn-link{background:none;color:var(--naranja-osc);padding:6px 0}
+.nav{display:flex;justify-content:space-between;gap:10px;margin-top:18px;flex-wrap:wrap}
+.zona{border:2px dashed var(--borde);border-radius:10px;padding:20px;text-align:center;background:var(--gris-100);cursor:pointer;transition:.15s}
+.zona.arrastrando{border-color:var(--naranja);background:var(--naranja-claro)}
+.zona strong{display:block;margin-bottom:4px}
+.zona span{color:var(--texto-2);font-size:13px}
+.miniaturas{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px}
+.mini{border:1px solid var(--borde);border-radius:8px;overflow:hidden;background:var(--blanco);position:relative}
+.mini img{width:100%;height:110px;object-fit:contain;background:var(--gris-100);display:block}
+.mini select{border:none;border-top:1px solid var(--borde);border-radius:0;font-size:12px;padding:5px}
+.mini .x{position:absolute;top:4px;right:4px;background:var(--negro);color:var(--blanco);border:none;border-radius:99px;width:22px;height:22px;cursor:pointer;line-height:1}
+.mini .peso{font-size:11px;color:var(--texto-2);padding:2px 6px}
+.contadorimg{font-size:13px;margin-top:8px;color:var(--texto-2)}
+.aviso{background:var(--naranja-claro);border-left:4px solid var(--naranja);padding:10px 12px;border-radius:6px;font-size:13.5px;margin-bottom:14px}
+.oculto{display:none!important}
+.resumen pre{background:var(--negro);color:#EDEDED;padding:14px;border-radius:8px;overflow:auto;max-height:420px;font-size:12px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--negro);color:var(--blanco);padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;transition:.2s;pointer-events:none}
+.toast.on{opacity:1}
+fieldset{border:none;padding:0;margin:0}
+legend{font-weight:600;font-size:14px;margin-bottom:6px;padding:0}
+</style>
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <div class="logo" title="Colocar aquí el logo oficial de SMN sin deformar">Logo oficial SMN</div>
+    <div>
+      <h1>Propuesta de producto nuevo</h1>
+      <p>Formulario para proveedores · Una solicitud por producto</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="progreso">
+    <div class="barra"><span id="barra"></span></div>
+    <nav class="pasos" id="pasos" aria-label="Secciones"></nav>
+  </div>
+
+  <form id="form" novalidate>
+
+  <!-- 1. PROVEEDOR -->
+  <section class="paso" data-titulo="Proveedor">
+    <h2><small>Sección 1 de 9</small>Datos del proveedor</h2>
+    <p class="intro">Identifica a tu empresa y a la persona de contacto.</p>
+    <div class="grid">
+      <div class="full"><label class="campo">Razón social <span class="req">*</span></label><input type="text" name="razon_social" required><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Nombre comercial <span class="ayuda">Si es distinto a la razón social</span></label><input type="text" name="nombre_comercial"></div>
+      <div><label class="campo">RFC <span class="req">*</span></label><input type="text" name="rfc" required data-valida="rfc" maxlength="13" style="text-transform:uppercase"><div class="error">RFC no válido (12 o 13 caracteres).</div></div>
+      <div class="full"><fieldset><legend>¿Ya es proveedor de SMN? <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="es_proveedor_smn" data-requerido="1"><label><input type="radio" name="es_proveedor_smn" value="si"> Sí</label><label><input type="radio" name="es_proveedor_smn" value="no"> No</label></div><div class="error">Selecciona una opción.</div></fieldset></div>
+      <div><label class="campo">Nombre del contacto <span class="req">*</span></label><input type="text" name="contacto_nombre" required><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Cargo o área <span class="req">*</span></label><input type="text" name="contacto_cargo" required><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Correo <span class="req">*</span></label><input type="email" name="contacto_correo" required data-valida="correo"><div class="error">Correo no válido.</div></div>
+      <div><label class="campo">Teléfono con lada <span class="req">*</span></label><input type="tel" name="contacto_telefono" required data-valida="tel" placeholder="55 1234 5678"><div class="error">Teléfono de 10 dígitos.</div></div>
+      <div class="full"><label class="campo">Contacto alterno <span class="ayuda">Nombre, correo o teléfono (opcional)</span></label><input type="text" name="contacto_alterno"></div>
+    </div>
+  </section>
+
+  <!-- 2. PRODUCTO -->
+  <section class="paso" data-titulo="Producto">
+    <h2><small>Sección 2 de 9</small>Producto</h2>
+    <p class="intro">Describe el producto que propones.</p>
+    <div class="grid">
+      <div><label class="campo">Marca <span class="req">*</span></label><input type="text" name="marca" required><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Departamento SMN <span class="req">*</span><span class="ayuda">La lista se cargará desde el catálogo SMN</span></label>
+        <select name="departamento" required><option value="">Selecciona…</option><option>Departamento 1 (ejemplo)</option><option>Departamento 2 (ejemplo)</option><option>Departamento 3 (ejemplo)</option></select><div class="error">Selecciona un departamento.</div></div>
+      <div class="full"><label class="campo">Descripción del producto <span class="req">*</span></label><textarea name="descripcion" maxlength="180" required data-contador></textarea><div class="contador"></div><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Ingrediente principal <span class="req">*</span></label><input type="text" name="ingrediente_principal" required placeholder="Ej. magnesio, colágeno, cúrcuma"><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">Forma <span class="req">*</span></label><select name="forma" required><option value="">Selecciona…</option><option>Cápsula</option><option>Tableta</option><option>Polvo</option><option>Líquido</option><option>Gomita</option><option>Otro</option></select><div class="error">Selecciona una forma.</div></div>
+      <div><label class="campo">Tipo regulatorio <span class="req">*</span></label><select name="tipo_regulatorio" required><option value="">Selecciona…</option><option>Suplemento alimenticio</option><option>Alimento</option><option>Bebida</option><option>Cosmético</option><option>Remedio herbolario</option><option>Medicamento</option><option>Otro</option></select><div class="error">Selecciona el tipo.</div></div>
+      <div><label class="campo">Número de registro o aviso sanitario <span class="ayuda">Si aplica a su tipo de producto</span></label><input type="text" name="registro_sanitario"></div>
+      <div><label class="campo">Fabricante <span class="req">*</span></label><input type="text" name="fabricante" required><div class="error">Campo obligatorio.</div></div>
+      <div><label class="campo">País de origen <span class="req">*</span></label><select name="pais_origen" required><option value="">Selecciona…</option><option>México</option><option>Estados Unidos</option><option>Canadá</option><option>España</option><option>Otro</option></select><div class="error">Selecciona un país.</div></div>
+      <div class="full"><fieldset><legend>Público objetivo <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="publico_objetivo" data-requerido="1">
+          <label><input type="checkbox" name="publico_objetivo" value="general"> Público general</label><label><input type="checkbox" name="publico_objetivo" value="deportistas"> Deportistas</label><label><input type="checkbox" name="publico_objetivo" value="adultos_mayores"> Adultos mayores</label><label><input type="checkbox" name="publico_objetivo" value="ninos"> Niños</label><label><input type="checkbox" name="publico_objetivo" value="preferencias_alimentarias"> Preferencias alimentarias específicas</label><label><input type="checkbox" name="publico_objetivo" value="otro"> Otro</label>
+        </div><div class="error">Selecciona al menos una opción.</div></fieldset></div>
+      <div><label class="campo">Principal diferenciador <span class="req">*</span></label><select name="diferenciador" required><option value="">Selecciona…</option><option>Formulación o ingredientes</option><option>Precio</option><option>Calidad o certificaciones</option><option>Presentación</option><option>Innovación</option><option>Reconocimiento de marca</option><option>Otro</option></select><div class="error">Selecciona una opción.</div></div>
+      <div><label class="campo">Necesidad que atiende <span class="req">*</span></label><select name="necesidad_atendida" required><option value="">Selecciona…</option><option>Necesidad no atendida</option><option>Ampliar variedad</option><option>Alternativa de precio</option><option>Innovación</option><option>Nuevo segmento</option><option>Otra</option></select><div class="error">Selecciona una opción.</div></div>
+    </div>
+  </section>
+
+  <!-- 3. PRESENTACIONES -->
+  <section class="paso" data-titulo="Presentaciones">
+    <h2><small>Sección 3 de 9</small>Presentaciones y precio</h2>
+    <p class="intro">Agrega una fila por cada presentación que se venderá. Captura costo y precio para esa misma presentación.</p>
+    <div id="presentaciones"></div>
+    <button type="button" class="btn btn-link" id="agregarPresentacion">+ Agregar otra presentación</button>
+    <template id="tplPresentacion">
+      <div class="repetible" data-presentacion>
+        <h3>Presentación <span class="num"></span></h3>
+        <button type="button" class="quitar">Quitar</button>
+        <div class="grid">
+          <div><label class="campo">Código de barras (EAN/GTIN) <span class="req">*</span></label><input type="text" inputmode="numeric" name="codigo_barras" required data-valida="ean"><div class="error">Código no válido: revisa los dígitos.</div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="campo">Contenido <span class="req">*</span></label><input type="number" min="0" step="any" name="contenido_neto" required><div class="error">Obligatorio.</div></div><div><label class="campo">Unidad <span class="req">*</span></label><select name="unidad_medida" required><option value="">…</option><option>g</option><option>kg</option><option>ml</option><option>L</option><option>cápsulas</option><option>tabletas</option><option>piezas</option></select><div class="error">Obligatorio.</div></div></div>
+          <div><label class="campo">Piezas por caja master <span class="req">*</span></label><input type="number" min="1" name="piezas_caja_master" required><div class="error">Obligatorio.</div></div>
+          <div><label class="campo">Costo neto antes de IVA (MXN) <span class="req">*</span></label><input type="number" min="0" step="0.01" name="costo_neto_sin_iva" required><div class="error">Obligatorio.</div></div>
+          <div><label class="campo">Precio al público sugerido (MXN) <span class="req">*</span></label><input type="number" min="0" step="0.01" name="pvp_sugerido" required><div class="error">Obligatorio.</div></div>
+          <div><label class="campo">Margen propuesto (%) <span class="ayuda">Opcional; SMN lo recalcula</span></label><input type="number" min="0" max="100" step="0.1" name="margen_propuesto_pct"></div>
+          <div><label class="campo">IVA <span class="req">*</span></label><select name="tasa_iva" required><option value="">…</option><option>16 %</option><option>0 %</option><option>Exento</option></select><div class="error">Obligatorio.</div></div>
+          <div><label class="campo">IEPS <span class="req">*</span></label><select name="tasa_ieps" required><option value="">…</option><option>No aplica</option><option>8 %</option><option>Otra</option></select><div class="error">Obligatorio.</div></div>
+        </div>
+      </div>
+    </template>
+  </section>
+
+  <!-- 4. IMÁGENES -->
+  <section class="paso" data-titulo="Imágenes">
+    <h2><small>Sección 4 de 9</small>Imágenes del producto</h2>
+    <p class="intro">Sube fotos legibles del empaque. Con ellas SMN verifica etiquetado y contenido.</p>
+    <div class="aviso">Imágenes del producto: mínimo 2, máximo 10 (frente y reverso obligatorios). Imágenes del etiquetado: mínimo 2, máximo 6 (tabla nutrimental, sellos, octágonos, certificaciones). JPG, PNG o WEBP, hasta 5 MB cada una.</div>
+
+    <div class="campo-img" data-img="producto" data-min="2" data-max="10">
+      <label class="campo">Fotos del producto <span class="req">*</span></label>
+      <div class="zona" tabindex="0" role="button"><strong>Arrastra aquí tus imágenes o haz clic para elegir</strong><span>Etiqueta cada foto: frente, reverso, lateral u otra</span></div>
+      <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+      <div class="contadorimg"></div>
+      <div class="miniaturas"></div>
+      <div class="error"></div>
+    </div>
+    <br>
+    <div class="campo-img" data-img="etiquetado" data-min="2" data-max="6">
+      <label class="campo">Fotos del etiquetado <span class="req">*</span></label>
+      <div class="zona" tabindex="0" role="button"><strong>Arrastra aquí tus imágenes o haz clic para elegir</strong><span>Tabla nutrimental, sellos, octágonos, certificaciones</span></div>
+      <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+      <div class="contadorimg"></div>
+      <div class="miniaturas"></div>
+      <div class="error"></div>
+    </div>
+  </section>
+
+  <!-- 5. MERCADO -->
+  <section class="paso" data-titulo="Mercado">
+    <h2><small>Sección 5 de 9</small>Presencia en mercado y competencia</h2>
+    <p class="intro">Registra puntos de venta actuales, no negociaciones ni planes.</p>
+    <div class="grid">
+      <div class="full"><label class="campo">¿Dónde se comercializa hoy? <span class="req">*</span></label>
+        <select name="canal_actual" required id="canalActual"><option value="">Selecciona…</option><option value="no_se_comercializa">Aún no se comercializa</option><option value="fisico">Solo tiendas físicas</option><option value="digital">Solo canales digitales</option><option value="ambos">Ambos</option></select><div class="error">Selecciona una opción.</div></div>
+      <div class="full" id="bloqueComercios"><fieldset><legend>¿En qué comercios? <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="comercios_actuales" data-requerido="cond">
+          <label><input type="checkbox" name="comercios_actuales" value="walmart"> Walmart</label><label><input type="checkbox" name="comercios_actuales" value="soriana"> Soriana</label><label><input type="checkbox" name="comercios_actuales" value="chedraui"> Chedraui</label><label><input type="checkbox" name="comercios_actuales" value="san_pablo"> Farmacias San Pablo</label><label><input type="checkbox" name="comercios_actuales" value="amazon"> Amazon</label><label><input type="checkbox" name="comercios_actuales" value="mercado_libre"> Mercado Libre</label><label><input type="checkbox" name="comercios_actuales" value="iherb"> iHerb</label><label><input type="checkbox" name="comercios_actuales" value="tienda_propia"> Tienda propia</label><label><input type="checkbox" name="comercios_actuales" value="otro"> Otro</label>
+        </div><div class="error">Selecciona al menos un comercio.</div></fieldset></div>
+
+      <div class="full"><fieldset><legend>¿Con qué datos de desempeño cuenta?</legend>
+        <div class="opciones" id="opDesempeno">
+          <label><input type="checkbox" name="desempeno_tipo" value="unidades_mes"> Unidades vendidas al mes</label><label><input type="checkbox" name="desempeno_tipo" value="unidades_sucursal_mes"> Unidades por sucursal al mes</label><label><input type="checkbox" name="desempeno_tipo" value="posicion_categoria"> Posición en categoría</label><label><input type="checkbox" name="desempeno_tipo" value="sin_datos" data-excluyente> No cuento con datos</label>
+        </div></fieldset>
+        <div id="detDesempeno"></div>
+      </div>
+
+      <div class="full"><label class="campo">Productos que compiten directamente <span class="ayuda">Hasta 3, con precios consultados recientemente</span></label>
+        <div class="opciones" style="margin-bottom:8px"><label><input type="checkbox" id="sinComparables" name="sin_comparables"> No identifico comparables</label></div>
+        <div id="competidores"></div>
+        <button type="button" class="btn btn-link" id="agregarCompetidor">+ Agregar competidor</button>
+      </div>
+      <div class="full"><fieldset><legend>¿Identificó productos similares en el catálogo SMN? <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="similares_en_smn" data-requerido="1"><label><input type="radio" name="similares_en_smn" value="si"> Sí</label><label><input type="radio" name="similares_en_smn" value="no"> No</label></div><div class="error">Selecciona una opción.</div></fieldset>
+        <input type="text" name="similares_cuales" id="similaresCuales" class="oculto" placeholder="¿Cuáles? Hasta 3 marcas o productos" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- 6. COMERCIAL -->
+  <section class="paso" data-titulo="Comercial">
+    <h2><small>Sección 6 de 9</small>Condiciones comerciales</h2>
+    <p class="intro">Incluye solo beneficios que puedas confirmar.</p>
+    <div class="grid">
+      <div><label class="campo">Mínimo de compra (piezas) <span class="req">*</span></label><input type="number" min="1" name="minimo_compra_piezas" required><div class="error">Obligatorio.</div></div>
+      <div><label class="campo">Días de crédito <span class="req">*</span></label><input type="number" min="0" name="dias_credito" required><div class="error">Obligatorio.</div></div>
+      <div class="full"><fieldset><legend>Condiciones adicionales <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="condiciones" data-requerido="1" data-detalle="detCondiciones">
+          <label><input type="checkbox" name="condiciones" value="descuento_introduccion"> Descuento de introducción</label><label><input type="checkbox" name="condiciones" value="capacitacion"> Capacitación</label><label><input type="checkbox" name="condiciones" value="bonificacion"> Bonificación</label><label><input type="checkbox" name="condiciones" value="otra"> Otra</label><label><input type="checkbox" name="condiciones" value="ninguna" data-excluyente> Ninguna</label>
+        </div><div class="error">Selecciona al menos una opción.</div></fieldset><div id="detCondiciones"></div></div>
+      <div class="full"><fieldset><legend>¿Acepta devoluciones por caducidad o baja rotación? <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="acepta_devolucion" data-requerido="1"><label><input type="radio" name="acepta_devolucion" value="si"> Sí</label><label><input type="radio" name="acepta_devolucion" value="no"> No</label></div><div class="error">Selecciona una opción.</div></fieldset>
+        <input type="text" name="condicion_devolucion" id="condDevolucion" class="oculto" placeholder="¿En qué condiciones?" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- 7. LOGÍSTICA -->
+  <section class="paso" data-titulo="Logística">
+    <h2><small>Sección 7 de 9</small>Entrega y vida útil</h2>
+    <p class="intro">Declara la cobertura y capacidad que puedes cumplir hoy.</p>
+    <div class="grid">
+      <div><label class="campo">Cobertura <span class="req">*</span></label><select name="cobertura" required id="cobertura"><option value="">Selecciona…</option><option value="local">Local</option><option value="foraneo">Foráneo</option></select><div class="error">Obligatorio.</div></div>
+      <div><label class="campo">Tiempo de entrega <span class="req">*</span></label><select name="tiempo_entrega" required><option value="">Selecciona…</option><option>Hasta 4 días naturales</option><option>5 a 9 días naturales</option><option>10 a 14 días naturales</option><option>Más de 14 días naturales</option></select><div class="error">Obligatorio.</div></div>
+      <div class="full oculto" id="bloqueDestinos"><label class="campo">Destinos que atiende</label><input type="text" name="destinos" placeholder="Estados o ciudades"></div>
+      <div class="full"><fieldset><legend>Manejo especial <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="manejo_especial" data-requerido="1">
+          <label><input type="checkbox" name="manejo_especial" value="no_requiere" data-excluyente> No requiere</label><label><input type="checkbox" name="manejo_especial" value="temperatura"> Temperatura controlada</label><label><input type="checkbox" name="manejo_especial" value="luz_humedad"> Protección de luz o humedad</label><label><input type="checkbox" name="manejo_especial" value="fragil"> Frágil</label><label><input type="checkbox" name="manejo_especial" value="otro"> Otro</label>
+        </div><div class="error">Selecciona al menos una opción.</div></fieldset></div>
+      <div><label class="campo">Vida útil total desde fabricación <span class="req">*</span></label><input type="number" min="1" name="vida_util_total" required id="vidaTotal"><div class="error">Obligatorio.</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="campo">Vida útil mínima al entregar <span class="req">*</span></label><input type="number" min="1" name="vida_util_minima_entrega" required id="vidaMin"><div class="error">Debe ser mayor que 0 y no mayor a la vida útil total.</div></div><div><label class="campo">Unidad <span class="req">*</span></label><select name="unidad_vida_util" required><option>meses</option><option>días</option></select></div></div>
+    </div>
+  </section>
+
+  <!-- 8. LANZAMIENTO Y EVIDENCIAS -->
+  <section class="paso" data-titulo="Lanzamiento">
+    <h2><small>Sección 8 de 9</small>Lanzamiento y respaldo</h2>
+    <p class="intro">Selecciona solo apoyos que puedas confirmar, con su alcance y vigencia.</p>
+    <div class="grid">
+      <div class="full"><fieldset><legend>Apoyo comercial para el lanzamiento <span class="req">*</span></legend>
+        <div class="opciones" data-grupo="apoyos" data-requerido="1" data-detalle="detApoyos" data-fechas="1">
+          <label><input type="checkbox" name="apoyos" value="promociones"> Promociones</label><label><input type="checkbox" name="apoyos" value="muestras"> Muestras o degustaciones</label><label><input type="checkbox" name="apoyos" value="pop"> Material POP</label><label><input type="checkbox" name="apoyos" value="contenido_digital"> Contenido digital</label><label><input type="checkbox" name="apoyos" value="campanas"> Campañas</label><label><input type="checkbox" name="apoyos" value="capacitacion"> Capacitación</label><label><input type="checkbox" name="apoyos" value="inversion"> Inversión</label><label><input type="checkbox" name="apoyos" value="otro"> Otro</label><label><input type="checkbox" name="apoyos" value="ninguno" data-excluyente> Ninguno</label>
+        </div><div class="error">Selecciona al menos una opción.</div></fieldset><div id="detApoyos"></div></div>
+      <div><label class="campo">Argumento principal para SMN <span class="req">*</span></label><select name="argumento_principal" required><option value="">Selecciona…</option><option>Demanda comprobada</option><option>Diferenciación</option><option>Precio competitivo</option><option>Nueva necesidad o segmento</option><option>Innovación</option><option>Otro</option></select><div class="error">Obligatorio.</div></div>
+      <div class="full"><label class="campo">Sustento <span class="req">*</span><span class="ayuda">Un argumento concreto, con dato si es posible</span></label><textarea name="sustento" maxlength="220" required data-contador></textarea><div class="contador"></div><div class="error">Obligatorio.</div></div>
+      <div class="full"><label class="campo">Ficha técnica (PDF) <span class="req">*</span></label><input type="file" name="ficha_tecnica" accept="application/pdf" required data-maxmb="10"><div class="error">Adjunta la ficha técnica en PDF (máx. 10 MB).</div></div>
+      <div class="full"><label class="campo">Documentos adicionales <span class="ayuda">Evidencia de ventas, comparativo de precios, certificaciones, material comercial · PDF, XLSX o DOCX, máx. 10 MB c/u</span></label><input type="file" name="documentos_adicionales" multiple accept=".pdf,.xlsx,.docx,.csv" data-maxmb="10"><div class="error">Algún archivo excede 10 MB.</div></div>
+    </div>
+  </section>
+
+  <!-- 9. REVISIÓN -->
+  <section class="paso" data-titulo="Enviar">
+    <h2><small>Sección 9 de 9</small>Revisión y envío</h2>
+    <p class="intro">Revisa tus respuestas. Las secciones con ✓ están completas.</p>
+    <div id="faltantes" class="aviso oculto"></div>
+    <div class="opciones" style="flex-direction:column;align-items:flex-start">
+      <div data-grupo="acepta_aviso_privacidad" data-requerido="1" class="opciones"><label><input type="checkbox" name="acepta_aviso_privacidad" value="si"> He leído y acepto el aviso de privacidad <span class="req">*</span></label></div>
+      <div data-grupo="declara_veracidad" data-requerido="1" class="opciones"><label><input type="checkbox" name="declara_veracidad" value="si"> Declaro que la información es verídica y puede ser verificada por SMN <span class="req">*</span></label></div>
+    </div>
+    <div class="resumen oculto" id="resumen"><h3>Datos que recibiría el sistema</h3><p class="intro">Prototipo: no se envió nada. Este es el registro que llegaría a la base de datos para preclasificar el producto.</p><pre id="json"></pre></div>
+  </section>
+
+  <div class="nav">
+    <div><button type="button" class="btn btn-sec" id="atras">Atrás</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="btn btn-sec" id="borrador">Guardar borrador</button><button type="button" class="btn btn-pri" id="siguiente">Siguiente</button></div>
+  </div>
+  </form>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const form = $('#form');
+  const pasos = $$('section.paso');
+  let actual = 0;
+  const imagenes = { producto: [], etiquetado: [] };
+  const MAXMB = 5;
+
+  const toast = msg => { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); setTimeout(() => t.classList.remove('on'), 2200); };
+
+  // ---------- Navegación ----------
+  const nav = $('#pasos');
+  pasos.forEach((p, i) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = p.dataset.titulo; b.onclick = () => ir(i); nav.appendChild(b); });
+  function ir(i) {
+    actual = Math.max(0, Math.min(pasos.length - 1, i));
+    pasos.forEach((p, j) => p.classList.toggle('visible', j === actual));
+    $$('button', nav).forEach((b, j) => b.classList.toggle('activo', j === actual));
+    $('#atras').style.visibility = actual === 0 ? 'hidden' : 'visible';
+    $('#siguiente').textContent = actual === pasos.length - 1 ? 'Enviar propuesta' : 'Siguiente';
+    if (actual === pasos.length - 1) mostrarFaltantes();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('#atras').onclick = () => ir(actual - 1);
+  $('#siguiente').onclick = () => {
+    if (actual === pasos.length - 1) return enviar();
+    validarPaso(pasos.at(actual), true) ? ir(actual + 1) : toast('Revisa los campos marcados');
+  };
+
+  // ---------- Validaciones ----------
+  const eanValido = v => {
+    if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(v)) return false;
+    const d = v.split('').map(Number), chk = d.pop();
+    const sum = d.reverse().reduce((a, n, i) => a + n * (i % 2 === 0 ? 3 : 1), 0);
+    return (10 - (sum % 10)) % 10 === chk;
+  };
+  const reglas = {
+    rfc: v => /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(v.toUpperCase()),
+    correo: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+    tel: v => v.replace(/\D/g, '').length === 10,
+    ean: v => eanValido(v.trim())
+  };
+  function marcar(cont, mal) { if (cont) cont.classList.toggle('con-error', mal); return !mal; }
+  function validarPaso(p, mostrar) {
+    let ok = true;
+    $$('input,select,textarea', p).forEach(el => {
+      if (el.type === 'checkbox' || el.type === 'radio') return;
+      if (el.closest('.oculto') || el.classList.contains('oculto')) return;
+      const cont = el.closest('div');
+      let mal = false;
+      if (el.type === 'file') {
+        if (el.required && !el.files.length) mal = true;
+        const max = Number(el.dataset.maxmb || 0);
+        if (max && [...el.files].some(f => f.size > max * 1048576)) mal = true;
+      } else {
+        const v = el.value.trim();
+        if (el.required && !v) mal = true;
+        else if (v && el.dataset.valida && !reglas[el.dataset.valida](v)) mal = true;
+      }
+      if (el.id === 'vidaMin') { const t = Number($('#vidaTotal').value), m = Number(el.value); if (!(m > 0 && (!t || m <= t))) mal = true; }
+      if (mostrar) marcar(cont, mal);
+      if (mal) ok = false;
+    });
+    $$('[data-grupo]', p).forEach(g => {
+      if (g.closest('.oculto')) return;
+      let req = g.dataset.requerido === '1' || (g.dataset.requerido === 'cond' && !$('#bloqueComercios').classList.contains('oculto'));
+      if (!req) return;
+      const mal = !$$('input:checked', g).length;
+      if (mostrar) marcar(g.closest('fieldset') || g.parentElement, mal);
+      if (mal) ok = false;
+    });
+    $$('.campo-img', p).forEach(c => { if (!validarImagenes(c, mostrar)) ok = false; });
+    return ok;
+  }
+  form.addEventListener('input', e => { const c = e.target.closest('.con-error'); if (c) c.classList.remove('con-error'); actualizarProgreso(); });
+  form.addEventListener('change', actualizarProgreso);
+
+  // ---------- Contadores ----------
+  $$('[data-contador]').forEach(t => { const c = t.nextElementSibling; const f = () => c.textContent = `${t.value.length} / ${t.maxLength}`; t.addEventListener('input', f); f(); });
+
+  // ---------- Opciones excluyentes y detalles por opción ----------
+  form.addEventListener('change', e => {
+    const el = e.target;
+    if (el.type !== 'checkbox' || !el.name) return;
+    const grupo = $$(`input[type=checkbox][name="${el.name}"]`);
+    if (el.checked && el.dataset.excluyente !== undefined) grupo.forEach(o => { if (o !== el) o.checked = false; });
+    if (el.checked && el.dataset.excluyente === undefined) grupo.forEach(o => { if (o.dataset.excluyente !== undefined) o.checked = false; });
+    const g = el.closest('[data-detalle]');
+    if (g) pintarDetalles(g);
+    if (el.name === 'desempeno_tipo') pintarDesempeno();
+  });
+  function pintarDetalles(g) {
+    const destino = $('#' + g.dataset.detalle), fechas = g.dataset.fechas;
+    const previos = Object.fromEntries($$('[data-opcion]', destino).map(d => [d.dataset.opcion, $$('input', d).map(i => i.value)]));
+    destino.innerHTML = '';
+    $$('input:checked', g).filter(i => i.dataset.excluyente === undefined).forEach(i => {
+      const etiqueta = i.parentElement.textContent.trim();
+      const d = document.createElement('div'); d.className = 'repetible'; d.dataset.opcion = i.value;
+      d.innerHTML = `<h3>${etiqueta}</h3><div class="grid"><div class="${fechas ? '' : 'full'}"><label class="campo">${fechas ? 'Cantidad o monto' : 'Porcentaje, plazo o condición'}</label><input type="text" name="detalle"></div>${fechas ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="campo">Inicio</label><input type="date" name="inicio"></div><div><label class="campo">Fin</label><input type="date" name="fin"></div></div>' : ''}</div>`;
+      (previos[i.value] || []).forEach((v, k) => { const inp = $$('input', d).at(k); if (inp) inp.value = v; });
+      destino.appendChild(d);
+    });
+  }
+  function pintarDesempeno() {
+    const destino = $('#detDesempeno');
+    destino.innerHTML = '';
+    $$('#opDesempeno input:checked').filter(i => i.value !== 'sin_datos').forEach(i => {
+      const d = document.createElement('div'); d.className = 'repetible'; d.dataset.opcion = i.value;
+      d.innerHTML = `<h3>${i.parentElement.textContent.trim()}</h3><div class="grid"><div><label class="campo">Cifra</label><input type="number" name="cifra" min="0"></div><div><label class="campo">Canal</label><input type="text" name="canal"></div><div><label class="campo">Periodo</label><input type="text" name="periodo" placeholder="Ej. ene–jun 2026"></div><div><label class="campo">Fuente</label><input type="text" name="fuente"></div></div>`;
+      destino.appendChild(d);
+    });
+  }
+
+  // ---------- Condicionales ----------
+  $('#canalActual').addEventListener('change', e => $('#bloqueComercios').classList.toggle('oculto', e.target.value === 'no_se_comercializa'));
+  $('#cobertura').addEventListener('change', e => $('#bloqueDestinos').classList.toggle('oculto', e.target.value !== 'foraneo'));
+  form.addEventListener('change', e => {
+    if (e.target.name === 'similares_en_smn') $('#similaresCuales').classList.toggle('oculto', e.target.value !== 'si');
+    if (e.target.name === 'acepta_devolucion') $('#condDevolucion').classList.toggle('oculto', e.target.value !== 'si');
+  });
+
+  // ---------- Presentaciones repetibles ----------
+  function agregarPresentacion() {
+    const n = $('#tplPresentacion').content.cloneNode(true);
+    $('#presentaciones').appendChild(n); renumerar();
+  }
+  function renumerar() {
+    const items = $$('[data-presentacion]');
+    items.forEach((it, i) => { $('.num', it).textContent = i + 1; $('.quitar', it).style.display = items.length > 1 ? '' : 'none'; $('.quitar', it).onclick = () => { it.remove(); renumerar(); }; });
+  }
+  $('#agregarPresentacion').onclick = agregarPresentacion;
+  agregarPresentacion();
+
+  // ---------- Competidores (hasta 3) ----------
+  function agregarCompetidor() {
+    const lista = $('#competidores');
+    if ($$('.repetible', lista).length >= 3) return toast('Máximo 3 competidores');
+    const d = document.createElement('div'); d.className = 'repetible';
+    d.innerHTML = `<h3>Competidor</h3><button type="button" class="quitar">Quitar</button><div class="grid"><div><label class="campo">Marca y producto</label><input type="text" name="comp_producto"></div><div><label class="campo">Presentación</label><input type="text" name="comp_presentacion" placeholder="Ej. 60 cápsulas"></div><div><label class="campo">Precio al público (MXN)</label><input type="number" step="0.01" min="0" name="comp_precio"></div><div><label class="campo">Comercio o canal</label><input type="text" name="comp_comercio"></div></div>`;
+    $('.quitar', d).onclick = () => d.remove();
+    lista.appendChild(d);
+  }
+  $('#agregarCompetidor').onclick = agregarCompetidor;
+  $('#sinComparables').addEventListener('change', e => { $('#competidores').classList.toggle('oculto', e.target.checked); $('#agregarCompetidor').classList.toggle('oculto', e.target.checked); });
+
+  // ---------- Imágenes ----------
+  $$('.campo-img').forEach(c => {
+    const tipo = c.dataset.img, max = Number(c.dataset.max), zona = $('.zona', c), input = $('input[type=file]', c);
+    const opciones = tipo === 'producto' ? ['Frente', 'Reverso', 'Lateral', 'Otra'] : ['Tabla nutrimental', 'Sellos u octágonos', 'Certificación', 'Ingredientes', 'Otra'];
+    const agregar = files => {
+      const errores = [];
+      [...files].forEach(f => {
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) return errores.push(`${f.name}: formato no permitido`);
+        if (f.size > MAXMB * 1048576) return errores.push(`${f.name}: excede ${MAXMB} MB`);
+        if (imagenes[tipo].length >= max) return errores.push(`Máximo ${max} imágenes`);
+        const etiqueta = tipo === 'producto' ? (['Frente', 'Reverso'].find(o => !imagenes[tipo].some(x => x.etiqueta === o)) || 'Otra') : 'Otra';
+        imagenes[tipo].push({ archivo: f, url: URL.createObjectURL(f), etiqueta });
+      });
+      pintar(); if (errores.length) toast([...new Set(errores)].join(' · '));
+    };
+    const pintar = () => {
+      const cont = $('.miniaturas', c); cont.innerHTML = '';
+      imagenes[tipo].forEach((img, i) => {
+        const d = document.createElement('div'); d.className = 'mini';
+        d.innerHTML = `<img alt=""><button type="button" class="x" aria-label="Quitar">×</button><div class="peso"></div><select aria-label="Tipo de imagen">${opciones.map(o => `<option>${o}</option>`).join('')}</select>`;
+        $('img', d).src = img.url; $('img', d).alt = img.archivo.name;
+        $('.peso', d).textContent = `${img.archivo.name.slice(0, 18)} · ${(img.archivo.size / 1048576).toFixed(1)} MB`;
+        const sel = $('select', d); sel.value = img.etiqueta; sel.onchange = () => { img.etiqueta = sel.value; validarImagenes(c, false); };
+        $('.x', d).onclick = () => { URL.revokeObjectURL(img.url); imagenes[tipo].splice(i, 1); pintar(); };
+        cont.appendChild(d);
+      });
+      $('.contadorimg', c).textContent = `${imagenes[tipo].length} de ${max} imágenes`;
+      if (c.classList.contains('con-error')) validarImagenes(c, true);
+      actualizarProgreso();
+    };
+    zona.onclick = () => input.click();
+    zona.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } };
+    input.onchange = () => { agregar(input.files); input.value = ''; };
+    ['dragenter', 'dragover'].forEach(ev => zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.add('arrastrando'); }));
+    ['dragleave', 'drop'].forEach(ev => zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.remove('arrastrando'); }));
+    zona.addEventListener('drop', e => agregar(e.dataTransfer.files));
+    pintar();
+  });
+  function validarImagenes(c, mostrar) {
+    const tipo = c.dataset.img, min = Number(c.dataset.min), lista = imagenes[tipo];
+    let msg = '';
+    if (lista.length < min) msg = `Sube al menos ${min} imágenes.`;
+    else if (tipo === 'producto' && !(lista.some(x => x.etiqueta === 'Frente') && lista.some(x => x.etiqueta === 'Reverso'))) msg = 'Marca una imagen como Frente y otra como Reverso.';
+    if (mostrar) { $('.error', c).textContent = msg; c.classList.toggle('con-error', !!msg); }
+    return !msg;
+  }
+
+  // ---------- Progreso ----------
+  function actualizarProgreso() {
+    const estados = pasos.slice(0, -1).map(p => validarPaso(p, false));
+    $$('button', nav).forEach((b, i) => b.classList.toggle('listo', i < estados.length ? estados.at(i) : validarPaso(pasos.at(-1), false)));
+    $('#barra').style.width = `${Math.round(estados.filter(Boolean).length / estados.length * 100)}%`;
+  }
+
+  // ---------- Borrador (solo en este navegador; no incluye archivos) ----------
+  const CLAVE = 'smn_propuesta_borrador';
+  $('#borrador').onclick = () => {
+    try { localStorage.setItem(CLAVE, JSON.stringify(recolectar(false))); toast('Borrador guardado en este navegador (sin archivos)'); }
+    catch { toast('No se pudo guardar el borrador en este navegador'); }
+  };
+  function restaurar() {
+    let d; try { d = JSON.parse(localStorage.getItem(CLAVE) || 'null'); } catch { d = null; }
+    if (!d) return;
+    Object.entries(d.campos || {}).forEach(([k, v]) => {
+      const els = $$(`[name="${k}"]`).filter(el => !el.closest('[data-presentacion]'));
+      els.forEach(el => {
+        if (el.type === 'checkbox' || el.type === 'radio') el.checked = [].concat(v).includes(el.value);
+        else if (el.type !== 'file') el.value = v;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    (d.presentaciones || []).forEach((p, i) => {
+      if (i > 0) agregarPresentacion();
+      const it = $$('[data-presentacion]').at(i);
+      Object.entries(p).forEach(([k, v]) => { const el = $(`[name="${k}"]`, it); if (el) el.value = v; });
+    });
+    toast('Se recuperó tu borrador');
+  }
+
+  // ---------- Recolectar y enviar ----------
+  function recolectar(conArchivos = true) {
+    const campos = {};
+    $$('input,select,textarea', form).forEach(el => {
+      if (!el.name || el.closest('[data-presentacion]') || el.closest('.repetible') || el.type === 'file') return;
+      if (el.type === 'checkbox') { if (el.checked) (campos[el.name] ||= []).push(el.value); }
+      else if (el.type === 'radio') { if (el.checked) campos[el.name] = el.value; }
+      else if (el.value.trim() && !el.closest('.oculto') && !el.classList.contains('oculto')) campos[el.name] = el.value.trim();
+    });
+    const presentaciones = $$('[data-presentacion]').map(it => Object.fromEntries($$('input,select', it).map(el => [el.name, el.value.trim()])));
+    const detalle = sel => $$(`${sel} [data-opcion]`).map(d => ({ tipo: d.dataset.opcion, ...Object.fromEntries($$('input', d).map(i => [i.name, i.value])) }));
+    const out = {
+      campos, presentaciones,
+      datos_desempeno: detalle('#detDesempeno'),
+      condiciones_comerciales: detalle('#detCondiciones'),
+      apoyos_lanzamiento: detalle('#detApoyos'),
+      competidores: $('#sinComparables').checked ? [] : $$('#competidores .repetible').map(d => Object.fromEntries($$('input', d).map(i => [i.name, i.value])))
+    };
+    if (conArchivos) {
+      out.adjuntos = [
+        ...imagenes.producto.map(x => ({ tipo: 'imagen_producto', etiqueta: x.etiqueta, archivo: x.archivo.name, mb: +(x.archivo.size / 1048576).toFixed(2) })),
+        ...imagenes.etiquetado.map(x => ({ tipo: 'imagen_etiquetado', etiqueta: x.etiqueta, archivo: x.archivo.name, mb: +(x.archivo.size / 1048576).toFixed(2) })),
+        ...[...$('[name=ficha_tecnica]').files].map(f => ({ tipo: 'ficha_tecnica', archivo: f.name })),
+        ...[...$('[name=documentos_adicionales]').files].map(f => ({ tipo: 'documento_adicional', archivo: f.name }))
+      ];
+      out.estado = 'registrado';
+      out.fecha_registro = new Date().toISOString().slice(0, 10);
+    }
+    return out;
+  }
+  function mostrarFaltantes() {
+    const faltan = pasos.slice(0, -1).filter(p => !validarPaso(p, false)).map(p => p.dataset.titulo);
+    const a = $('#faltantes');
+    a.classList.toggle('oculto', !faltan.length);
+    a.textContent = faltan.length ? `Faltan datos en: ${faltan.join(', ')}.` : '';
+  }
+  function enviar() {
+    const malos = pasos.map((p, i) => validarPaso(p, true) ? -1 : i).filter(i => i >= 0);
+    if (malos.length) { toast('Hay secciones incompletas'); mostrarFaltantes(); if (malos[0] !== pasos.length - 1) ir(malos[0]); return; }
+    $('#json').textContent = JSON.stringify(recolectar(true), null, 2);
+    $('#resumen').classList.remove('oculto');
+    try { localStorage.removeItem(CLAVE); } catch {}
+    toast('Propuesta lista (prototipo, no se envió)');
+  }
+
+  restaurar();
+  ir(0);
+  actualizarProgreso();
+})();
+</script>
+</body>
+</html>

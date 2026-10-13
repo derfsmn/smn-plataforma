@@ -1,0 +1,202 @@
+// SMN - Transformación digital · Modelo del núcleo (cascarón) v0
+// Corte: 2026-10-13 · Estado: PROPUESTA, sin validar con Sistemas
+// Decisiones de Diego 2026-10-13: SQL Server; usuario y contraseña propios, sin Microsoft 365; nombre SMN - Transformación digital
+// Convención: snake_case. Esquema "nucleo"; cada módulo usa su propio esquema (compras, rrhh, ...).
+
+Project plataforma_smn {
+  database_type: 'SQL Server'
+  Note: 'Servicios comunes que todos los módulos reutilizan.'
+}
+
+// ===================== Identidad y acceso =====================
+
+Table organizacion_externa {
+  organizacion_id int [pk, increment]
+  tipo varchar [note: 'proveedor / otro']
+  nombre varchar
+  rfc varchar [unique, null]
+  estatus varchar [note: 'activa / inactiva']
+  creado_en datetime
+  actualizado_en datetime
+  Note: 'Empresa a la que pertenecen usuarios externos. En Compras se liga a compras.proveedor por RFC.'
+}
+
+Table usuario {
+  usuario_id int [pk, increment]
+  tipo varchar [note: 'interno / externo']
+  correo varchar [unique]
+  nombre varchar
+  puesto varchar [null]
+  area varchar [null, note: 'Compras, RRHH, Dirección, Sistemas...']
+  hash_contrasena varchar [null, note: 'Internos y externos. Nulo hasta que la persona crea su contraseña']
+  intentos_fallidos int [note: 'Se reinicia al entrar bien']
+  bloqueado_hasta datetime [null, note: 'Bloqueo temporal tras 5 intentos fallidos']
+  debe_cambiar_contrasena boolean
+  organizacion_id int [ref: > organizacion_externa.organizacion_id, null, note: 'Solo externos']
+  estatus varchar [note: 'invitado / activo / inactivo']
+  acepto_aviso_privacidad_en datetime [null]
+  ultimo_acceso_en datetime [null]
+  creado_en datetime
+  actualizado_en datetime
+}
+
+Table restablecimiento_contrasena {
+  restablecimiento_id int [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id]
+  token_hash varchar
+  expira_en datetime
+  usado_en datetime [null]
+  solicitado_desde_ip varchar
+  Note: 'Liga de un solo uso enviada por correo.'
+}
+
+Table invitacion {
+  invitacion_id int [pk, increment]
+  correo varchar
+  organizacion_id int [ref: > organizacion_externa.organizacion_id, null]
+  modulo_id int [ref: > modulo.modulo_id]
+  rol_id int [ref: > rol.rol_id]
+  invitado_por int [ref: > usuario.usuario_id]
+  token_hash varchar
+  expira_en datetime
+  usada_en datetime [null]
+  Note: 'Alta de externos por invitación de un interno.'
+}
+
+// ===================== Módulos y permisos =====================
+
+Table modulo {
+  modulo_id int [pk, increment]
+  codigo varchar [unique, note: 'compras, rrhh...']
+  codigo_iniciativa varchar [null, note: 'TD001...']
+  nombre varchar
+  area varchar
+  responsable_id int [ref: > usuario.usuario_id]
+  estado varchar [note: 'en_diseno / piloto / activo / retirado']
+  tiene_portal_externo boolean
+  orden_menu int
+  icono varchar
+  creado_en datetime
+  Note: 'Catálogo de iniciativas; arma el menú.'
+}
+
+Table permiso {
+  permiso_id int [pk, increment]
+  modulo_id int [ref: > modulo.modulo_id]
+  codigo varchar [unique, note: 'compras.solicitud.ver']
+  descripcion varchar
+}
+
+Table rol {
+  rol_id int [pk, increment]
+  modulo_id int [ref: > modulo.modulo_id, null, note: 'Nulo = rol de plataforma']
+  nombre varchar
+  para_tipo_usuario varchar [note: 'interno / externo']
+}
+
+Table rol_permiso {
+  rol_id int [ref: > rol.rol_id]
+  permiso_id int [ref: > permiso.permiso_id]
+  indexes { (rol_id, permiso_id) [pk] }
+}
+
+Table usuario_rol {
+  usuario_id int [ref: > usuario.usuario_id]
+  rol_id int [ref: > rol.rol_id]
+  asignado_por int [ref: > usuario.usuario_id]
+  asignado_en datetime
+  indexes { (usuario_id, rol_id) [pk] }
+}
+
+// ===================== Servicios comunes =====================
+
+Table archivo {
+  archivo_id bigint [pk, increment]
+  modulo_id int [ref: > modulo.modulo_id]
+  entidad varchar [note: 'Tabla del módulo a la que pertenece, p. ej. solicitud']
+  entidad_id varchar
+  nombre_original varchar
+  tipo_contenido varchar
+  tamano_bytes bigint
+  ruta_almacenamiento varchar
+  subido_por int [ref: > usuario.usuario_id]
+  subido_en datetime
+}
+
+Table notificacion {
+  notificacion_id bigint [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id]
+  modulo_id int [ref: > modulo.modulo_id]
+  canal varchar [note: 'app / correo']
+  titulo varchar
+  mensaje varchar
+  liga varchar [null]
+  enviada_en datetime
+  leida_en datetime [null]
+}
+
+Table bitacora {
+  bitacora_id bigint [pk, increment]
+  usuario_id int [ref: > usuario.usuario_id, null]
+  modulo_id int [ref: > modulo.modulo_id, null]
+  accion varchar [note: 'login, crear, actualizar, ajustar_semaforo...']
+  entidad varchar
+  entidad_id varchar
+  detalle text [note: 'JSON con antes y después']
+  ip varchar
+  ocurrido_en datetime
+  Note: 'Solo inserción; no se edita ni se borra.'
+}
+
+// ===================== IA =====================
+
+Table ia_tarea {
+  tarea_id int [pk, increment]
+  modulo_id int [ref: > modulo.modulo_id]
+  codigo varchar [unique, note: 'compras.leer_ficha']
+  proveedor_ia varchar [note: 'ollama / api / ollama_y_api_respaldo']
+  modelo varchar
+  activa boolean
+}
+
+Table ia_presupuesto {
+  presupuesto_id int [pk, increment]
+  alcance varchar [note: 'plataforma / modulo / usuario_dia']
+  modulo_id int [ref: > modulo.modulo_id, null]
+  tope_mxn decimal(12,2)
+  aviso_pct int [note: '80 por defecto']
+  al_superar varchar [note: 'rechazar / usar_ollama']
+  vigente_desde date
+}
+
+Table ia_llamada {
+  llamada_id bigint [pk, increment]
+  tarea_id int [ref: > ia_tarea.tarea_id]
+  usuario_id int [ref: > usuario.usuario_id, null]
+  proveedor_ia varchar
+  modelo varchar
+  tokens_entrada int
+  tokens_salida int
+  costo_mxn decimal(12,4)
+  duracion_ms int
+  resultado varchar [note: 'ok / error / rechazada_por_tope']
+  ocurrido_en datetime
+}
+
+// ===================== Medición de valor =====================
+
+Table indicador {
+  indicador_id int [pk, increment]
+  modulo_id int [ref: > modulo.modulo_id]
+  codigo varchar
+  nombre varchar
+  unidad varchar
+  meta decimal(14,2) [null]
+}
+
+Table indicador_valor {
+  indicador_id int [ref: > indicador.indicador_id]
+  periodo date [note: 'Primer día del mes']
+  valor decimal(14,2)
+  indexes { (indicador_id, periodo) [pk] }
+}

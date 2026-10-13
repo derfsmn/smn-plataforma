@@ -1,0 +1,461 @@
+// TD001 · Inteligencia de Compras · Modelo v3 del semáforo (integra el formulario y la validación de Diego del 2026-10-12) de producto nuevo
+// Corte: 2026-10-12 · Estado: PROPUESTA, sin validar con Compras ni con Sistemas
+// Convención: snake_case. Todo el modelo es parte del MVP.
+
+Project td001_semaforo {
+  database_type: 'MySQL'
+  Note: 'Fuentes internas + externas -> benchmark -> score -> semáforo con explicación -> decisión de Compras.'
+}
+
+// ===================== 1. MAESTROS (internos) =====================
+
+Table proveedor {
+  proveedor_id int [pk, increment]
+  codigo_proveedor varchar [unique, null, note: 'Catálogo consolidado. Nulo si es prospecto (aún no proveedor de SMN)']
+  nombre_proveedor varchar [note: 'Catálogo consolidado / razón social del formulario']
+  nombre_comercial varchar [note: 'Formulario']
+  nombre_corto varchar [note: 'PEDIR A SISTEMAS: nombre corto en Intelisis']
+  categoria varchar [note: 'PEDIR A SISTEMAS: categoría del proveedor en Intelisis']
+  rfc varchar [unique, note: 'Formulario. Llave para ligar prospecto con proveedor existente']
+  es_prospecto boolean [note: 'true si llegó por el formulario y no está en Intelisis']
+  // ---- PEDIR A SISTEMAS / COMPRAS ----
+  estatus varchar [note: 'activo / inactivo / restringido / prospecto']
+  fecha_alta date [note: 'Antigüedad como proveedor de SMN']
+  origen varchar [note: 'nacional / importado']
+  calle_numero varchar
+  colonia varchar
+  ciudad varchar
+  codigo_postal varchar
+  estado_republica varchar
+  dias_credito int [note: 'Condición vigente con SMN']
+  descuento_pct decimal(5,2)
+  monto_minimo_compra decimal(12,2)
+  lead_time_pactado_dias int
+  acepta_devolucion boolean
+  exclusividad boolean
+  Note: 'Datos maestros. Desempeño real (cumplimiento, lead time real) se calcula desde orden_compra.'
+}
+
+Table proveedor_contacto {
+  contacto_id int [pk, increment]
+  proveedor_id int [ref: > proveedor.proveedor_id]
+  nombre varchar
+  cargo varchar
+  correo varchar
+  telefono varchar
+  es_principal boolean
+  Note: 'Formulario: contacto principal y alterno.'
+}
+
+Table producto {
+  producto_id int [pk, increment]
+  sku varchar [unique, note: 'SKU']
+  nombre varchar [note: 'Nombre corto del producto']
+  descripcion varchar [note: 'Descripción: texto descriptivo del producto']
+  marca varchar [note: 'Marca']
+  departamento varchar [note: 'Departamento']
+  rama varchar [note: 'Rama']
+  subcategoria varchar [note: 'Subcategoría']
+  segmento varchar [note: 'Segmento']
+  clasificacion varchar [note: 'Clasificación (significado por confirmar)']
+  proveedor_id int [ref: > proveedor.proveedor_id, note: 'Se liga por Código del proveedor']
+  codigo_barras varchar [note: 'Código de barras; liga con radar de precios']
+  precio_lista_sin_impuestos decimal(12,2)
+  precio_membresia_sin_impuestos decimal(12,2)
+  iva_pct decimal(5,2)
+  ieps_pct decimal(5,2)
+  precio_lista_con_impuestos decimal(12,2) [note: 'Precio lista con impuestos registrados']
+  precio_membresia_con_impuestos decimal(12,2) [note: 'Precio membresía con impuestos registrados']
+  tasas_impuestos_incompletas boolean [note: 'Indicador de tasas de impuestos incompletas']
+  precio_shopify decimal(12,2) [note: 'Precio publicado en Shopify']
+  moneda_shopify varchar [note: 'Moneda del precio publicado']
+  disponible_en_linea boolean [note: 'Disponibilidad en tienda en línea']
+  url_producto varchar
+  url_imagen varchar
+  // ---- Faltan en el catálogo consolidado: PEDIR A SISTEMAS ----
+  contenido_neto decimal(12,2) [note: 'PEDIR A SISTEMAS: cantidad por envase, p. ej. 60 o 500']
+  unidad_medida varchar [note: 'PEDIR A SISTEMAS: cápsulas, tabletas, g, ml, etc.']
+  costo decimal(12,2) [note: 'PEDIR A SISTEMAS: costo de compra vigente, sin impuestos']
+  estatus varchar [note: 'PEDIR A SISTEMAS: activo / baja']
+  fecha_alta date [note: 'PEDIR A SISTEMAS']
+  fecha_baja date [note: 'PEDIR A SISTEMAS']
+  Note: 'Origen: catálogo consolidado de producto (22 campos) + 6 campos a pedir a Sistemas.'
+}
+
+Table tienda {
+  tienda_id int [pk, increment]
+  codigo_tienda varchar [unique, note: 'Clave en Intelisis']
+  nombre varchar
+  // ---- PEDIR A SISTEMAS / OPERACIONES ----
+  formato varchar [note: 'Tipo de local']
+  clase varchar [note: 'Clasificación de la tienda por nivel de venta']
+  calle_numero varchar
+  colonia varchar
+  estado_republica varchar
+  ciudad varchar
+  codigo_postal varchar [note: 'Permite cruzar con datos de nivel socioeconómico (INEGI)']
+  fecha_apertura date
+  fecha_cierre date [note: 'Vacío si sigue abierta']
+  estatus varchar [note: 'abierta / cerrada']
+  num_empleados int
+  metros_cuadrados decimal(10,2)
+  num_anaqueles int [note: 'O metros lineales de exhibición, el dato que exista']
+  Note: 'Ajustar a la entidad TIENDA acordada antes en modelo_smn.dbml cuando se recupere.'
+}
+
+// ===================== 2. HECHOS HISTÓRICOS (internos) =====================
+
+Table venta {
+  venta_id bigint [pk, increment]
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id]
+  semana date [note: 'Lunes de la semana']
+  unidades decimal(12,2) [note: 'Unidades vendidas']
+  unidades_devueltas decimal(12,2)
+  importe_bruto decimal(14,2) [note: 'Antes de descuentos, sin impuestos']
+  descuento decimal(14,2)
+  importe decimal(14,2) [note: 'Neto: bruto menos descuento, sin impuestos']
+  costo decimal(14,2)
+  tickets int [note: 'Número de tickets que incluyen el producto']
+  unidades_membresia decimal(12,2) [note: 'Parte de las unidades vendidas a socios']
+  importe_membresia decimal(14,2)
+  indexes { (producto_id, tienda_id, semana) [unique] }
+  Note: 'Origen: Intelisis. Granularidad propuesta: producto-tienda-semana. Solo tiendas físicas.'
+}
+
+Table orden_compra {
+  orden_compra_id bigint [pk, increment]
+  folio varchar
+  proveedor_id int [ref: > proveedor.proveedor_id]
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id, note: 'O CEDIS de destino']
+  fecha_pedido date
+  fecha_recepcion date
+  cantidad_pedida decimal(12,2)
+  cantidad_recibida decimal(12,2)
+  costo_unitario decimal(12,2)
+  Note: 'PEDIR A SISTEMAS. Con esto se calcula lead time real y % de cumplimiento del proveedor.'
+}
+
+Table costo_precio_historico {
+  costo_precio_id bigint [pk, increment]
+  producto_id int [ref: > producto.producto_id]
+  fecha_inicio date
+  fecha_fin date
+  costo decimal(12,2)
+  precio_lista_sin_impuestos decimal(12,2)
+  Note: 'PEDIR A SISTEMAS. Margen histórico de comparables.'
+}
+
+Table inventario {
+  inventario_id bigint [pk, increment]
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id]
+  semana date
+  existencia decimal(12,2)
+  dias_sin_existencia int [note: 'Quiebre en la semana']
+  indexes { (producto_id, tienda_id, semana) [unique] }
+  Note: 'PEDIR A SISTEMAS. Evita confundir falta de venta con falta de producto.'
+}
+
+Table promocion {
+  promocion_id bigint [pk, increment]
+  producto_id int [ref: > producto.producto_id]
+  fecha_inicio date
+  fecha_fin date
+  tipo varchar
+  descuento_pct decimal(5,2)
+  Note: 'PEDIR A SISTEMAS / Mercadotecnia.'
+}
+
+Table surtido_tienda {
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id]
+  fecha_alta date [note: 'Desde cuándo se maneja en la tienda']
+  fecha_baja date [note: 'Vacío si sigue activo']
+  indexes { (producto_id, tienda_id, fecha_alta) [pk] }
+  Note: 'PEDIR A SISTEMAS. En qué tiendas está dado de alta cada producto; permite medir venta por tienda que lo maneja.'
+}
+
+Table merma {
+  merma_id bigint [pk, increment]
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id]
+  semana date
+  unidades_merma decimal(12,2) [note: 'Daño, robo u otra causa']
+  unidades_caducadas decimal(12,2)
+  costo decimal(14,2) [note: 'Costo de lo mermado y caducado']
+  indexes { (producto_id, tienda_id, semana) [unique] }
+  Note: 'PEDIR A SISTEMAS. Afecta la rentabilidad real de comparables.'
+}
+
+Table devolucion_proveedor {
+  devolucion_id bigint [pk, increment]
+  folio varchar
+  proveedor_id int [ref: > proveedor.proveedor_id]
+  producto_id int [ref: > producto.producto_id]
+  tienda_id int [ref: > tienda.tienda_id, note: 'Tienda o CEDIS que devuelve']
+  fecha date
+  cantidad decimal(12,2)
+  importe decimal(14,2)
+  motivo varchar [note: 'Caducidad, daño, calidad u otro']
+  Note: 'PEDIR A SISTEMAS (por confirmar que exista). Calidad de lo que surte el proveedor.'
+}
+
+Table bonificacion_proveedor {
+  bonificacion_id bigint [pk, increment]
+  folio varchar
+  proveedor_id int [ref: > proveedor.proveedor_id]
+  producto_id int [ref: > producto.producto_id, null, note: 'Vacío si aplica a todo el proveedor']
+  fecha date
+  tipo varchar [note: 'Bonificación, nota de crédito u otro']
+  importe decimal(14,2)
+  concepto varchar
+  Note: 'PEDIR A SISTEMAS (por confirmar que exista). Apoyos reales contra lo prometido en el formulario.'
+}
+
+// ===================== 3. FUENTES EXTERNAS =====================
+
+Table senal {
+  senal_id bigint [pk, increment]
+  fecha date [note: 'AAAA-MM-DD']
+  tipo_fuente varchar [note: 'radar_noticias / google_trends / rrss / expo / proveedor / tienda']
+  titulo varchar
+  fuente_url varchar
+  nivel varchar [note: 'ALTA / MEDIA / TEMPRANA']
+  palabra_clave varchar [note: 'Ingrediente, producto o tendencia']
+  subcategoria varchar
+  valor decimal(12,2) [note: 'Métrica cuando aplica: índice de búsquedas, menciones']
+  Note: 'Una sola tabla para todas las señales externas e internas.'
+}
+
+Table precio_competencia {
+  precio_competencia_id bigint [pk, increment]
+  competidor varchar [note: 'Walmart / San Pablo / Chedraui / Soriana / otro']
+  producto_competidor varchar
+  codigo_barras varchar
+  precio decimal(12,2)
+  fecha date
+  producto_id int [ref: > producto.producto_id, note: 'Si ya lo vendemos']
+  candidato_id int [ref: > producto_candidato.candidato_id, note: 'Si es un producto nuevo']
+  Note: 'Origen: radar de precios multitienda.'
+}
+
+// ===================== 4. PROCESO DEL SEMÁFORO (nuevo) =====================
+
+Table producto_candidato {
+  candidato_id int [pk, increment]
+  folio varchar [unique, note: 'Folio que recibe el proveedor']
+  fecha_registro datetime
+  canal_registro varchar [note: 'formulario_proveedor / captura_compras / radar / tienda']
+  proveedor_id int [ref: > proveedor.proveedor_id]
+  contacto_id int [ref: > proveedor_contacto.contacto_id]
+  // ---- Producto (formulario sección 2) ----
+  marca varchar
+  descripcion varchar(180)
+  departamento varchar [note: 'Elegido por el proveedor de la lista del catálogo']
+  rama varchar [note: 'Sugerida por IA, confirmada por Compras']
+  subcategoria varchar [note: 'Sugerida por IA, confirmada por Compras']
+  segmento varchar [note: 'Sugerido por IA, confirmado por Compras']
+  clasificacion_confirmada boolean [note: 'Compras validó rama, subcategoría y segmento']
+  ingrediente_principal varchar
+  forma varchar [note: 'cápsula / tableta / polvo / líquido / gomita / otro']
+  tipo_regulatorio varchar [note: 'suplemento / alimento / bebida / cosmético / herbolario / medicamento / otro']
+  registro_sanitario varchar
+  fabricante varchar
+  pais_origen varchar
+  diferenciador varchar
+  necesidad_atendida varchar
+  // ---- Mercado (sección 5) ----
+  canal_actual varchar [note: 'no_se_comercializa / fisico / digital / ambos']
+  sin_comparables boolean
+  similares_en_smn boolean
+  similares_cuales varchar [note: 'Texto del proveedor; el sistema busca los reales por kNN']
+  // ---- Comercial y logística (secciones 6 y 7) ----
+  minimo_compra_piezas int
+  dias_credito int
+  acepta_devolucion boolean
+  condicion_devolucion varchar
+  cobertura varchar [note: 'local / foraneo']
+  destinos varchar
+  tiempo_entrega varchar [note: 'Rango de días naturales']
+  vida_util_total int
+  vida_util_minima_entrega int
+  unidad_vida_util varchar [note: 'meses / días']
+  // ---- Lanzamiento (sección 8) ----
+  argumento_principal varchar
+  sustento varchar(220)
+  // ---- Cierre (sección 9) ----
+  acepta_aviso_privacidad boolean
+  declara_veracidad boolean
+  // ---- Control interno ----
+  estado varchar [note: 'borrador / registrado / evaluado / a_comite / aprobado / rechazado']
+  responsable_compras varchar
+  producto_id int [ref: > producto.producto_id, note: 'SKU asignado si se aprueba']
+  Note: 'Una solicitud por producto. Las presentaciones van en candidato_presentacion.'
+}
+
+Table candidato_opcion {
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  campo varchar [note: 'publico_objetivo / comercios_actuales / manejo_especial / certificacion']
+  valor varchar
+  detalle varchar [note: 'Texto cuando la opción es otro']
+  indexes { (candidato_id, campo, valor) [pk] }
+  Note: 'Respuestas de selección múltiple del formulario, una fila por opción marcada.'
+}
+
+Table candidato_desempeno {
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  tipo varchar [note: 'unidades_mes / unidades_sucursal_mes / posicion_categoria']
+  cifra decimal(14,2)
+  canal varchar
+  periodo varchar
+  fuente varchar
+  indexes { (candidato_id, tipo) [pk] }
+  Note: 'Pregunta 8. Autodeclarado: entra con menos peso que ventas internas.'
+}
+
+Table candidato_senal {
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  senal_id bigint [ref: > senal.senal_id]
+  relevancia decimal(4,3) [note: 'Similitud calculada entre señal y candidato']
+  indexes { (candidato_id, senal_id) [pk] }
+  Note: 'Señales que respaldan al candidato.'
+}
+
+Table modelo_score {
+  version varchar [pk, note: 'v0, v1...']
+  fecha_vigencia date
+  pesos json [note: 'Peso por componente']
+  corte_verde int [note: 'Verde si score > 80']
+  corte_amarillo int [note: 'Amarillo de 60 a 80; rojo 59 o menos']
+  aprobado_por varchar
+  Note: 'Versiona reglas y pesos para que cada evaluación sea reproducible.'
+}
+
+Table evaluacion_semaforo {
+  evaluacion_id int [pk, increment]
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  modelo_version varchar [ref: > modelo_score.version]
+  fecha datetime
+  bloqueo varchar [note: 'Motivo si hubo rojo directo']
+  score int [note: '0-100']
+  confianza varchar [note: 'alta / media / baja']
+  color varchar [note: 'verde / amarillo / rojo']
+  explicacion text [note: 'Redactada por IA a partir de los componentes']
+  color_final varchar [note: 'Decisión de Compras']
+  justificacion_ajuste text
+  evaluado_por varchar
+  Note: 'Una fila por evaluación; conserva lo sugerido y lo decidido.'
+}
+
+Table evaluacion_componente {
+  evaluacion_id int [ref: > evaluacion_semaforo.evaluacion_id]
+  componente varchar [note: 'demanda / rentabilidad / precio / tendencia / categoria / proveedor']
+  valor_crudo decimal(14,4) [note: 'Ej. margen 38%, índice de precio 0.95']
+  percentil decimal(5,2) [note: 'Dentro de la subcategoría']
+  puntaje decimal(5,2) [note: '0-100']
+  peso decimal(5,2)
+  detalle text
+  indexes { (evaluacion_id, componente) [pk] }
+  Note: 'El benchmark por componente; es lo que hace explicable el score.'
+}
+
+Table candidato_comparable {
+  evaluacion_id int [ref: > evaluacion_semaforo.evaluacion_id]
+  producto_id int [ref: > producto.producto_id]
+  similitud decimal(4,3)
+  rango int [note: '1 = el más parecido']
+  venta_semanal_tienda decimal(12,2)
+  margen_pct decimal(5,2)
+  indexes { (evaluacion_id, producto_id) [pk] }
+  Note: 'Los productos internos contra los que se comparó (kNN).'
+}
+
+Table decision_comite {
+  decision_id int [pk, increment]
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  fecha date
+  decision varchar [note: 'aprobado / rechazado / condicionado']
+  motivo text
+  meta_exito text [note: 'Venta, tiendas, margen y periodo esperados']
+  Note: 'Las decisiones pasadas no están guardadas (proceso manual). Se registran desde el arranque y sirven para entrenar el modelo de aprendizaje.'
+}
+
+// ===================== 5. DETALLE DEL FORMULARIO DE PROVEEDORES =====================
+
+Table candidato_presentacion {
+  presentacion_id int [pk, increment]
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  codigo_barras varchar [note: 'EAN/GTIN con dígito verificador validado']
+  contenido_neto decimal(10,2)
+  unidad_medida varchar [note: 'g / kg / ml / L / cápsulas / tabletas / piezas']
+  porciones_por_envase decimal(10,2) [note: 'PROPUESTO, no está en el formulario aún']
+  cantidad_ingrediente_porcion decimal(10,3) [note: 'PROPUESTO. Ej. 400 (mg de magnesio por porción)']
+  unidad_ingrediente varchar [note: 'PROPUESTO. mg / g / UI / UFC']
+  piezas_caja_master int
+  costo_neto_sin_iva decimal(12,2)
+  pvp_sugerido decimal(12,2)
+  tasa_iva varchar
+  tasa_ieps varchar
+  margen_propuesto_pct decimal(5,2) [note: 'Referencia; SMN recalcula']
+  duplicado_producto_id int [ref: > producto.producto_id, note: 'Se llena si el código de barras ya existe en catálogo']
+  Note: 'Una fila por presentación. Costo, precio y precio por porción se comparan aquí.'
+}
+
+Table candidato_competidor {
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  orden int
+  marca varchar
+  producto varchar
+  presentacion varchar
+  precio_publico decimal(12,2)
+  comercio varchar
+  indexes { (candidato_id, orden) [pk] }
+  Note: 'Hasta 3 competidores declarados por el proveedor (autodeclarado).'
+}
+
+Table candidato_adjunto {
+  adjunto_id int [pk, increment]
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  tipo varchar [note: 'imagen_producto / imagen_etiquetado / ficha_tecnica / benchmark / documento_adicional']
+  etiqueta varchar [note: 'frente / reverso / lateral / tabla_nutrimental / sellos / certificacion / ingredientes / otra']
+  nombre_archivo varchar
+  url varchar
+  tamano_mb decimal(6,2)
+  fecha_carga datetime
+  extraido_ia json [note: 'Datos que la IA leyó de la imagen o PDF (contenido, registro, ingredientes)']
+  discrepancias text [note: 'Diferencias entre lo extraído y lo declarado']
+  Note: 'Imágenes y documentos del formulario.'
+}
+
+Table candidato_condicion {
+  candidato_id int [ref: > producto_candidato.candidato_id]
+  tipo varchar [note: 'descuento_introduccion / capacitacion / bonificacion / promociones / muestras / pop / contenido_digital / campana / inversion / otro']
+  clase varchar [note: 'condicion_comercial / apoyo_lanzamiento']
+  detalle varchar [note: 'Porcentaje, monto o condición']
+  fecha_inicio date
+  fecha_fin date
+  Note: 'Condiciones comerciales (pregunta 12) y apoyos de lanzamiento (pregunta 15).'
+}
+
+// ===================== 6. POLÍTICAS DE COMPRAS (para bloqueos y umbrales) =====================
+
+Table lista_restriccion {
+  restriccion_id int [pk, increment]
+  tipo varchar [note: 'proveedor / marca / ingrediente / tipo_regulatorio / departamento']
+  valor varchar
+  motivo varchar
+  vigente boolean
+  definido_por varchar
+  Note: 'Lo que manda a rojo directo. La define Compras; hoy no existe formalizada.'
+}
+
+Table parametro_departamento {
+  departamento varchar [pk]
+  margen_minimo_pct decimal(5,2) [note: 'Debajo de esto, alerta o rojo']
+  vida_util_minima_meses int [note: 'Vida útil mínima aceptable al recibir']
+  requiere_registro_sanitario boolean
+  max_dias_entrega int
+  Note: 'Umbrales por departamento que usa la evaluación automática. Los define Compras.'
+}

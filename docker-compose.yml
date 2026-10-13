@@ -1,0 +1,37 @@
+# Entorno local de desarrollo: SQL Server + API (FastAPI) + web (Next.js)
+# Uso: copia .env.ejemplo como .env y ejecuta: docker compose up --build
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_datos:/var/opt/mssql
+
+  api:
+    build: ./api
+    env_file: .env
+    environment:
+      BD_SERVIDOR: sqlserver
+    ports:
+      - "8000:8000"
+    depends_on:
+      - sqlserver
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  sqlserver_datos:
