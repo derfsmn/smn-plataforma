@@ -4,14 +4,21 @@ Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arri
 
 ## Estado actual (2026-10-13)
 
-- **Etapa:** 1 de 6 — Cimientos: **terminada** en código; falta que Diego la levante en su equipo y haga `git init`.
-- **Hecho:**
-  - `api/`: FastAPI con `/api/salud` (reporta API y conexión a SQL Server), configuración por `.env`, conexión SQL Server vía pyodbc (ODBC Driver 18), Alembic con migración `0001` que crea el esquema `nucleo` vacío, script `scripts/preparar_bd.py` que crea la base `smn_td`, prueba con pytest.
-  - `web/`: Next.js 15 + React 19 + Tailwind 4, colores SMN como tokens (`smn-naranja`, `smn-negro`, grises), Nunito, logo oficial optimizado en `public/marca/`, página provisional que muestra el estado de API y base.
-  - `docker-compose.yml`: SQL Server 2022 Developer + api + web.
-  - Verificado en el entorno de Claude (2026-10-13): SQL Server levantó, se creó `smn_td`, migración aplicada (esquema `nucleo`), `/api/salud` respondió api ok y base ok, la web mostró el estado en escritorio y celular, la imagen Docker de la web construyó y respondió 200.
-  - No verificado: construir la imagen Docker de la API (el entorno de Claude no pudo descargar paquetes de Debian por su red). Validar en el equipo de Diego con `docker compose up --build`.
-- **Siguiente paso:** etapa 2, prototipo visual del cascarón (login, inicio con tarjetas de iniciativas, menú, perfil, administración de usuarios y roles) con animaciones y datos ficticios marcados.
+- **Etapa:** 2 de 6 — Prototipo visual del cascarón: **construida y probada en el entorno de Claude** (2026-10-13); falta que Diego la vea en su equipo.
+- **Etapa 1** terminada y verificada en el equipo de Diego (2026-10-13).
+- **Hecho en etapa 2 (`web/`):**
+  - Dependencias nuevas: `motion` (animaciones) y `lucide-react` (íconos). Correr `npm install` en `web/` o reconstruir con `docker compose up --build`.
+  - `/login`: pestañas Colaborador SMN / Proveedor, validación (correo, contraseña ≥10), mostrar/ocultar contraseña, recuperación con liga (simulada).
+  - Cascarón interno `app/(interno)/`: menú lateral oscuro con indicador animado (escritorio), barra inferior (celular), menú de perfil, transición entre páginas.
+  - `/inicio`: saludo, indicadores con contador animado, tarjetas de iniciativas con hover, tarjeta "Registrar iniciativa" para admin.
+  - `/modulos/[codigo]`: portada del módulo "en construcción".
+  - `/perfil`: datos y cambio de contraseña con medidor de fortaleza.
+  - `/admin/usuarios` (buscar, filtrar internos/proveedores, invitar en ventana, activar/desactivar, esqueleto de carga), `/admin/roles` (permisos por rol con interruptores), `/admin/modulos` (cambiar estado), `/admin/sistema` (estado real de API y base).
+  - Portal externo `app/(externo)/proveedores`.
+  - Componentes reutilizables en `web/componentes/` (Boton, Campo, Insignia, Esqueleto, Entrada, Encabezado, Contador, avisos tipo toast, franja de datos de ejemplo).
+  - **Todo es simulado:** datos en `web/lib/datos-ficticios.ts`, sesión en `localStorage` (`web/lib/sesion.ts`). Cualquier correo y contraseña de 10+ caracteres entra. Franja visible "Prototipo con datos de ejemplo" en todas las pantallas.
+  - Probado con Playwright a 1440 px y 390 px: sin errores de consola y sin desplazamiento horizontal.
+- **Siguiente paso:** Diego revisa el prototipo y pide ajustes; después etapa 3 (acceso real contra SQL Server: tablas del núcleo, hash de contraseñas, invitaciones, permisos).
 
 ### Plan del cascarón
 1. Cimientos: repositorio, AGENTS.md/CLAUDE.md, Docker, SQL Server vacío con esquema `nucleo`.
@@ -32,5 +39,6 @@ Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arri
 
 | Fecha | Agente | Qué se hizo | Siguiente paso |
 |---|---|---|---|
+| 2026-10-13 | Claude (proyecto) | Etapa 2: prototipo visual del cascarón con animaciones y datos de ejemplo; probado escritorio y celular | Revisión de Diego; etapa 3 acceso real |
 | 2026-10-13 | Claude (proyecto) | Etapa 1: estructura, API base, web base, docker-compose, migración del esquema nucleo; probado | Etapa 2: prototipo visual |
 | 2026-10-13 | Claude (proyecto) | Arquitectura, modelo del núcleo, archivos de contexto | Crear repositorio y docker-compose |
