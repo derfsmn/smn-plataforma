@@ -1,0 +1,17 @@
+{
+	# Los navegadores no mandan nombre (SNI) cuando se entra por IP
+	default_sni 172.31.104.4
+}
+
+https://172.31.104.4 {
+	tls internal
+
+	# Todas las rutas de la API ya empiezan con /api
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

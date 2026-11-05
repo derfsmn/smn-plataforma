@@ -7,6 +7,14 @@ import uuid
 
 os.environ["BD_NOMBRE"] = "smn_td_pruebas"
 os.environ.setdefault("API_ENTORNO", "desarrollo")
+os.environ["SMTP_SERVIDOR"] = ""  # las pruebas atrapan los correos sin enviarlos
+os.environ["ARCHIVOS_RUTA"] = os.path.join(os.path.dirname(__file__), "..", ".pruebas-archivos")
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["IA_TIPO_CAMBIO_MXN"] = ""
+os.environ["OLLAMA_MODELO"] = ""
+os.environ["PROGRAMADOR_ACTIVO"] = "false"
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["RADAR_PRODUCTOS_BUSCAR_MERCADO"] = "false"  # las pruebas que lo usan ponen tiendas ficticias
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

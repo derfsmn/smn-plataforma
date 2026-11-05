@@ -10,6 +10,38 @@ API_ENTORNO=desarrollo
 API_ORIGENES_PERMITIDOS=http://localhost:3000
 # Dirección de la web; con ella se arman las ligas de invitación y de contraseña
 WEB_URL=http://localhost:3000
+# Cifra los secretos que se guardan desde Administración > Configuración. Si la cambias, hay que volver a capturarlos.
+# Vacía = se deriva de MSSQL_SA_PASSWORD (suficiente en local; en el servidor pon una propia y larga).
+CLAVE_CIFRADO=
+
+# Correo, archivos e IA: estos valores también se pueden cambiar en Administración > Configuración
+# (lo de la pantalla manda sobre este archivo).
+# Correo saliente. En local se usa el buzón de prueba Mailpit (servicio "correo" de docker-compose):
+# los correos se ven en http://localhost:8025 y no salen a internet.
+# Deja SMTP_SERVIDOR vacío para no enviar correos (las ligas se copian a mano).
+SMTP_SERVIDOR=correo
+SMTP_PUERTO=1025
+SMTP_USUARIO=
+SMTP_CONTRASENA=
+SMTP_TLS=false
+SMTP_REMITENTE=SMN Transformación digital <no-responder@smn.local>
+
+# Archivos
+ARCHIVOS_MB_MAXIMO=10
+
+# Puerta de IA
+# Ollama corriendo en tu equipo (fuera de Docker). OLLAMA_MODELO vacío = Ollama apagado.
+OLLAMA_URL=http://host.docker.internal:11434
+OLLAMA_MODELO=
+# API externa (Anthropic). Queda apagada mientras falte la llave, el tipo de cambio o el tope mensual
+# de la plataforma (este se captura en Administración > IA).
+ANTHROPIC_API_KEY=
+IA_MODELO_EXTERNO=claude-opus-5-5
+# Precio en USD por millón de tokens; confírmalo en la página de precios de Anthropic
+IA_PRECIO_ENTRADA_USD_MTOK=4
+IA_PRECIO_SALIDA_USD_MTOK=20
+# Pesos por dólar (lo captura quien administra; la plataforma no lo inventa)
+IA_TIPO_CAMBIO_MXN=
 
 # Web
 NEXT_PUBLIC_API_URL=http://localhost:8000

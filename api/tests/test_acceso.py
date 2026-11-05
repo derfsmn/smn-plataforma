@@ -11,7 +11,7 @@ def test_inicio_de_sesion_y_yo(cliente: TestClient):
     assert "smn_td_sesion" in r.cookies
     yo = cliente.get("/api/auth/yo").json()
     assert "nucleo.usuarios.administrar" in yo["permisos"]
-    assert {m["codigo"] for m in yo["modulos"]} >= {"compras", "rrhh"}
+    assert {m["codigo"] for m in yo["modulos"]} >= {"compras", "kiosco"}
     cliente.post("/api/auth/salir")
     assert cliente.get("/api/auth/yo").status_code == 401
 
@@ -95,9 +95,10 @@ def test_desactivar_cierra_sesion_y_protecciones_del_admin(admin: TestClient):
 
 def test_permisos_de_roles_y_modulos_visibles(admin: TestClient):
     _, c, _ = alta_usuario(admin, rol="compras_consulta")
-    assert c.get("/api/auth/yo").json()["modulos"] == []  # compras está en diseño
+    # compras está en diseño; métodos y procedimientos (piloto) lo consulta cualquier rol interno
+    assert [m["codigo"] for m in c.get("/api/auth/yo").json()["modulos"]] == ["metodos"]
     assert admin.patch("/api/nucleo/modulos/compras", json={"estado": "piloto"}).status_code == 200
-    assert [m["codigo"] for m in c.get("/api/auth/yo").json()["modulos"]] == ["compras"]
+    assert [m["codigo"] for m in c.get("/api/auth/yo").json()["modulos"]] == ["compras", "metodos"]
     admin.patch("/api/nucleo/modulos/compras", json={"estado": "en_diseno"})
 
     r = admin.put("/api/nucleo/roles/admin/permisos", json={"permisos": ["nucleo.modulos.administrar"]})
@@ -108,3 +109,31 @@ def test_permisos_de_roles_y_modulos_visibles(admin: TestClient):
     admin.put("/api/nucleo/roles/compras_consulta/permisos", json={"permisos": ["compras.solicitud.ver"]})
     assert c.get("/api/nucleo/usuarios").status_code == 403
     assert c.put("/api/nucleo/roles/compras_consulta/permisos", json={"permisos": []}).status_code == 403
+
+
+def test_eliminar_usuario_libera_el_correo(admin: TestClient):
+    correo, c, uid = alta_usuario(admin, tipo="externo", rol="proveedor")
+    assert admin.delete(f"/api/nucleo/usuarios/{uid}").status_code == 204
+    assert c.get("/api/auth/yo").status_code == 401
+    assert all(u["id"] != uid for u in admin.get("/api/nucleo/usuarios").json())
+    r = admin.post("/api/nucleo/usuarios/invitar", json={"tipo": "externo", "nombre": "Otra vez", "correo": correo, "rol": "proveedor", "empresa": "Proveedor de Prueba S.A."})
+    assert r.status_code == 201, r.text
+    # Con trabajo registrado no se borra; tampoco la propia cuenta
+    _, c2, uid2 = alta_usuario(admin, tipo="externo", rol="proveedor")
+    assert c2.post("/api/compras/propuestas").status_code in (200, 201)
+    assert admin.delete(f"/api/nucleo/usuarios/{uid2}").status_code == 409
+    yo = admin.get("/api/auth/yo").json()["usuario"]["id"]
+    assert admin.delete(f"/api/nucleo/usuarios/{yo}").status_code == 400
+
+
+def test_inicio_cuenta_pendientes_segun_permisos(admin: TestClient, cliente: TestClient):
+    d = admin.get("/api/nucleo/inicio").json()
+    assert set(d) == {"pendientes", "pulso"} and len(d["pulso"]) <= 4
+    for p in d["pendientes"]:
+        assert p["cantidad"] > 0 and p["href"].startswith("/")
+    # Quien solo consulta Compras no ve pendientes de Contraloría, Métodos ni Administración
+    correo, _, _ = alta_usuario(admin)
+    cliente.post("/api/auth/iniciar", json={"correo": correo, "contrasena": "Clave-Segura-123"})
+    d = cliente.get("/api/nucleo/inicio").json()
+    assert all(p["modulo"] == "compras" for p in d["pendientes"])
+    assert all(p["clave"] not in ("diot", "manuales", "usuarios") for p in d["pulso"])

@@ -23,7 +23,7 @@ export function MedidorContrasena({ contrasena }: { contrasena: string }) {
           </div>
         ))}
       </div>
-      <p className="mt-1 text-xs text-smn-gris-500">
+      <p className="mt-1 text-[13px] text-smn-gris-500">
         {contrasena ? (contrasena.length < 10 ? `Faltan ${10 - contrasena.length} caracteres` : nivel[puntos]) : "Usa 10 caracteres o más; mezcla letras, números y símbolos."}
       </p>
     </div>

@@ -1,0 +1,148 @@
+// Proceso de la DIOT · esquema contraloria · v0 (2026-10-28, migración 0025). Implementado.
+// Módulo independiente (TD003). Aquí sí se guardan RFC de proveedores; no se copian a Compras ni a SMNBI.
+// Cada «Procesar» borra y vuelve a escribir operaciones, terceros e incidencias del periodo.
+// Reglas y preguntas para Fiscal: docs/iniciativas/TD003_contraloria_fiscal.md
+
+Table contraloria.diot_empresa {
+  empresa_id int [pk, increment]
+  codigo nvarchar(20) [unique, not null, note: 'ODP, …']
+  nombre nvarchar(200) [not null]
+  rfc nvarchar(13) [not null, note: 'para no declarar pagos a la propia empresa']
+  activa bit [not null, default: 1]
+}
+
+Table contraloria.diot_periodo {
+  periodo_id int [pk, increment]
+  empresa_id int [not null, ref: > contraloria.diot_empresa.empresa_id]
+  anio int [not null]
+  mes int [not null, note: '1 a 12']
+  estado nvarchar(20) [not null, note: 'abierto / procesado / cerrado (ya se presentó)']
+  resumen nvarchar(max) [note: 'JSON: faltantes, cuadres, conteos']
+  txt nvarchar(max) [note: 'TXT generado en el último proceso; vacío si hay terceros por revisar']
+  referencia_nombre nvarchar(200)
+  referencia_txt nvarchar(max) [note: 'TXT que Fiscal presentó; solo para comparar, nunca se copia']
+  comparacion nvarchar(max) [note: 'JSON campo por campo']
+  procesado_por int [ref: > nucleo.usuario.usuario_id]
+  procesado_en datetime2
+  creado_por int [not null, ref: > nucleo.usuario.usuario_id]
+  creado_en datetime2 [not null]
+  indexes { (empresa_id, anio, mes) [unique] }
+}
+
+Table contraloria.diot_documento {
+  documento_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  tipo nvarchar(30) [not null, note: 'tesoreria, aplicaciones, auxiliar_iva, comprobantes, proveedores, iva_retenido, tipos_operacion']
+  nombre_archivo nvarchar(260) [not null]
+  contenido varbinary(max) [not null, note: 'el archivo tal como se subió']
+  tamano int [not null]
+  sha256 nvarchar(64) [not null]
+  filas int [not null]
+  hoja nvarchar(100)
+  vigente bit [not null, note: 'al subir otro del mismo tipo, el anterior queda en la historia']
+  cargado_por int [not null, ref: > nucleo.usuario.usuario_id]
+  cargado_en datetime2 [not null]
+}
+
+Table contraloria.diot_operacion {
+  operacion_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  fuente nvarchar(30) [not null, note: 'tipo de documento']
+  renglon int [not null, note: 'renglón del documento (1 = primero después del encabezado)']
+  referencia nvarchar(300) [not null]
+  rfc nvarchar(20)
+  nombre nvarchar(300)
+  regla nvarchar(30) [not null, note: 'clave de diot_motor.REGLAS']
+  incluida bit [not null]
+  tasa nvarchar(20)
+  tipo_cambio decimal(20,6) [not null]
+  base16 decimal(20,6)
+  iva16 decimal(20,6)
+  base8 decimal(20,6)
+  iva8 decimal(20,6)
+  base0 decimal(20,6)
+  exento decimal(20,6)
+  no_objeto decimal(20,6)
+  iva_retenido decimal(20,6)
+  nota nvarchar(500)
+}
+
+Table contraloria.diot_tercero {
+  tercero_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  rfc nvarchar(20) [not null]
+  nombre nvarchar(300)
+  tipo_tercero nvarchar(2) [not null, note: '04 nacional, 05 extranjero, 15 global']
+  tipo_operacion nvarchar(2) [not null, note: '02, 03, 06, 07, 08, 85']
+  exactos nvarchar(max) [not null, note: 'JSON con decimales por campo']
+  redondeados nvarchar(max) [not null, note: 'JSON al peso: lo que va al TXT']
+  operaciones int [not null]
+  fuentes nvarchar(200) [not null]
+  estado nvarchar(20) [not null, note: 'ok / revisar']
+  ajustado bit [not null]
+}
+
+Table contraloria.diot_incidencia {
+  incidencia_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  huella nvarchar(64) [not null, note: 'conserva la revisión entre procesos']
+  impacto nvarchar(20) [not null, note: 'sin_impacto / controlado / posible_impacto']
+  codigo nvarchar(30) [not null]
+  mensaje nvarchar(1000) [not null]
+  fuente nvarchar(30)
+  renglon int
+  rfc nvarchar(20)
+  importe decimal(20,6)
+  estado nvarchar(20) [not null, note: 'pendiente / revisada; posible_impacto pendiente bloquea el TXT']
+  nota_revision nvarchar(1000) [note: 'obligatoria para revisar una de posible impacto']
+  revisada_por int [ref: > nucleo.usuario.usuario_id]
+  revisada_en datetime2
+}
+
+Table contraloria.diot_ajuste {
+  ajuste_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  rfc nvarchar(20) [not null]
+  nombre nvarchar(300) [note: 'si crea un tercero nuevo']
+  campo nvarchar(20) [note: 'base16, iva16, base8, iva8, base0, exento, no_objeto, iva_retenido']
+  importe decimal(20,6) [note: 'se suma (negativo resta)']
+  excluir bit [not null, note: 'quita al tercero de la DIOT']
+  tipo_tercero nvarchar(2)
+  tipo_operacion nvarchar(2)
+  motivo nvarchar(1000) [not null]
+  activo bit [not null]
+  creado_por int [not null, ref: > nucleo.usuario.usuario_id]
+  creado_en datetime2 [not null]
+}
+
+Table contraloria.diot_corrida {
+  corrida_id int [pk, increment]
+  periodo_id int [not null, ref: > contraloria.diot_periodo.periodo_id]
+  estado nvarchar(20) [not null, note: 'en_curso / terminada / detenida / fallida']
+  resultado nvarchar(500)
+  iniciada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  iniciada_en datetime2 [not null]
+  terminada_en datetime2
+  Note: 'Cada «Procesar» con los 8 pasos del proceso de Fiscal. Se guardan todas.'
+}
+
+Table contraloria.diot_corrida_paso {
+  paso_id int [pk, increment]
+  corrida_id int [not null, ref: > contraloria.diot_corrida.corrida_id]
+  orden int [not null, note: '1 a 8']
+  nombre nvarchar(100) [not null]
+  estado nvarchar(20) [not null, note: 'pendiente / en_curso / ok / aviso / detenido / no_ejecutado']
+  resumen nvarchar(1000)
+  inicio_en datetime2
+  fin_en datetime2
+}
+
+Table contraloria.diot_corrida_log {
+  log_id int [pk, increment]
+  corrida_id int [not null, ref: > contraloria.diot_corrida.corrida_id]
+  orden_paso int [not null]
+  momento datetime2 [not null]
+  nivel nvarchar(10) [not null, note: 'info / ok / aviso / error']
+  mensaje nvarchar(1000) [not null]
+  detalle nvarchar(max) [note: 'JSON con los datos del renglón, si aplica']
+}

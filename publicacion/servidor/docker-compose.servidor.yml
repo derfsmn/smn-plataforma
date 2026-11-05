@@ -1,0 +1,79 @@
+# Plataforma SMN en el servidor SMNIASRV (producción, por VPN).
+# No se usa a mano: lo usan publicar.sh, regresar.sh y primera_vez.sh.
+# Variables: VERSION (la pone el script) y lo que está en /datos/plataforma/.env
+
+name: smn
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Express          # gratuita y permitida en producción (límite 10 GB por base)
+      TZ: America/Mexico_City
+    ports:
+      - "1433:1433"               # para SSMS desde la VPN
+    volumes:
+      - /datos/sqlserver:/var/opt/mssql
+      - /datos/respaldos:/respaldos
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    gpus: all
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    volumes:
+      - /datos/ollama:/root/.ollama
+    # sin puerto publicado: solo la API lo usa, por la red interna de Docker
+
+  api:
+    image: smn-api:${VERSION:?falta VERSION}
+    build: ../../api
+    restart: unless-stopped
+    env_file: /datos/plataforma/.env
+    environment:
+      BD_SERVIDOR: sqlserver
+      ARCHIVOS_RUTA: /datos/archivos
+      PLATAFORMA_VERSION: ${VERSION}
+      TZ: America/Mexico_City
+    volumes:
+      - /datos/archivos:/datos/archivos
+    depends_on:
+      - sqlserver
+      - ollama
+      - correo
+
+  # Buzón de prueba mientras no haya cuenta de correo real. Se ve por túnel SSH (ver LEEME).
+  correo:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  web:
+    image: smn-web:${VERSION}
+    build:
+      context: ../../web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  # Entrada única: https://172.31.104.4  (la web en /, la API en /api/...)
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /datos/caddy/data:/data
+      - /datos/caddy/config:/config
+    depends_on:
+      - web
+      - api

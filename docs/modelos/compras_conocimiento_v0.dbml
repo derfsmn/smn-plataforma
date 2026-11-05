@@ -1,0 +1,66 @@
+// Base de conocimiento de Compras (esquema compras), migración 0016 (2026-10-21).
+// Compras escribe aquí cómo decide hoy si un producto entra. El semáforo de productos
+// (modelo_semaforo_v3.dbml) tomará de aquí bloqueos, umbrales, pesos y casos para calibrar.
+
+Table compras.conocimiento_politica {
+  politica_id int [pk, increment]
+  tema varchar [note: 'alta_productos / proveedores / regulatorio / precios / comite / proceso (= cómo se decide hoy) / otra']
+  titulo varchar
+  contenido text [note: 'Texto escrito por Compras']
+  departamento varchar [null, note: 'Vacío = aplica a todos']
+  estado varchar [note: 'borrador / vigente / archivada. Solo vigente cuenta']
+  version int [note: 'Sube cuando cambia el texto; cada versión queda en la bitácora']
+  creado_por int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime
+  actualizado_por int [ref: > nucleo.usuario.usuario_id]
+  actualizado_en datetime
+}
+
+Table compras.conocimiento_regla {
+  regla_id int [pk, increment]
+  tipo varchar [note: 'rechazo (rojo directo) / umbral (criterio y valor aceptable) / exito (meta de un lanzamiento exitoso)']
+  criterio varchar
+  departamento varchar [null, note: 'Vacío = aplica a todos']
+  minimo decimal(14,4) [null, note: 'umbral: mínimo; exito: meta']
+  maximo decimal(14,4) [null, note: 'Solo umbral']
+  unidad varchar [null, note: '%, días, piezas, MXN...']
+  periodo_meses int [null, note: 'Solo exito: en cuánto tiempo']
+  descripcion varchar [null]
+  activa boolean
+  actualizado_por int [ref: > nucleo.usuario.usuario_id]
+  actualizado_en datetime
+  indexes { tipo }
+}
+
+Table compras.conocimiento_peso {
+  factor varchar [pk, note: 'demanda / rentabilidad / precio / tendencia / categoria / proveedor (componentes del semáforo)']
+  puntos int [note: 'Los seis suman 100']
+  nota varchar [null]
+  actualizado_por int [ref: > nucleo.usuario.usuario_id]
+  actualizado_en datetime
+}
+
+Table compras.conocimiento_peso_proveedor {
+  bloque varchar [pk, note: 'cumplimiento / comercial / costo / inventario (calificación de Datos → Proveedores)']
+  puntos int [note: 'Los cuatro suman 100; si no están los cuatro, se usan los provisionales 35/30/20/15']
+  nota varchar [null]
+  actualizado_por int [ref: > nucleo.usuario.usuario_id]
+  actualizado_en datetime
+}
+
+Table compras.conocimiento_caso {
+  caso_id int [pk, increment]
+  producto varchar
+  sku varchar [null]
+  proveedor varchar [null]
+  departamento varchar [null]
+  fecha_decision date [null]
+  decision varchar [note: 'aprobado / rechazado / condicionado']
+  motivo varchar [null]
+  resultado varchar [note: 'funciono / no_funciono / sin_dato / no_aplica']
+  notas varchar [null]
+  creado_por int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime
+  actualizado_por int [ref: > nucleo.usuario.usuario_id]
+  actualizado_en datetime
+}

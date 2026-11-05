@@ -50,7 +50,7 @@ export function ProveedorSesion({ tipo, children }: { tipo: "interno" | "externo
     return (
       <div className="grid min-h-screen place-items-center p-6 text-center">
         <div>
-          <p className="font-bold">{error}</p>
+          <p className="font-semibold">{error}</p>
           <Boton className="mt-4" onClick={recargar}>Reintentar</Boton>
         </div>
       </div>

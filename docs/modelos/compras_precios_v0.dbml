@@ -1,0 +1,146 @@
+// Radar de precios · esquema compras (Compras · TD001) · v0 (migración 0010, 2026-10-16)
+// Vigila el precio de productos del catálogo (datos.producto) en Google Shopping con DataForSEO.
+// Todo corre solo: coincidencia automática (código de barras, reglas y, en casos dudosos, la IA);
+// lo que no queda seguro se deja fuera de la comparación. Una persona puede corregir, pero nada la espera.
+// Basado en el proyecto Radar Precios (radar_runner, product_matcher, query_builder, merchant_pricing).
+
+Table compras.precio_vigilado {
+  vigilado_id int [pk, increment]
+  producto_id int [not null, unique, ref: > datos.producto.producto_id]
+  activo bit [not null, default: 1]
+  consulta nvarchar(300) [note: 'Búsqueda a mano; vacío = se arma sola (código de barras y marca + descripción)']
+  limite_pct decimal(5,2) [note: 'Semáforo: rojo arriba de este % sobre la mediana; vacío = el general de Configuración (migración 0011)']
+  origen nvarchar(20) [not null, note: 'pantalla / migracion']
+  agregado_por int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime [not null]
+  Note: 'Qué productos del catálogo se vigilan. Cada uno cuesta créditos de DataForSEO por corrida.'
+}
+
+Table compras.precio_coincidencia {
+  coincidencia_id int [pk, increment]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  google_id nvarchar(80) [note: 'product_id de Google Shopping (o data_docid si no hay)']
+  titulo nvarchar(400)
+  liga nvarchar(800)
+  imagen nvarchar(800)
+  estado nvarchar(20) [not null, note: 'automatica / ia / persona / rechazada / invalidada']
+  confianza decimal(5,2)
+  motivo nvarchar(600)
+  estrategia nvarchar(40) [note: 'codigo_barras / descripcion / consulta']
+  fallos_seguidos int [not null, default: 0, note: 'Corridas seguidas sin precios; a las 2 se invalida y se vuelve a buscar']
+  candidato nvarchar(max) [note: 'JSON tal como vino de Google Shopping']
+  iguales nvarchar(max) [note: 'JSON: otras publicaciones de Google Shopping que son el mismo producto; también se piden sus vendedores (migración 0013)']
+  decidido_por int [ref: > nucleo.usuario.usuario_id, note: 'Solo si la corrigió una persona']
+  creado_en datetime [not null]
+  verificado_en datetime
+  indexes { (producto_id, estado) }
+  Note: 'Qué producto de Google Shopping es el nuestro. Vigente = automatica / ia / persona. Rechazada = una persona dijo que no es; nunca se vuelve a elegir.'
+}
+
+Table compras.precio_tienda_coincidencia {
+  tienda_coincidencia_id int [pk, increment]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  tienda nvarchar(40) [not null, note: 'Walmart / Chedraui / San Pablo / Soriana']
+  clave nvarchar(120) [not null, note: 'Id del producto en el sitio de la tienda']
+  titulo nvarchar(400)
+  liga nvarchar(800)
+  imagen nvarchar(800)
+  ean nvarchar(20) [note: 'Código de barras, si la tienda lo da']
+  estado nvarchar(20) [not null, note: 'automatica / ia / persona / rechazada / invalidada']
+  motivo nvarchar(600)
+  decidido_por int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime [not null]
+  verificado_en datetime
+  indexes { (producto_id, tienda, estado) }
+  Note: 'Qué producto del sitio de cada tienda clave es el nuestro (búsqueda directa, migración 0015, Diego 2026-10-20). Mismas reglas que con Google.'
+}
+
+Table compras.precio_corrida {
+  corrida_id int [pk, increment]
+  fecha date [not null, note: 'Día de la corrida (zona de la corrida). Varias por día: cada «Correr ahora» es una corrida nueva (migración 0014); el programador hace una al día']
+  origen nvarchar(20) [not null, note: 'programado / tardio / manual']
+  estado nvarchar(20) [not null, note: 'en_curso / completa / parcial / fallida']
+  intentos int [not null, default: 1]
+  iniciado_por int [ref: > nucleo.usuario.usuario_id]
+  productos int [not null, default: 0]
+  con_coincidencia int [not null, default: 0]
+  sin_coincidencia int [not null, default: 0]
+  con_precios int [not null, default: 0]
+  fallidos int [not null, default: 0]
+  alertas int [not null, default: 0]
+  tope_usd decimal(10,4) [note: 'Lo máximo que podía gastar al empezar']
+  costo_usd decimal(10,4) [not null, default: 0, note: 'Lo que DataForSEO dijo que cobró']
+  avisos nvarchar(max) [note: 'JSON']
+  error nvarchar(1000)
+  iniciado_en datetime [not null]
+  terminado_en datetime
+}
+
+Table compras.precio_corrida_producto {
+  corrida_producto_id int [pk, increment]
+  corrida_id int [not null, ref: > compras.precio_corrida.corrida_id]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  coincidencia_id int [ref: > compras.precio_coincidencia.coincidencia_id]
+  estado nvarchar(30) [not null, note: 'pendiente / con_precios / sin_coincidencia / sin_precios / fallido / sin_presupuesto']
+  mensaje nvarchar(400)
+  precio_lista decimal(12,2) [note: 'Nuestro precio lista con impuestos al momento de la corrida']
+  precio_membresia decimal(12,2)
+  precio_tienda decimal(12,2)
+  vendedores int [not null, default: 0]
+  minimo decimal(12,2)
+  maximo decimal(12,2)
+  promedio decimal(12,2)
+  mediana decimal(12,2)
+  dif_lista_mediana_pct decimal(8,2) [note: '(lista / mediana - 1) × 100. Positivo = estamos más caros']
+  dif_membresia_mediana_pct decimal(8,2)
+  dif_lista_minimo_pct decimal(8,2)
+  candidatos nvarchar(max) [note: 'JSON: resultados de Google Shopping de la búsqueda de esta corrida, con calificación y motivo (migración 0012). Sirve para revisar y elegir a mano']
+  tiendas nvarchar(max) [note: 'JSON: por tienda con búsqueda directa, qué pasó (encontrado / no_lo_tiene / dudoso / error), título y mensaje (migración 0015)']
+  indexes { (corrida_id, producto_id) [unique] }
+}
+
+Table compras.precio_observacion {
+  observacion_id bigint [pk, increment]
+  corrida_id int [not null, ref: > compras.precio_corrida.corrida_id]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  coincidencia_id int [ref: > compras.precio_coincidencia.coincidencia_id, note: 'Publicación de Google de donde salió; vacío si salió del sitio de una tienda (migración 0015)']
+  tienda_coincidencia_id int [ref: > compras.precio_tienda_coincidencia.tienda_coincidencia_id, note: 'Producto del sitio de la tienda de donde salió (migración 0015)']
+  vendedor nvarchar(200) [not null, note: 'Nombre normalizado (Amazon, Walmart...)']
+  vendedor_original nvarchar(200)
+  dominio nvarchar(200)
+  liga nvarchar(800)
+  precio decimal(12,2)
+  envio decimal(12,2)
+  total decimal(12,2)
+  precio_comparable decimal(12,2) [not null, note: 'Precio por pieza sin envío']
+  moneda nvarchar(5) [not null]
+  disponibilidad nvarchar(120)
+  es_propia bit [not null, note: 'Es Súper Naturista; no cuenta como competencia']
+  datos nvarchar(max) [not null, note: 'JSON tal como vino']
+  creado_en datetime [not null]
+  Note: 'Solo inserción. Nunca se edita ni se borra.'
+}
+
+Table compras.precio_envio {
+  envio_id int [pk, increment]
+  corrida_id int [ref: > compras.precio_corrida.corrida_id]
+  tipo nvarchar(20) [not null, note: 'productos / vendedores']
+  tareas int [not null]
+  estado nvarchar(20) [not null, note: 'reservado / confirmado / incierto / rechazado']
+  estimado_usd decimal(10,4) [not null, note: 'Máximo calculado antes de enviar']
+  costo_usd decimal(10,4) [note: 'Lo que DataForSEO dijo que cobró']
+  respuesta nvarchar(max) [note: 'JSON: ids de las tareas']
+  creado_en datetime [not null]
+  confirmado_en datetime
+  Note: 'Cada envío pagado a DataForSEO. Se guarda antes de enviar; un envío incierto nunca se repite y cuenta con su máximo en el gasto del mes.'
+}
+
+Table compras.precio_vendedor {
+  vendedor_id int [pk, increment]
+  nombre nvarchar(120) [not null, unique]
+  alias nvarchar(1000) [note: 'Nombres y dominios con que aparece, separados por coma']
+  es_propio bit [not null, default: 0]
+  activo bit [not null, default: 1]
+  creado_en datetime [not null]
+  Note: 'Une los nombres con que aparece cada vendedor. Si es propio no cuenta como competencia.'
+}

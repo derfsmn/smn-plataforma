@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { useEffect } from "react";
 
 // Ventana: hoja inferior en celular, centrada en escritorio. Envolver en <AnimatePresence>.
-export function Modal({ titulo, cerrar, children }: { titulo: string; cerrar: () => void; children: React.ReactNode }) {
+export function Modal({ titulo, cerrar, children, ancho = "max-w-md" }: { titulo: string; cerrar: () => void; children: React.ReactNode; ancho?: string }) {
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && cerrar();
     window.addEventListener("keydown", esc);
@@ -28,10 +28,10 @@ export function Modal({ titulo, cerrar, children }: { titulo: string; cerrar: ()
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 40, opacity: 0 }}
         transition={{ type: "spring", stiffness: 400, damping: 35 }}
-        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-superficie p-6 shadow-2xl sm:rounded-3xl"
+        className={`max-h-[92vh] w-full ${ancho} overflow-y-auto rounded-t-3xl bg-superficie p-6 shadow-2xl sm:rounded-2xl`}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold">{titulo}</h2>
+          <h2 className="text-lg font-semibold">{titulo}</h2>
           <button type="button" onClick={cerrar} aria-label="Cerrar" className="rounded-full p-1 hover:bg-smn-gris-100">
             <X className="h-5 w-5" />
           </button>

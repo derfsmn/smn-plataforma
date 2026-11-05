@@ -134,7 +134,8 @@ Table archivo {
   nombre_original varchar
   tipo_contenido varchar
   tamano_bytes bigint
-  ruta_almacenamiento varchar
+  sha256 varchar
+  ruta_almacenamiento varchar [note: 'Ruta relativa dentro de ARCHIVOS_RUTA; nombre aleatorio']
   subido_por int [ref: > usuario.usuario_id]
   subido_en datetime
 }
@@ -147,6 +148,7 @@ Table notificacion {
   titulo varchar
   mensaje varchar
   liga varchar [null]
+  clave varchar [null, note: 'Evita repetir el mismo aviso (p. ej. 80 % del tope de IA del mes)']
   enviada_en datetime
   leida_en datetime [null]
 }
@@ -164,14 +166,23 @@ Table bitacora {
   Note: 'Solo inserción; no se edita ni se borra.'
 }
 
+Table configuracion {
+  clave varchar [pk, note: 'smtp_servidor, anthropic_api_key...; catálogo en api/core/ajustes.py']
+  valor varchar [note: 'Secretos cifrados (Fernet)']
+  actualizado_por int [ref: > usuario.usuario_id, null]
+  actualizado_en datetime
+  Note: 'Ajustes cambiados desde Administración > Configuración; mandan sobre el .env.'
+}
+
 // ===================== IA =====================
 
 Table ia_tarea {
   tarea_id int [pk, increment]
   modulo_id int [ref: > modulo.modulo_id]
   codigo varchar [unique, note: 'compras.leer_ficha']
+  descripcion varchar
   proveedor_ia varchar [note: 'ollama / api / ollama_y_api_respaldo']
-  modelo varchar
+  modelo varchar [null, note: 'Nulo = el de la configuración']
   activa boolean
 }
 
@@ -195,8 +206,19 @@ Table ia_llamada {
   tokens_salida int
   costo_mxn decimal(12,4)
   duracion_ms int
-  resultado varchar [note: 'ok / error / rechazada_por_tope']
+  resultado varchar [note: 'ok / error / rechazada_por_tope / rechazada_por_modelo']
+  detalle varchar [null]
   ocurrido_en datetime
+}
+
+Table ia_costo_real {
+  fecha date [pk, note: 'Día en UTC, como lo reporta el proveedor']
+  proveedor varchar [pk, note: 'openai']
+  costo_usd decimal(12,4) [note: 'Lo que cobró el proveedor ese día (API de costos con llave de administrador)']
+  tipo_cambio decimal(10,4) [note: 'Tipo de cambio de Configuración al obtenerlo']
+  costo_mxn decimal(12,4)
+  obtenido_en datetime
+  Note: 'El tope mensual de plataforma usa este costo en los días cerrados y la estimación por llamada en los demás'
 }
 
 // ===================== Medición de valor =====================

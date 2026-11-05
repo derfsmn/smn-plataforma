@@ -18,6 +18,7 @@ docker compose up --build
 - Web: http://localhost:3000
 - API: http://localhost:8000/api/salud (documentación en http://localhost:8000/docs)
 - SQL Server: localhost,1433 (usuario `sa`, base `smn_td`)
+- Buzón de correo de prueba (Mailpit): http://localhost:8025 — aquí llegan todos los correos de la plataforma; nada sale a internet.
 
 La API crea la base `smn_td` si no existe, aplica las migraciones y carga los catálogos al arrancar.
 
@@ -28,7 +29,16 @@ docker compose exec api python -m scripts.crear_admin
 ```
 
 Te pide nombre, correo y contraseña (10 caracteres o más). Después entra a http://localhost:3000 con ese correo.
-A las demás personas se les invita desde **Administración → Usuarios**; la plataforma da una liga para enviarles.
+A las demás personas se les invita desde **Administración → Usuarios**: les llega un correo (en local, al buzón de prueba) y además ves la liga por si quieres mandarla tú.
+
+### Puerta de IA en local (opcional)
+
+- **Ollama**: instálalo en tu equipo, descarga un modelo (`ollama pull <modelo>`) y pon su nombre en **Administración → Configuración** (o en `OLLAMA_MODELO` del `.env`). La API lo busca en `host.docker.internal:11434`.
+- **API externa (Anthropic)**: queda apagada hasta que captures la llave y el tipo de cambio en **Administración → Configuración** y el tope mensual en **Administración → Inteligencia artificial**. Ahí mismo hay un botón para probar.
+
+Correo, dirección de la web, archivos e IA se cambian en **Administración → Configuración** sin reiniciar; lo que guardes ahí manda sobre el `.env`.
+
+Si cambias el `.env`, reinicia la API: `docker compose up -d --build api`.
 En desarrollo funciona con `localhost`, `127.0.0.1` o la IP de tu equipo (útil para probar desde el celular en la misma red).
 
 ## Desarrollar sin Docker (más rápido para editar)

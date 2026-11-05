@@ -2,6 +2,8 @@
 
 /* Modo oscuro: lo activa data-tema="oscuro" en <html> (ver lib/tema.ts) */
 @custom-variant dark (&:where([data-tema="oscuro"], [data-tema="oscuro"] *));
+/* Tema «marca»: claro, con fondo cálido y el menú lateral naranja */
+@custom-variant marca (&:where([data-tema="marca"], [data-tema="marca"] *));
 
 /* Colores de marca medidos en el logo oficial (ver AGENTS.md, sección 7).
    Naranja y negro de marca no cambian entre temas; grises, superficie y tinta sí. */
@@ -11,18 +13,21 @@
   --color-smn-gris-50: #f6f6f5;
   --color-smn-gris-100: #ececea;
   --color-smn-gris-300: #c9c9c6;
-  --color-smn-gris-500: #8a8a86;
+  --color-smn-gris-500: #6b6b67; /* 1 nov 2026: antes #8a8a86, no llegaba al contraste AA */
   --color-smn-gris-700: #4a4a47;
   --color-superficie: #ffffff;
   --color-tinta: #222221;
   --color-aviso-fondo: #f8ecd6;
+  /* Naranja para letra: el de marca no llega al contraste AA sobre blanco; en oscuro se usa el de marca */
+  --color-naranja-tinta: #8f5d0c;
   --color-aviso-texto: #7a500c;
-  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-sobria: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Tema oscuro. Se repite en la consulta de medios para que no parpadee antes de que corra el script. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-tema="claro"]) {
+  :root:not([data-tema="claro"]):not([data-tema="marca"]) {
     --color-smn-gris-50: #141413;
     --color-smn-gris-100: #2a2a28;
     --color-smn-gris-300: #4d4d4a;
@@ -31,6 +36,7 @@
     --color-superficie: #1e1e1d;
     --color-tinta: #f3f3f0;
     --color-aviso-fondo: #3a2c12;
+    --color-naranja-tinta: #de951b;
     --color-aviso-texto: #f2c879;
     color-scheme: dark;
   }
@@ -45,7 +51,52 @@
   --color-tinta: #f3f3f0;
   --color-aviso-fondo: #3a2c12;
   --color-aviso-texto: #f2c879;
+  --color-naranja-tinta: #de951b;
   color-scheme: dark;
+}
+
+/* Colores del menú lateral: en claro y oscuro siguen la superficie; en «marca» el menú es naranja con letra negra */
+:root {
+  --menu-fondo: var(--color-superficie);
+  --menu-tinta: var(--color-tinta);
+  --menu-suave: var(--color-smn-gris-700);
+  --menu-tenue: var(--color-smn-gris-500);
+  --menu-hover: var(--color-smn-gris-50);
+  --menu-activo-fondo: var(--color-smn-gris-50);
+  --menu-activo-tinta: var(--color-tinta);
+  --menu-activo-icono: var(--color-smn-naranja);
+  --menu-linea: var(--color-smn-gris-100);
+}
+:root {
+  /* Color para resaltar (tarjetas al pasar el mouse): naranja de marca; en «Con color», el de la persona */
+  --resalte: #de951b;
+  --resalte-tinta: #222221;
+  --acento: #de951b;
+  --acento-tinta: #222221;
+  --acento-contra: #ffffff;
+}
+/* Tema «Con color»: el menú toma el color que escoge la persona (--acento, lo pone lib/tema.ts) y el fondo se tiñe de él */
+:root[data-tema="marca"] {
+  --color-smn-gris-50: color-mix(in oklab, var(--acento) 9%, #ffffff);
+  --color-smn-gris-100: color-mix(in oklab, var(--acento) 20%, #f4f4f2);
+  --color-smn-gris-300: color-mix(in oklab, var(--acento) 32%, #cfcfcb);
+  --color-smn-gris-500: color-mix(in oklab, var(--acento) 16%, #4f4f4b);
+  --color-smn-gris-700: color-mix(in oklab, var(--acento) 14%, #3f3f3b);
+  --color-superficie: color-mix(in oklab, var(--acento) 3%, #ffffff);
+  --color-tinta: #222221;
+  --color-naranja-tinta: color-mix(in oklab, var(--acento) 45%, #2a1c04);
+  --resalte: var(--acento);
+  --resalte-tinta: var(--acento-tinta);
+  --menu-fondo: var(--acento);
+  --menu-tinta: var(--acento-tinta);
+  --menu-suave: color-mix(in srgb, var(--acento-tinta) 94%, transparent);
+  --menu-tenue: color-mix(in srgb, var(--acento-tinta) 78%, transparent);
+  --menu-hover: color-mix(in srgb, var(--acento-tinta) 10%, transparent);
+  --menu-activo-fondo: var(--acento-tinta);
+  --menu-activo-tinta: var(--acento-contra);
+  --menu-activo-icono: var(--acento);
+  --menu-linea: color-mix(in srgb, var(--acento-tinta) 16%, transparent);
+  color-scheme: light;
 }
 
 body {
@@ -65,4 +116,35 @@ body {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Barras de desplazamiento finas y discretas (Diego: la de siempre «se ve muy fea») */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-smn-gris-300) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-smn-gris-300);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-smn-gris-500);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+aside nav {
+  scrollbar-color: var(--menu-linea) transparent;
+}
+aside nav::-webkit-scrollbar-thumb {
+  background-color: var(--menu-linea);
 }

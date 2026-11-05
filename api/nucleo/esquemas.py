@@ -104,6 +104,8 @@ class NuevaInvitacion(BaseModel):
 class Liga(BaseModel):
     liga: str
     expira_en: datetime
+    # False si no hay correo configurado o el envío falló: entonces la liga se comparte a mano
+    correo_enviado: bool = False
 
 
 class InvitacionCreada(Liga):

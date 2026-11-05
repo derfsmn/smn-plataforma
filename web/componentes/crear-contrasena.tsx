@@ -52,17 +52,17 @@ export function CrearContrasena({
 
   if (errorLiga)
     return (
-      <div className="rounded-3xl border border-smn-gris-100 bg-superficie p-8 text-center">
+      <div className="rounded-2xl border border-smn-gris-100 bg-superficie p-8 text-center">
         <CircleAlert className="mx-auto h-10 w-10 text-smn-naranja" />
-        <p className="mt-3 font-bold">{errorLiga}</p>
-        <Link href="/login" className="mt-5 inline-block text-sm font-bold underline underline-offset-4">Ir a iniciar sesión</Link>
+        <p className="mt-3 font-semibold">{errorLiga}</p>
+        <Link href="/login" className="mt-5 inline-block text-sm font-semibold underline underline-offset-4">Ir a iniciar sesión</Link>
       </div>
     );
   if (!datos) return <Esqueleto className="h-80" />;
 
   return (
     <>
-      <h1 className="text-2xl font-extrabold tracking-tight">{titulo(datos)}</h1>
+      <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{titulo(datos)}</h1>
       <p className="mt-1 text-sm text-smn-gris-500">
         {datos.correo}
         {datos.empresa && ` · ${datos.empresa}`}
@@ -79,22 +79,22 @@ export function CrearContrasena({
           error={confirmar && confirmar !== contrasena ? "No coincide." : undefined}
         />
         {externo && (
-          <label className="flex items-start gap-3 rounded-xl bg-smn-gris-100 p-3 text-sm">
+          <label className="flex items-start gap-3 rounded-lg border border-smn-gris-100 bg-smn-gris-50 p-3 text-sm">
             <input type="checkbox" checked={aviso} onChange={(e) => setAviso(e.target.checked)} className="mt-0.5 h-4 w-4 accent-smn-naranja" />
             <span>
               Acepto el aviso de privacidad de Súper Mayoreo Naturista.
-              <span className="block text-xs text-smn-gris-500">El texto del aviso está pendiente de Jurídico.</span>
+              <span className="block text-[13px] text-smn-gris-500">El texto del aviso está pendiente de Jurídico.</span>
             </span>
           </label>
         )}
         <AnimatePresence>
           {error && (
-            <motion.p role="alert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400">
+            <motion.p role="alert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="rounded-lg bg-red-500/10 px-3 py-2.5 text-sm font-medium text-red-700 dark:text-red-400">
               {error}
             </motion.p>
           )}
         </AnimatePresence>
-        <Boton type="submit" disabled={!valido} cargando={cargando} className="w-full py-3">{boton}</Boton>
+        <Boton type="submit" disabled={!valido} cargando={cargando} className="h-11 w-full">{boton}</Boton>
       </form>
     </>
   );

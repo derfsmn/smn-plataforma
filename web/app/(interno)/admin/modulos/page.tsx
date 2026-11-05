@@ -40,20 +40,20 @@ export default function AdminModulos() {
       ) : (
         <div className="space-y-4">
           {modulos.map((m, i) => (
-            <Entrada key={m.codigo} retraso={i * 0.08} className="rounded-3xl border border-smn-gris-100 bg-superficie p-6">
+            <Entrada key={m.codigo} retraso={i * 0.08} className="rounded-2xl border border-smn-gris-100 bg-superficie p-6">
               <div className="flex flex-wrap items-center gap-4">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-smn-negro text-smn-naranja dark:bg-smn-gris-100"><IconoModulo icono={m.icono} /></span>
+                <span className="grid h-12 w-12 place-items-center rounded-2xl border border-smn-gris-100 bg-superficie text-smn-naranja"><IconoModulo icono={m.icono} /></span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold tracking-wide text-smn-gris-500 uppercase">
+                  <p className="text-[13px] font-medium text-smn-gris-500">
                     {m.area} · {m.iniciativa ?? "Por asignar"} · esquema <code>{m.codigo}</code>
                   </p>
-                  <p className="text-lg font-extrabold">{m.nombre}</p>
+                  <p className="text-lg font-semibold">{m.nombre}</p>
                   <p className="text-sm text-smn-gris-500">Responsable: {m.responsable ?? "Por asignar"}</p>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-smn-gris-100 p-1 sm:grid-cols-4">
                 {ciclo.map((e) => (
-                  <button key={e} onClick={() => m.estado !== e && cambiar(m.codigo, e)} className={`relative rounded-lg py-2 text-sm font-bold ${m.estado === e ? "" : "text-smn-gris-500"}`}>
+                  <button key={e} onClick={() => m.estado !== e && cambiar(m.codigo, e)} className={`relative rounded-lg py-2 text-sm font-semibold ${m.estado === e ? "" : "text-smn-gris-500"}`}>
                     {m.estado === e && <motion.span layoutId={`estado-${m.codigo}`} className="absolute inset-0 rounded-lg bg-superficie shadow-sm" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
                     <span className="relative">{estadoModulo[e].texto}</span>
                   </button>
@@ -61,7 +61,7 @@ export default function AdminModulos() {
               </div>
             </Entrada>
           ))}
-          <p className="text-xs text-smn-gris-500">Para dar de alta un módulo nuevo se sigue el contrato descrito en AGENTS.md (esquema SQL, permisos, rutas e indicadores).</p>
+          <p className="text-[13px] text-smn-gris-500">Para dar de alta un módulo nuevo se sigue el contrato descrito en AGENTS.md (esquema SQL, permisos, rutas e indicadores).</p>
         </div>
       )}
     </>

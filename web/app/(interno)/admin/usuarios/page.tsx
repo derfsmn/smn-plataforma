@@ -1,14 +1,14 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, Link2, MoreHorizontal, Search, ShieldCheck, UserPlus, UserX, UserCheck, Send } from "lucide-react";
+import { Check, Copy, Link2, MoreHorizontal, Search, ShieldCheck, UserPlus, UserX, UserCheck, Send, MailCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, haceCuanto, mensajeDe, type Liga, type Rol, type Usuario } from "@/lib/api";
 import { iniciales } from "@/componentes/marco-interno";
 import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Modal } from "@/componentes/modal";
-import { Boton, Campo, Encabezado, Esqueleto, Insignia } from "@/componentes/ui";
+import { Boton, Campo, Encabezado, Esqueleto, Insignia, Selector } from "@/componentes/ui";
 
 const estilosEstatus: Record<Usuario["estatus"], string> = {
   activo: "bg-tinta text-superficie",
@@ -23,8 +23,9 @@ const filtros = [
 
 type Ventana =
   | { tipo: "invitar" }
-  | { tipo: "liga"; titulo: string; liga: Liga; para: string }
-  | { tipo: "rol"; usuario: Usuario };
+  | { tipo: "liga"; titulo: string; liga: Liga; para: string; correo: string }
+  | { tipo: "rol"; usuario: Usuario }
+  | { tipo: "eliminar"; usuario: Usuario };
 
 export default function AdminUsuarios() {
   const avisar = useAvisos();
@@ -52,6 +53,21 @@ export default function AdminUsuarios() {
     [lista, filtro, texto],
   );
 
+  const [borrando, setBorrando] = useState(false);
+  const eliminar = async (u: Usuario) => {
+    setBorrando(true);
+    try {
+      await api(`/api/nucleo/usuarios/${u.id}`, { metodo: "DELETE" });
+      setLista((l) => l?.filter((x) => x.id !== u.id) ?? null);
+      setVentana(null);
+      avisar(`Se eliminó la cuenta de ${u.nombre}. El correo ${u.correo} ya se puede invitar de nuevo.`);
+    } catch (e) {
+      avisar(mensajeDe(e), "info");
+    } finally {
+      setBorrando(false);
+    }
+  };
+
   const reemplazar = (u: Usuario) => setLista((l) => l?.map((x) => (x.id === u.id ? u : x)) ?? null);
 
   const accion = async (u: Usuario, que: "activar" | "desactivar" | "reenviar" | "liga") => {
@@ -62,10 +78,10 @@ export default function AdminUsuarios() {
         avisar(`${u.nombre} quedó ${nuevo.estatus === "inactivo" ? "desactivado" : nuevo.estatus}.`);
       } else if (que === "reenviar") {
         const liga = await api<Liga>(`/api/nucleo/usuarios/${u.id}/reenviar-invitacion`, { metodo: "POST" });
-        setVentana({ tipo: "liga", titulo: "Invitación renovada", liga, para: u.nombre });
+        setVentana({ tipo: "liga", titulo: "Invitación renovada", liga, para: u.nombre, correo: u.correo });
       } else {
         const liga = await api<Liga>(`/api/nucleo/usuarios/${u.id}/liga-contrasena`, { metodo: "POST" });
-        setVentana({ tipo: "liga", titulo: "Liga para cambiar contraseña", liga, para: u.nombre });
+        setVentana({ tipo: "liga", titulo: "Liga para cambiar contraseña", liga, para: u.nombre, correo: u.correo });
       }
     } catch (e) {
       avisar(mensajeDe(e), "info");
@@ -92,7 +108,7 @@ export default function AdminUsuarios() {
         </label>
         <div className="flex rounded-xl bg-smn-gris-100 p-1">
           {filtros.map((f) => (
-            <button key={f.id} onClick={() => setFiltro(f.id)} className={`relative flex-1 rounded-lg px-3 py-1.5 text-sm font-bold ${filtro === f.id ? "" : "text-smn-gris-500"}`}>
+            <button key={f.id} onClick={() => setFiltro(f.id)} className={`relative flex-1 rounded-lg px-3 py-1.5 text-sm font-semibold ${filtro === f.id ? "" : "text-smn-gris-500"}`}>
               {filtro === f.id && <motion.span layoutId="filtro-usuarios" className="absolute inset-0 rounded-lg bg-superficie shadow-sm" />}
               <span className="relative">{f.texto}</span>
             </button>
@@ -101,12 +117,12 @@ export default function AdminUsuarios() {
       </div>
 
       {error ? (
-        <p className="rounded-3xl border border-smn-gris-100 bg-superficie p-10 text-center text-sm">{error}</p>
+        <p className="rounded-2xl border border-smn-gris-100 bg-superficie p-10 text-center text-sm">{error}</p>
       ) : !lista ? (
         <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Esqueleto key={i} className="h-16" />)}</div>
       ) : (
-        <div className="rounded-3xl border border-smn-gris-100 bg-superficie">
-          <div className="hidden grid-cols-[2fr_1.2fr_1.4fr_0.8fr_0.9fr_2.5rem] gap-4 border-b border-smn-gris-100 px-5 py-3 text-xs font-bold tracking-wide text-smn-gris-500 uppercase md:grid">
+        <div className="rounded-2xl border border-smn-gris-100 bg-superficie">
+          <div className="hidden grid-cols-[2fr_1.2fr_1.4fr_0.8fr_0.9fr_2.5rem] gap-4 border-b border-smn-gris-100 px-5 py-3 text-[13px] font-medium text-smn-gris-500 md:grid">
             <span>Nombre</span><span>Área / empresa</span><span>Rol</span><span>Estatus</span><span>Último acceso</span><span />
           </div>
           <ul>
@@ -121,24 +137,24 @@ export default function AdminUsuarios() {
                   className="relative grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5 border-b border-smn-gris-100 px-5 py-4 last:border-0 md:grid-cols-[2fr_1.2fr_1.4fr_0.8fr_0.9fr_2.5rem] md:gap-4"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-extrabold ${u.tipo === "externo" ? "bg-smn-negro text-smn-naranja" : "bg-smn-naranja/20 text-tinta"}`}>{iniciales(u.nombre)}</span>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] font-semibold ${u.tipo === "externo" ? "bg-smn-negro text-smn-naranja" : "bg-smn-naranja/20 text-tinta"}`}>{iniciales(u.nombre)}</span>
                     <div className="min-w-0">
-                      <p className="truncate font-bold">{u.nombre}{u.id === yo.usuario.id && <span className="ml-1.5 text-xs font-semibold text-smn-gris-500">(tú)</span>}</p>
-                      <p className="truncate text-xs text-smn-gris-500">{u.correo}</p>
+                      <p className="truncate font-semibold">{u.nombre}{u.id === yo.usuario.id && <span className="ml-1.5 text-[13px] font-medium text-smn-gris-500">(tú)</span>}</p>
+                      <p className="truncate text-[13px] text-smn-gris-500">{u.correo}</p>
                     </div>
                   </div>
                   <div className="row-span-1 md:hidden">
-                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} />
+                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
                   </div>
                   <span className="col-span-2 text-sm text-smn-gris-700 md:col-span-1">{u.empresa ?? u.area ?? "—"}</span>
                   <span className="col-span-2 text-sm md:col-span-1">{u.roles.map((r) => r.nombre).join(", ")}</span>
                   <span className="flex items-center gap-3 md:block">
                     <Insignia className={estilosEstatus[u.estatus]}>{u.estatus}</Insignia>
-                    <span className="text-xs text-smn-gris-500 md:hidden">{haceCuanto(u.ultimo_acceso_en)}</span>
+                    <span className="text-[13px] text-smn-gris-500 md:hidden">{haceCuanto(u.ultimo_acceso_en)}</span>
                   </span>
                   <span className="hidden text-sm text-smn-gris-500 md:block">{haceCuanto(u.ultimo_acceso_en)}</span>
                   <div className="hidden md:block">
-                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} />
+                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
                   </div>
                 </motion.li>
               ))}
@@ -155,14 +171,14 @@ export default function AdminUsuarios() {
               roles={roles}
               alCrear={(u, liga) => {
                 setLista((l) => [u, ...(l ?? [])]);
-                setVentana({ tipo: "liga", titulo: "Invitación creada", liga, para: u.nombre });
+                setVentana({ tipo: "liga", titulo: "Invitación creada", liga, para: u.nombre, correo: u.correo });
               }}
             />
           </Modal>
         )}
         {ventana?.tipo === "liga" && (
           <Modal titulo={ventana.titulo} cerrar={() => setVentana(null)}>
-            <VerLiga liga={ventana.liga} para={ventana.para} />
+            <VerLiga liga={ventana.liga} para={ventana.para} correo={ventana.correo} />
           </Modal>
         )}
         {ventana?.tipo === "rol" && (
@@ -178,6 +194,18 @@ export default function AdminUsuarios() {
             />
           </Modal>
         )}
+        {ventana?.tipo === "eliminar" && (
+          <Modal titulo="Eliminar cuenta" cerrar={() => setVentana(null)}>
+            <p className="text-sm">
+              Se borra la cuenta de <strong>{ventana.usuario.nombre}</strong> ({ventana.usuario.correo}) y el correo queda libre para invitarlo otra vez. No se puede deshacer.
+            </p>
+            <p className="mt-2 text-[13px] text-smn-gris-500">Solo se puede con cuentas que no han capturado nada. Lo que hizo queda en la bitácora.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Boton variante="fantasma" onClick={() => setVentana(null)}>Cancelar</Boton>
+              <Boton cargando={borrando} onClick={() => eliminar(ventana.usuario)}><Trash2 className="h-4 w-4" /> Eliminar</Boton>
+            </div>
+          </Modal>
+        )}
       </AnimatePresence>
     </>
   );
@@ -188,11 +216,13 @@ function MenuAcciones({
   esYo,
   accion,
   cambiarRol,
+  eliminar,
 }: {
   usuario: Usuario;
   esYo: boolean;
   accion: (u: Usuario, que: "activar" | "desactivar" | "reenviar" | "liga") => void;
   cambiarRol: () => void;
+  eliminar: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -208,6 +238,7 @@ function MenuAcciones({
     { texto: "Cambiar rol", icono: ShieldCheck, hacer: cambiarRol },
     !esYo && u.estatus !== "inactivo" && { texto: "Desactivar", icono: UserX, hacer: () => accion(u, "desactivar") },
     u.estatus === "inactivo" && { texto: "Reactivar", icono: UserCheck, hacer: () => accion(u, "activar") },
+    !esYo && { texto: "Eliminar", icono: Trash2, hacer: eliminar },
   ].filter(Boolean) as { texto: string; icono: typeof Send; hacer: () => void }[];
 
   return (
@@ -222,7 +253,7 @@ function MenuAcciones({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-20 mt-1 w-60 origin-top-right overflow-hidden rounded-2xl border border-smn-gris-100 bg-superficie py-1 shadow-xl"
+            className="absolute right-0 z-20 mt-1 w-60 origin-top-right overflow-hidden rounded-2xl border border-smn-gris-100 bg-superficie py-1 shadow-sm"
           >
             {opciones.map(({ texto, icono: Icono, hacer }) => (
               <li key={texto}>
@@ -235,17 +266,6 @@ function MenuAcciones({
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-function Selector({ etiqueta, valor, cambiar, opciones }: { etiqueta: string; valor: string; cambiar: (v: string) => void; opciones: { valor: string; texto: string }[] }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-smn-gris-700">{etiqueta}</span>
-      <select value={valor} onChange={(e) => cambiar(e.target.value)} className="w-full rounded-xl border border-smn-gris-300 bg-superficie px-3.5 py-2.5 outline-none focus:border-smn-naranja focus:ring-4 focus:ring-smn-naranja/20">
-        {opciones.map((o) => <option key={o.valor} value={o.valor}>{o.texto}</option>)}
-      </select>
-    </label>
   );
 }
 
@@ -272,7 +292,7 @@ function FormularioInvitar({ roles, alCrear }: { roles: Rol[]; alCrear: (u: Usua
           ...(tipo === "interno" ? { area: f.area || null, puesto: f.puesto || null } : { empresa: f.empresa, rfc: f.rfc || null }),
         },
       });
-      alCrear(r.usuario, { liga: r.liga, expira_en: r.expira_en });
+      alCrear(r.usuario, { liga: r.liga, expira_en: r.expira_en, correo_enviado: r.correo_enviado });
     } catch (err) {
       setError(mensajeDe(err));
       setCargando(false);
@@ -287,7 +307,7 @@ function FormularioInvitar({ roles, alCrear }: { roles: Rol[]; alCrear: (u: Usua
             type="button"
             key={t}
             onClick={() => setTipo(t)}
-            className={`rounded-xl border-2 p-3 text-sm font-bold transition-colors ${tipo === t ? "border-smn-naranja bg-smn-naranja/10" : "border-smn-gris-100"}`}
+            className={`rounded-xl border-2 p-3 text-sm font-semibold transition-colors ${tipo === t ? "border-smn-naranja bg-smn-naranja/10" : "border-smn-gris-100"}`}
           >
             {t === "interno" ? "Colaborador SMN" : "Proveedor"}
           </button>
@@ -312,14 +332,14 @@ function FormularioInvitar({ roles, alCrear }: { roles: Rol[]; alCrear: (u: Usua
         cambiar={(v) => setF({ ...f, rol: v })}
         opciones={[{ valor: "", texto: "Elige un rol" }, ...disponibles.map((r) => ({ valor: r.codigo, texto: r.nombre }))]}
       />
-      {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400">{error}</p>}
-      <p className="text-xs text-smn-gris-500">Se crea una liga de un solo uso para que la persona cree su contraseña. Vence en 7 días.</p>
+      {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-700 dark:text-red-400">{error}</p>}
+      <p className="text-[13px] text-smn-gris-500">Le llega un correo con una liga de un solo uso para crear su contraseña. Vence en 7 días.</p>
       <Boton type="submit" disabled={!valido} cargando={cargando} className="w-full py-3">Crear invitación</Boton>
     </form>
   );
 }
 
-function VerLiga({ liga, para }: { liga: Liga; para: string }) {
+function VerLiga({ liga, para, correo }: { liga: Liga; para: string; correo: string }) {
   const [copiada, setCopiada] = useState(false);
   const copiar = async () => {
     try {
@@ -331,17 +351,26 @@ function VerLiga({ liga, para }: { liga: Liga; para: string }) {
   const vence = new Date(liga.expira_en.endsWith("Z") ? liga.expira_en : `${liga.expira_en}Z`).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
   return (
     <div className="space-y-4">
-      <p className="text-sm text-smn-gris-700">
-        Envíale esta liga a <b>{para}</b> por correo o mensaje. Es de un solo uso y vence el {vence}
-      </p>
+      {liga.correo_enviado ? (
+        <div className="flex items-start gap-3 rounded-xl bg-smn-naranja/10 p-3">
+          <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-smn-naranja" />
+          <p className="text-sm text-smn-gris-700">
+            Enviamos un correo a <b>{para}</b> ({correo}). La liga es de un solo uso y vence el {vence}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-smn-gris-700">
+          No se pudo enviar el correo. Envíale esta liga a <b>{para}</b> por correo o mensaje. Es de un solo uso y vence el {vence}
+        </p>
+      )}
       <div className="flex items-center gap-2 rounded-xl border border-smn-gris-300 bg-smn-gris-50 p-2 pl-3">
-        <code className="min-w-0 flex-1 truncate text-xs">{liga.liga}</code>
+        <code className="min-w-0 flex-1 truncate text-[13px]">{liga.liga}</code>
         <Boton variante="secundario" className="shrink-0 px-3 py-1.5" onClick={copiar}>
           {copiada ? <Check className="h-4 w-4 text-smn-naranja" /> : <Copy className="h-4 w-4" />}
           {copiada ? "Copiada" : "Copiar"}
         </Boton>
       </div>
-      <p className="text-xs text-smn-gris-500">Cuando tengamos correo de salida (etapa 4) la plataforma la enviará sola.</p>
+      {liga.correo_enviado && <p className="text-[13px] text-smn-gris-500">Si no le llega, puedes copiar la liga y mandársela tú.</p>}
     </div>
   );
 }
@@ -363,7 +392,7 @@ function CambiarRol({ usuario, roles, alGuardar }: { usuario: Usuario; roles: Ro
     <div className="space-y-4">
       <p className="text-sm text-smn-gris-700">{usuario.nombre}</p>
       <Selector etiqueta="Rol" valor={rol} cambiar={setRol} opciones={roles.map((r) => ({ valor: r.codigo, texto: r.nombre }))} />
-      {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-700 dark:text-red-400">{error}</p>}
       <Boton onClick={guardar} cargando={cargando} className="w-full py-3">Guardar</Boton>
     </div>
   );

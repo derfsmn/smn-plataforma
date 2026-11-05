@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Nunito } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 import { scriptTema } from "@/lib/tema";
 
-// Sustituta de la tipografía del logotipo hasta tener la oficial
-const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito" });
+// Letra única del diseño sobrio en todo el sitio (se quitó Nunito el 1 nov 2026)
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
   title: "SMN - Transformación digital",
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es-MX" className={nunito.variable} suppressHydrationWarning>
+    <html lang="es-MX" className={geist.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: scriptTema }} />
       </head>

@@ -1,0 +1,141 @@
+// Radar de tendencias de Compras · esquema compras · v0 (2026-10-14)
+// Migración: api/migraciones/versions/0005_compras_radar.py. Fechas en UTC sin zona; radar_reporte.fecha es el día local del radar.
+
+Table compras.radar_fuente {
+  fuente_id int [pk, increment]
+  nombre nvarchar(160) [not null]
+  liga nvarchar(400) [not null, note: 'Página principal']
+  tipo nvarchar(30) [not null, note: 'oficial / especializada / negocios / estudios']
+  pais nvarchar(20) [not null, note: 'MX / EUA / UE / global']
+  idioma nvarchar(5) [not null, note: 'es / en']
+  metodo nvarchar(20) [not null, note: 'rss / busqueda / manual']
+  lectura nvarchar(600) [note: 'rss: dirección del feed; busqueda: dominio donde busca la IA']
+  activa bit [not null, default: 1]
+  notas nvarchar(400)
+  ultima_lectura_en datetime
+  ultimo_resultado nvarchar(300)
+  ultimos_articulos int
+  creado_en datetime [not null]
+  actualizado_en datetime [not null]
+}
+
+Table compras.radar_tema {
+  tema_id int [pk, increment]
+  nombre nvarchar(120) [not null]
+  descripcion nvarchar(600) [not null, note: 'Qué busca la IA en todo internet']
+  activo bit [not null, default: 1]
+  orden int [not null, default: 100]
+  creado_en datetime [not null]
+}
+
+Table compras.radar_reporte {
+  reporte_id int [pk, increment]
+  fecha date [not null, unique, note: 'Una corrida por día; evita dobles corridas']
+  estado nvarchar(20) [not null, note: 'en_curso / listo / error']
+  origen nvarchar(20) [not null, note: 'programado / tardio / manual']
+  intentos int [not null, default: 1]
+  iniciado_en datetime [not null]
+  terminado_en datetime
+  iniciado_por int [ref: > nucleo.usuario.usuario_id]
+  fuentes_leidas int [not null, default: 0]
+  fuentes_con_error int [not null, default: 0]
+  busquedas int [not null, default: 0]
+  articulos_nuevos int [not null, default: 0]
+  articulos_relevantes int [not null, default: 0]
+  resumen nvarchar(max)
+  radar_ejecutivo nvarchar(max) [note: 'JSON: lista de líneas']
+  avisos nvarchar(max) [note: 'JSON: avisos de la corrida']
+  correos_enviados int [not null, default: 0]
+  correos_fallidos int [not null, default: 0]
+  error nvarchar(1000)
+}
+
+Table compras.radar_articulo {
+  articulo_id bigint [pk, increment]
+  reporte_id int [ref: > compras.radar_reporte.reporte_id]
+  fuente_id int [ref: > compras.radar_fuente.fuente_id]
+  tema_id int [ref: > compras.radar_tema.tema_id]
+  origen nvarchar(20) [not null, note: 'lista / busqueda']
+  url nvarchar(1000) [not null]
+  url_hash nvarchar(64) [not null, unique, note: 'SHA-256 de la liga normalizada (sin utm)']
+  titulo_hash nvarchar(64) [not null, note: 'Evita repetir la misma nota en 30 días']
+  sitio nvarchar(200) [not null, note: 'Dominio; cuenta fuentes independientes']
+  titulo nvarchar(500) [not null]
+  extracto nvarchar(max)
+  publicado_en date
+  leido_en datetime [not null]
+  en_ventana bit [not null, note: 'Dentro de radar_ventana_dias']
+  relevante bit [note: 'Clasificación de la IA; nulo si no se clasificó']
+  categoria nvarchar(40)
+  nivel nvarchar(10) [note: 'ALTA / MEDIA / TEMPRANA']
+  departamento nvarchar(80)
+  pais nvarchar(20)
+  por_que nvarchar(600)
+  clasificado_en datetime
+}
+
+Table compras.radar_senal {
+  senal_id int [pk, increment]
+  titulo nvarchar(300) [not null]
+  descripcion nvarchar(1000)
+  tipo nvarchar(20) [not null, note: 'emergente / tendencia; lo decide la regla (2+ sitios o EUA y MX), no la IA']
+  nivel nvarchar(10) [not null]
+  categoria nvarchar(40)
+  departamento nvarchar(80)
+  paises nvarchar(60)
+  sitios_distintos int [not null, default: 1]
+  primera_vez date [not null]
+  ultima_vez date [not null]
+  veces_reportada int [not null, default: 0]
+  estado nvarchar(20) [not null, note: 'nueva / vigilar / descartada / iniciativa']
+  creado_en datetime [not null]
+}
+
+Table compras.radar_senal_articulo {
+  senal_id int [pk, ref: > compras.radar_senal.senal_id]
+  articulo_id bigint [pk, ref: > compras.radar_articulo.articulo_id]
+}
+
+Table compras.radar_hallazgo {
+  hallazgo_id int [pk, increment]
+  reporte_id int [not null, ref: > compras.radar_reporte.reporte_id]
+  senal_id int [not null, ref: > compras.radar_senal.senal_id]
+  orden int [not null]
+  titulo nvarchar(300) [not null]
+  por_que nvarchar(1000) [not null]
+  nivel nvarchar(10) [not null]
+  tipo nvarchar(20) [not null]
+  departamento nvarchar(80)
+  paises nvarchar(60)
+}
+
+Table compras.radar_accion {
+  accion_id int [pk, increment]
+  senal_id int [not null, ref: > compras.radar_senal.senal_id]
+  accion nvarchar(20) [not null, note: 'iniciativa / vigilar / descartar (descartar pide motivo)']
+  motivo nvarchar(600)
+  usuario_id int [not null, ref: > nucleo.usuario.usuario_id]
+  ocurrido_en datetime [not null]
+}
+
+Table compras.radar_destinatario {
+  destinatario_id int [pk, increment]
+  nombre nvarchar(160) [not null]
+  correo nvarchar(254) [not null, unique]
+  area nvarchar(120)
+  activo bit [not null, default: 1]
+  tipo_correo nvarchar(20) [not null, default: 'decision', note: 'decision (con botones Abrir iniciativa / Vigilar / Descartar) | informativo (sin botones)']
+  creado_en datetime [not null]
+}
+
+Table compras.radar_documento {
+  documento_id int [pk, increment]
+  archivo_id int [not null, ref: > nucleo.archivo.archivo_id]
+  titulo nvarchar(200) [not null]
+  descripcion nvarchar(600)
+  texto nvarchar(max) [note: 'Texto extraído al subir (PDF, DOCX, XLSX, CSV)']
+  caracteres int [not null, default: 0]
+  activo bit [not null, default: 1]
+  subido_por int [not null, ref: > nucleo.usuario.usuario_id]
+  subido_en datetime [not null]
+}

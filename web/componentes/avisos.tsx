@@ -58,7 +58,7 @@ export function FranjaEntorno() {
   }, []);
   if (entorno !== "desarrollo") return null;
   return (
-    <div className="flex items-center justify-center gap-2 bg-aviso-fondo px-4 py-1.5 text-center text-xs font-semibold text-aviso-texto">
+    <div className="flex items-center justify-center gap-2 bg-aviso-fondo px-4 py-1.5 text-center text-[13px] font-semibold text-aviso-texto">
       <FlaskConical className="h-3.5 w-3.5 shrink-0" aria-hidden />
       Entorno de desarrollo: los datos viven en la base de pruebas de tu equipo.
     </div>

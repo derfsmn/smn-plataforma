@@ -1,0 +1,88 @@
+// Catálogo de productos · esquema datos (Centro de datos) · v0 IMPLEMENTADO (migración 0008, 2026-10-15)
+// Lo usan el radar de precios, el semáforo de Compras y lo que venga. No pertenece a un módulo.
+// Hoy se alimenta solo del API smnapps y de la tienda en línea (Shopify, páginas públicas); sin Excel (Diego, 2026-10-15). Cuando Sistemas
+// tenga la base histórica en Azure, el ETL llena estas mismas tablas como una fuente más.
+// Basado en el proyecto Radar Precios (api_catalog_sync, catalog_sync, master_catalog).
+
+Table datos.producto {
+  producto_id int [pk, increment]
+  sku nvarchar(80) [unique, not null, note: 'Texto; respeta ceros iniciales. Llave de unión entre fuentes']
+  descripcion nvarchar(300)
+  marca nvarchar(120)
+  departamento nvarchar(120)
+  rama nvarchar(120)
+  subcategoria nvarchar(120)
+  segmento nvarchar(120)
+  clasificacion nvarchar(60) [note: 'Significado por confirmar']
+  codigo_proveedor nvarchar(40)
+  nombre_proveedor nvarchar(200)
+  codigo_barras nvarchar(40) [note: 'De Shopify; liga con Google Shopping en el radar de precios']
+  precio_lista decimal(12,2) [note: 'Sin impuestos (contrato confirmado del API)']
+  precio_membresia decimal(12,2) [note: 'Sin impuestos']
+  iva_pct decimal(5,2)
+  ieps_pct decimal(5,2)
+  precio_lista_con_impuestos decimal(12,2) [note: 'Calculado; nulo si faltan tasas']
+  precio_membresia_con_impuestos decimal(12,2)
+  precio_tienda_en_linea decimal(12,2) [note: 'Precio publicado en Shopify']
+  disponible_en_linea bit
+  liga_producto nvarchar(400)
+  liga_imagen nvarchar(400) [note: 'CDN por SKU si existe; si no, imagen de Shopify']
+  imagen_cdn nvarchar(600) [note: 'Foto <SKU>.jpg en el CDN de la tienda, si existe (migración 0009)']
+  imagen_revisada_en datetime [note: 'Última revisión de la foto por SKU; se repite cada 7 días']
+  origen nvarchar(20) [not null, note: 'API / TIENDA / AMBOS / ETL / ARCHIVADO']
+  activo bit [not null, default: 1, note: 'false si ya no viene en ninguna fuente; nunca se borra']
+  con_diferencias bit [not null, default: 0, note: 'El API y la tienda dicen cosas distintas (marca, descripción)']
+  datos_incompletos bit [not null, default: 0, note: 'Falta descripción, marca, imagen o precio publicado']
+  diferencias nvarchar(max) [note: 'JSON: campos que difieren y de dónde salió cada valor']
+  creado_en datetime [not null]
+  actualizado_en datetime [not null]
+  Note: 'Una fila por SKU. Cada campo toma el valor de la fuente con prioridad: ETL Azure > API > tienda.'
+}
+
+Table datos.producto_fuente {
+  producto_fuente_id int [pk, increment]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  fuente nvarchar(20) [not null, note: 'API / TIENDA / ETL']
+  clave_externa nvarchar(80) [note: 'Id de la variante en Shopify, etc.']
+  presente bit [not null, note: 'Venía en la última carga completa de esa fuente']
+  datos nvarchar(max) [not null, note: 'JSON tal como llegó. Nunca se edita a mano']
+  huella char(64) [not null, note: 'SHA-256 de datos; si no cambia no se toca nada']
+  visto_por_ultima_vez_en datetime [not null]
+  indexes { (producto_id, fuente, clave_externa) [unique] }
+  Note: 'Lo que dijo cada fuente. Permite explicar de dónde salió cada dato y detectar diferencias.'
+}
+
+Table datos.producto_precio_historial {
+  historial_id int [pk, increment]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  precio_lista decimal(12,2)
+  precio_membresia decimal(12,2)
+  iva_pct decimal(5,2)
+  ieps_pct decimal(5,2)
+  precio_tienda_en_linea decimal(12,2)
+  vigente_desde datetime [not null]
+  carga_id int [ref: > datos.carga.carga_id]
+  Note: 'Solo inserción. Se agrega una fila únicamente cuando algún precio o tasa cambia.'
+}
+
+Table datos.carga {
+  carga_id int [pk, increment]
+  fuente nvarchar(20) [not null, note: 'API / TIENDA / ETL']
+  disparada_por nvarchar(20) [not null, note: 'programador / manual']
+  usuario_id int [note: 'Quién la lanzó, si fue manual']
+  estado nvarchar(20) [not null, note: 'en_curso / completa / fallida / cancelada']
+  completa bit [not null, default: 0, note: 'Recorrió toda la fuente. Solo una carga completa puede marcar productos como ausentes']
+  paginas int [not null, default: 0]
+  leidos int [not null, default: 0]
+  creados int [not null, default: 0]
+  actualizados int [not null, default: 0]
+  sin_cambios int [not null, default: 0]
+  ausentes int [not null, default: 0]
+  invalidos int [not null, default: 0]
+  precios_cambiados int [not null, default: 0]
+  total_fuente int [note: 'Cuántos dice la fuente que tiene (count del API)']
+  error nvarchar(1000)
+  inicio_en datetime [not null]
+  fin_en datetime
+  Note: 'Cada corrida de carga, visible en Centro de datos → Cargas.'
+}

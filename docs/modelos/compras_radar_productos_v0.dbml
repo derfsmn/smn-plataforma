@@ -1,0 +1,107 @@
+// Radar de productos, fase 1 (migración 0019, 2026-10-26). Esquema compras.
+
+Table compras.producto_idea {
+  idea_id int [pk]
+  nombre nvarchar(300) [not null]
+  marca nvarchar(120)
+  descripcion nvarchar(2000)
+  departamento nvarchar(300)
+  ingrediente nvarchar(200)
+  forma nvarchar(60)
+  contenido nvarchar(60) [note: 'texto libre: «60 cápsulas», «500 g»']
+  precio_visto decimal(12,2) [note: 'con impuestos, donde se vio']
+  donde_se_vio nvarchar(300)
+  costo_estimado decimal(12,2) [note: 'sin IVA']
+  estado nvarchar(20) [not null, note: 'nueva / buscar_proveedor / vigilar / descartada']
+  creada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  creada_en datetime [not null]
+  actualizada_en datetime [not null]
+}
+
+Table compras.producto_idea_foto {
+  idea_id int [pk, ref: > compras.producto_idea.idea_id]
+  archivo_id bigint [pk, ref: > nucleo.archivo.archivo_id]
+}
+
+Table compras.producto_evaluacion {
+  evaluacion_id int [pk]
+  propuesta_id int [ref: > compras.propuesta.propuesta_id, note: 'o idea_id, nunca los dos']
+  idea_id int [ref: > compras.producto_idea.idea_id]
+  estado nvarchar(20) [not null, note: 'en_curso / lista / fallida']
+  vigente bit [not null, note: 'recalcular deja la anterior en 0']
+  departamento nvarchar(300)
+  rama nvarchar(300)
+  subcategoria nvarchar(300)
+  segmento nvarchar(300)
+  clasificacion_origen nvarchar(20) [note: 'ia / compras / sin_clasificar']
+  puntaje int [note: '0 a 100']
+  color nvarchar(10) [note: 'el del radar']
+  confianza nvarchar(10) [note: 'alta / media / baja']
+  pesos_origen nvarchar(20) [note: 'compras / iguales']
+  explicacion nvarchar(max)
+  explicacion_ia bit [not null]
+  mercado nvarchar(max) [note: 'JSON: precios de internet del producto nuevo (radar de precios, corrida origen producto); se reusa 7 días']
+  politicas nvarchar(max) [note: 'JSON: revisión de la IA contra políticas vigentes y reglas de rechazo/umbral, rechazo directo y casos parecidos']
+  color_final nvarchar(10) [note: 'el que puso Compras']
+  motivo_cambio nvarchar(1000)
+  cambiado_por int [ref: > nucleo.usuario.usuario_id]
+  cambiado_en datetime
+  error nvarchar(1000)
+  disparada_por int [ref: > nucleo.usuario.usuario_id]
+  creada_en datetime [not null]
+  terminada_en datetime
+}
+
+Table compras.producto_evaluacion_factor {
+  evaluacion_id int [pk, ref: > compras.producto_evaluacion.evaluacion_id]
+  factor nvarchar(20) [pk, note: 'demanda / rentabilidad / precio / tendencia / categoria / proveedor']
+  peso decimal(6,2) [not null]
+  puntaje int [note: 'vacío = sin datos']
+  valor nvarchar(300)
+  detalle nvarchar(1000)
+  provisional bit [not null, note: 'regla que aún no define Compras']
+}
+
+Table compras.producto_evaluacion_comparable {
+  evaluacion_id int [pk, ref: > compras.producto_evaluacion.evaluacion_id]
+  producto_id int [pk, ref: > datos.producto.producto_id]
+  rango int [not null]
+  similitud decimal(5,3) [not null]
+  origen nvarchar(10) [not null, note: 'sistema / compras']
+}
+
+// Fase 2, «Buscar oportunidades» (migración 0024, 2026-10-27)
+Table compras.oportunidad_corrida {
+  corrida_id int [pk]
+  estado nvarchar(20) [not null, note: 'en_curso / lista / fallida']
+  paso nvarchar(300) [note: 'en qué va, para la pantalla']
+  competencia bit [not null, note: 'se buscó en Google Shopping (DataForSEO)']
+  fuentes nvarchar(max) [note: 'JSON: los datos T/H/D/C/R/K que se le dieron a la IA']
+  notas nvarchar(max) [note: 'JSON: avisos de la búsqueda']
+  con_ia bit [not null]
+  costo_usd decimal(10,4) [not null]
+  error nvarchar(1000)
+  disparada_por int [ref: > nucleo.usuario.usuario_id]
+  creada_en datetime [not null]
+  terminada_en datetime
+}
+
+Table compras.oportunidad {
+  oportunidad_id int [pk]
+  corrida_id int [not null, ref: > compras.oportunidad_corrida.corrida_id]
+  orden int [not null]
+  nombre nvarchar(300) [not null]
+  marca nvarchar(120)
+  departamento nvarchar(300)
+  subcategoria nvarchar(300)
+  forma nvarchar(60)
+  por_que nvarchar(1000) [not null]
+  prioridad nvarchar(10) [not null, note: 'alta / media / baja']
+  evidencia nvarchar(max) [not null, note: 'JSON: [{clave, fuente, texto}]']
+  precio_visto decimal(12,2) [note: 'mediana de la competencia, con impuestos']
+  donde_se_vio nvarchar(300)
+  estado nvarchar(20) [not null, note: 'nueva / evaluada / descartada']
+  idea_id int [ref: > compras.producto_idea.idea_id, note: 'al «Evaluar» se crea una idea de Compras']
+  actualizada_por int [ref: > nucleo.usuario.usuario_id]
+  actualizada_en datetime
+}

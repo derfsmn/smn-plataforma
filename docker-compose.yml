@@ -1,5 +1,5 @@
 # Entorno local de desarrollo: SQL Server + API (FastAPI) + web (Next.js)
-# Uso: copia .env.ejemplo como .env y ejecuta: docker compose up --build
+# Uso: copia entorno.ejemplo como .env y ejecuta: docker compose up --build
 
 services:
   sqlserver:
@@ -18,10 +18,24 @@ services:
     env_file: .env
     environment:
       BD_SERVIDOR: sqlserver
+      ARCHIVOS_RUTA: /datos/archivos
     ports:
       - "8000:8000"
+    volumes:
+      - archivos:/datos/archivos
+    # Para que la API alcance Ollama corriendo en tu equipo (Windows/Mac ya lo traen; esto lo agrega en Linux)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - sqlserver
+      - correo
+
+  # Buzón de prueba: atrapa todos los correos de la plataforma; nada sale a internet.
+  # Bandeja en http://localhost:8025
+  correo:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
 
   web:
     build:
@@ -35,3 +49,4 @@ services:
 
 volumes:
   sqlserver_datos:
+  archivos:

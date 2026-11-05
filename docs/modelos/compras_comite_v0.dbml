@@ -1,0 +1,82 @@
+// Comité de producto nuevo (esquema compras). Plan aprobado por Diego el 2026-11-04:
+// https://claude.ai/artifact/LHzWa52fqTHbwt7TEJvPLU
+// Cada reunión abre un ciclo: se suben productos, se evalúan con el semáforo, Compras pre-filtra y el comité decide.
+// Migración 0040.
+
+Table compras.comite_reunion {
+  reunion_id int [pk, increment]
+  fecha date [not null, note: 'día de la reunión']
+  notas nvarchar(2000)
+  estado nvarchar(20) [not null, note: 'abierta (se suben productos) / prefiltro / comite / cerrada; una sin cerrar a la vez']
+  aprendizajes nvarchar(max) [note: '«Qué aprendimos»: qué cambiar en el siguiente ciclo']
+  creada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  creada_en datetime [not null]
+  prefiltro_en datetime
+  comite_en datetime
+  cerrada_en datetime
+  cerrada_por int [ref: > nucleo.usuario.usuario_id]
+}
+
+Table compras.comite_producto {
+  item_id int [pk, increment]
+  reunion_id int [not null, ref: > compras.comite_reunion.reunion_id]
+  propuesta_id int [ref: > compras.propuesta.propuesta_id, note: 'una propuesta o una idea, nunca las dos']
+  idea_id int [ref: > compras.producto_idea.idea_id]
+  origen nvarchar(20) [not null, note: 'captura / propuesta / idea / espera (viene de «En espera» de otra reunión)']
+  viene_de int [ref: > compras.comite_producto.item_id]
+  orden int [not null, note: 'orden en el modo presentación']
+  agregado_por int [not null, ref: > nucleo.usuario.usuario_id]
+  agregado_en datetime [not null]
+  prefiltro nvarchar(10) [note: 'pasa / no_pasa']
+  prefiltro_motivo nvarchar(1000)
+  criterios nvarchar(max) [note: 'JSON [{criterio, valor: bien/regular/mal, nota}]: políticas y criterios nuevos (p. ej. gusto del empaque)']
+  prefiltro_color nvarchar(10) [note: 'semáforo al pre-filtrar, para comparar después']
+  prefiltro_puntaje int
+  prefiltro_por int [ref: > nucleo.usuario.usuario_id]
+  prefiltro_en datetime
+  decision nvarchar(12) [note: 'aceptado / denegado / en_espera']
+  decision_motivo nvarchar(1000)
+  decision_color nvarchar(10) [note: 'semáforo al decidir']
+  decision_puntaje int
+  decision_por int [ref: > nucleo.usuario.usuario_id]
+  decision_en datetime
+
+  indexes {
+    (reunion_id, propuesta_id) [unique, note: 'donde propuesta_id no es nulo']
+    (reunion_id, idea_id) [unique, note: 'donde idea_id no es nulo']
+  }
+}
+
+Table compras.comite_revision {
+  item_id int [pk, ref: > compras.comite_producto.item_id]
+  tipo nvarchar(20) [pk, note: 'inventario (¿hay espacio?) / regulacion']
+  resultado nvarchar(20) [not null, note: 'pendiente / aprobada / rechazada']
+  nota nvarchar(1000)
+  actualizada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  actualizada_en datetime [not null]
+}
+
+Table compras.comite_asistente {
+  asistente_id int [pk, increment]
+  reunion_id int [not null, ref: > compras.comite_reunion.reunion_id]
+  usuario_id int [ref: > nucleo.usuario.usuario_id, note: 'vacío si se escribió el nombre a mano']
+  nombre nvarchar(200) [not null]
+  puesto nvarchar(120)
+  agregado_en datetime [not null]
+}
+
+Table compras.comite_peticion {
+  peticion_id int [pk, increment]
+  reunion_id int [not null, ref: > compras.comite_reunion.reunion_id]
+  item_id int [ref: > compras.comite_producto.item_id, note: 'sobre qué producto, si aplica']
+  asistente_id int [ref: > compras.comite_asistente.asistente_id, note: 'quién lo pidió']
+  texto nvarchar(1000) [not null]
+  estado nvarchar(10) [not null, note: 'abierta / atendida']
+  respuesta nvarchar(1000)
+  atendida_por int [ref: > nucleo.usuario.usuario_id]
+  atendida_en datetime
+  creada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  creada_en datetime [not null]
+}
+
+// También: compras.producto_evaluacion.modelo nvarchar(20): con_proveedor / sin_proveedor (cuál semáforo se usó).

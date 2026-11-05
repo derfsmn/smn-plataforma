@@ -1,0 +1,100 @@
+// Ventas históricas · esquema datos (Centro de datos) · v0 (2026-10-21; ajustado el 2026-10-23 con la migración 0018).
+// Implementado: venta_semanal, venta_cuadre, carga_paso y columnas nuevas de carga. datos.tienda y los campos nuevos de
+// datos.producto quedaron como están en datos_smnbi_v0.dbml (migración 0022); los de abajo son el borrador anterior.
+// Fuente: base SMNBI de Sistemas (tblArticulos, tblVenta, tblVentaD). La plataforma no consulta SMNBI en vivo:
+// el ETL trae la venta YA SUMADA por producto, tienda y semana y la guarda aquí (DECISIONES 2026-10-15).
+// Reglas de transformación y preguntas abiertas: docs/sistemas/diseno_etl_ventas.md
+
+// Se agregan a datos.producto (datos_catalogo_v0.dbml) los campos de tblArticulos que hoy no tiene.
+// El ETL es una fuente más del catálogo (origen ETL, prioridad ETL > API > tienda).
+Table datos.producto {
+  producto_id int [pk]
+  sku nvarchar(80) [note: 'tblArticulos.Articulo']
+  categoria nvarchar(120) [note: 'NUEVO. tblArticulos.Categoria']
+  fabricante nvarchar(200) [note: 'NUEVO. tblArticulos.Fabricante']
+  tipo_compra nvarchar(40) [note: 'NUEVO. tblArticulos.TipoCompra; significado por confirmar']
+  estatus_intelisis nvarchar(30) [note: 'NUEVO. ALTA / DESCONTINUADO']
+  Note: 'Solo se muestran los campos nuevos; el resto está en datos_catalogo_v0.dbml'
+}
+
+Table datos.tienda {
+  tienda_id int [pk, increment]
+  codigo nvarchar(10) [unique, not null, note: 'tblVenta.Sucursal (123 distintas)']
+  nombre nvarchar(200) [null, note: 'Falta el catálogo de tiendas: se pide a Sistemas']
+  formato nvarchar(60) [null]
+  clase nvarchar(30) [null]
+  ciudad nvarchar(120) [null]
+  estado_republica nvarchar(60) [null]
+  codigo_postal nvarchar(10) [null]
+  fecha_apertura date [null]
+  fecha_cierre date [null]
+  es_en_linea bit [not null, default: 0, note: 'Por confirmar con Sistemas cuál código es la venta en línea']
+  activa bit [not null, default: 1]
+  primera_venta date [note: 'Calculada por el ETL mientras no llegue la fecha de apertura']
+  ultima_venta date
+  Note: 'Una fila por sucursal que aparece en la venta. Los datos descriptivos se llenan cuando Sistemas mande el catálogo.'
+}
+
+Table datos.venta_semanal {
+  mes date [not null, note: 'Primer día del mes. Una semana que cruza de mes queda en dos filas, una por mes']
+  sku nvarchar(80) [not null, note: 'tblVentaD.Articulo (código, no producto_id: así no depende de que el catálogo ya lo tenga)']
+  tienda nvarchar(10) [not null, note: 'tblVenta.Sucursal (código). Se liga a datos.tienda cuando llegue tblAlmacenes']
+  semana date [not null, note: 'Lunes de la semana']
+  empresa nvarchar(5) [not null, note: 'tblVenta.Empresa (PS / VCE); significado por confirmar']
+  piezas decimal(14,3) [not null, note: 'Vendidas: Cantidad × Factor (paquetes y cajas a piezas)']
+  piezas_devueltas decimal(14,3) [not null, note: 'Nota Devolucion y Devolucion Venta, en positivo']
+  importe_bruto decimal(16,2) [not null, note: 'Antes de descuentos, sin impuestos (por confirmar)']
+  descuento decimal(16,2) [not null]
+  importe decimal(16,2) [not null, note: 'Bruto menos descuento, con devoluciones restando']
+  costo decimal(16,2) [null, note: 'Costo de lo vendido']
+  tickets int [not null, note: 'Ventas distintas (tblVenta.ID) que traen el producto']
+  carga_id int [not null, ref: > datos.carga.carga_id]
+  indexes {
+    (mes, sku, tienda, semana, empresa) [pk]
+    (semana)
+    (sku, semana)
+  }
+  Note: 'Una fila por mes, producto, tienda, semana y empresa. Cada carga reemplaza completos los meses que trae (borra e inserta en una transacción), así que repetir una carga no duplica nada. Membresía queda fuera hasta saber cómo distinguir socios.'
+}
+
+Table datos.venta_cuadre {
+  cuadre_id int [pk, increment]
+  carga_id int [not null, ref: > datos.carga.carga_id]
+  mes date [not null, note: 'Primer día del mes']
+  empresa nvarchar(5) [not null]
+  importe_origen decimal(18,2) [null, note: 'Suma en SMNBI (o en el CSV) con las mismas reglas']
+  importe_cargado decimal(18,2) [not null, note: 'Suma en datos.venta_semanal']
+  piezas_origen decimal(18,3) [null]
+  piezas_cargadas decimal(18,3) [not null]
+  renglones_fuera int [null, note: 'Renglones excluidos por las reglas (flete, servicios, sin artículo en catálogo...)']
+  cuadra bit [null, note: 'Diferencia menor a 0.01 %']
+  Note: 'Prueba de cada carga: lo cargado debe sumar lo mismo que SMNBI. Se ve en Centro de datos → ETL.'
+}
+
+Table datos.carga {
+  carga_id int [pk]
+  fuente nvarchar(20) [note: 'Se agrega el valor ETL_VENTAS']
+  estado nvarchar(20) [note: 'Se agrega el valor detenida']
+  desde date [null, note: 'NUEVO. Primer mes que trae la carga']
+  hasta date [null, note: 'NUEVO. Último mes']
+  paso nvarchar(20) [null, note: 'NUEVO. Paso en curso: conectar, extraer, transformar, cargar, cuadrar']
+  mes_actual date [null, note: 'NUEVO. Mes que se está cargando']
+  meses_total int [null, note: 'NUEVO']
+  meses_hechos int [null, note: 'NUEVO']
+  detener bit [not null, default: 0, note: 'NUEVO. Se prende con el botón Detener; el ETL lo revisa en cada paso']
+  archivo nvarchar(260) [null, note: 'NUEVO. Nombre del CSV cuando la carga fue con archivo']
+  Note: 'Ya existe (datos_catalogo_v0.dbml). El avance se escribe en una sesión aparte para que se vea mientras corre.'
+}
+
+Table datos.carga_paso {
+  paso_id int [pk, increment]
+  carga_id int [not null, ref: > datos.carga.carga_id]
+  mes date [null]
+  paso nvarchar(20) [not null]
+  estado nvarchar(20) [not null, note: 'en_curso / hecho / detenido / fallido']
+  filas int [null]
+  nota nvarchar(500) [null]
+  inicio_en datetime [not null]
+  fin_en datetime [null]
+  Note: 'Bitácora de pasos de cada carga del ETL: es lo que la pantalla muestra en vivo.'
+}

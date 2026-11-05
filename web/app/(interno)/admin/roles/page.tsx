@@ -68,29 +68,29 @@ export default function AdminRoles() {
               onClick={() => setElegido(r.codigo)}
               className={`relative w-full rounded-2xl border p-4 text-left transition-colors ${rol.codigo === r.codigo ? "border-transparent" : "border-smn-gris-100 bg-superficie hover:border-smn-gris-300"}`}
             >
-              {rol.codigo === r.codigo && <motion.span layoutId="rol-elegido" className="absolute inset-0 rounded-2xl bg-smn-negro dark:ring-1 dark:ring-white/10" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
+              {rol.codigo === r.codigo && <motion.span layoutId="rol-elegido" className="absolute inset-0 rounded-2xl border-2 border-[var(--resalte)] bg-superficie" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
               <span className="relative flex items-center justify-between gap-2">
-                <span className={`font-bold ${rol.codigo === r.codigo ? "text-white" : ""}`}>{r.nombre}</span>
-                <Insignia className={r.para === "externo" ? "bg-smn-naranja text-smn-negro" : rol.codigo === r.codigo ? "bg-white/10 text-white" : "bg-smn-gris-100 text-smn-gris-700"}>{r.para}</Insignia>
+                <span className={`font-semibold ${rol.codigo === r.codigo ? "text-tinta" : ""}`}>{r.nombre}</span>
+                <Insignia className={r.para === "externo" ? "bg-smn-naranja text-smn-negro" : "bg-smn-gris-100 text-smn-gris-700"}>{r.para}</Insignia>
               </span>
-              <span className={`relative mt-1 block text-sm ${rol.codigo === r.codigo ? "text-white/60" : "text-smn-gris-500"}`}>
+              <span className={`relative mt-1 block text-sm ${"text-smn-gris-500"}`}>
                 {r.descripcion} · {r.permisos.length} {r.permisos.length === 1 ? "permiso" : "permisos"}
               </span>
             </button>
           ))}
         </Entrada>
 
-        <Entrada retraso={0.1} className="rounded-3xl border border-smn-gris-100 bg-superficie p-6">
-          <h2 className="text-lg font-extrabold">{rol.nombre}</h2>
+        <Entrada retraso={0.1} className="rounded-2xl border border-smn-gris-100 bg-superficie p-6">
+          <h2 className="text-lg font-semibold">{rol.nombre}</h2>
           {grupos.map((g) => (
             <div key={g} className="mt-5">
-              <p className="mb-2 text-xs font-bold tracking-widest text-smn-gris-500 uppercase">{g}</p>
+              <p className="mb-2 text-[13px] font-medium text-smn-gris-500">{g}</p>
               <ul className="divide-y divide-smn-gris-100 rounded-2xl border border-smn-gris-100">
                 {permisos.filter((p) => p.modulo === g).map((p) => (
                   <li key={p.codigo} className="flex items-center justify-between gap-4 px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold">{p.descripcion}</p>
-                      <code className="text-xs break-all text-smn-gris-500">{p.codigo}</code>
+                      <code className="text-[13px] break-all text-smn-gris-500">{p.codigo}</code>
                     </div>
                     <Interruptor
                       encendido={rol.permisos.includes(p.codigo)}

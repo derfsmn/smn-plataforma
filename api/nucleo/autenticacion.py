@@ -2,17 +2,18 @@
 import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from core.bd import obtener_bd
+from core.bd import motor, obtener_bd
 from core.config import configuracion
 from core.seguridad import (
     Contexto, cerrar_sesion, cifrar_contrasena, error_contrasena, hash_token, iniciar_sesion, ip_de, nuevo_token,
     permisos_de, revocar_sesiones, usuario_actual, verificar_contrasena, _hasher,
 )
 from nucleo.bitacora import registrar
+from nucleo.notificaciones import correo, notificar
 from nucleo.esquemas import (
     CambioContrasena, Credenciales, DatosLiga, ModuloSalida, NuevaContrasena, SolicitudRecuperacion, UsuarioSalida, Yo,
 )
@@ -47,6 +48,25 @@ def armar_yo(bd: Session, usuario: Usuario) -> Yo:
         modulos=[ModuloSalida.de(m) for m in modulos],
         debe_cambiar_contrasena=usuario.debe_cambiar_contrasena,
         entorno=configuracion().api_entorno,
+    )
+
+
+def _correo_en_segundo_plano(usuario_id: int, para: str, asunto: str, titulo: str, parrafos: list[str],
+                             boton: tuple[str, str] | None = None, nota: str | None = None) -> bool:
+    """Se corre después de responder, con su propia conexión, para no hacer esperar a la persona."""
+    with Session(motor()) as bd:
+        enviado = correo(bd, usuario_id, para, asunto, titulo, parrafos, boton=boton, nota=nota)
+        bd.commit()
+    return enviado
+
+
+def _avisar_cambio_contrasena(bd: Session, usuario: Usuario, tareas: BackgroundTasks) -> None:
+    notificar(bd, usuario.usuario_id, "Tu contraseña cambió",
+              "Si no fuiste tú, avisa de inmediato al administrador de la plataforma.", liga="/perfil")
+    tareas.add_task(
+        _correo_en_segundo_plano, usuario.usuario_id, usuario.correo, "Tu contraseña cambió", f"Hola, {usuario.nombre}",
+        ["La contraseña de tu cuenta en SMN - Transformación digital acaba de cambiar y se cerraron tus otras sesiones.",
+         "Si fuiste tú, no tienes que hacer nada. Si no fuiste tú, avisa de inmediato al administrador de la plataforma."],
     )
 
 
@@ -105,7 +125,7 @@ def yo(ctx: Contexto = Depends(usuario_actual), bd: Session = Depends(obtener_bd
 
 @router.post("/cambiar-contrasena", response_model=Yo)
 def cambiar_contrasena(
-    datos: CambioContrasena, request: Request, response: Response,
+    datos: CambioContrasena, request: Request, response: Response, tareas: BackgroundTasks,
     ctx: Contexto = Depends(usuario_actual), bd: Session = Depends(obtener_bd),
 ) -> Yo:
     usuario = ctx.usuario
@@ -121,12 +141,14 @@ def cambiar_contrasena(
     revocar_sesiones(bd, usuario.usuario_id)
     iniciar_sesion(bd, usuario, request, response)
     registrar(bd, "cambio_contrasena", usuario_id=usuario.usuario_id, entidad="usuario", entidad_id=usuario.usuario_id, ip=ip_de(request))
+    _avisar_cambio_contrasena(bd, usuario, tareas)
     bd.commit()
     return armar_yo(bd, usuario)
 
 
 @router.post("/recuperar")
-def recuperar(datos: SolicitudRecuperacion, request: Request, bd: Session = Depends(obtener_bd)) -> dict:
+def recuperar(datos: SolicitudRecuperacion, request: Request, tareas: BackgroundTasks,
+              bd: Session = Depends(obtener_bd)) -> dict:
     """Siempre responde lo mismo, para no revelar qué correos tienen cuenta."""
     usuario = buscar_por_correo(bd, datos.correo)
     if usuario and usuario.estatus == "activo":
@@ -138,9 +160,18 @@ def recuperar(datos: SolicitudRecuperacion, request: Request, bd: Session = Depe
         registrar(bd, "recuperacion_solicitada", usuario_id=usuario.usuario_id, entidad="usuario",
                   entidad_id=usuario.usuario_id, ip=ip_de(request))
         bd.commit()
-        # Etapa 4: se envía por correo. Mientras, en desarrollo se muestra en la consola de la API.
-        if configuracion().es_desarrollo:
-            log.info("Liga de recuperación para %s: %s/restablecer/%s", usuario.correo, configuracion().web_url, token)
+        liga = f"{configuracion().web_url}/restablecer/{token}"
+        # Sin correo configurado, en desarrollo la liga se ve en la consola de la API
+        if configuracion().es_desarrollo and not configuracion().smtp_servidor:
+            log.info("Liga de recuperación para %s: %s", usuario.correo, liga)
+        # El correo sale después de responder: así tarda lo mismo exista o no la cuenta
+        tareas.add_task(
+            _correo_en_segundo_plano, usuario.usuario_id, usuario.correo, "Recupera tu contraseña", f"Hola, {usuario.nombre}",
+            ["Recibimos una solicitud para crear una contraseña nueva en SMN - Transformación digital.",
+             f"La liga vence en {MINUTOS_LIGA_RECUPERACION} minutos y solo se puede usar una vez."],
+            ("Crear contraseña nueva", liga),
+            "Si no lo pediste, ignora este correo; tu contraseña no cambia.",
+        )
     return {"mensaje": "Si el correo tiene cuenta, recibirá una liga para crear una nueva contraseña."}
 
 
@@ -169,7 +200,8 @@ def ver_restablecimiento(token: str, bd: Session = Depends(obtener_bd)) -> Datos
 
 
 @router.post("/restablecer/{token}")
-def restablecer(token: str, datos: NuevaContrasena, request: Request, bd: Session = Depends(obtener_bd)) -> dict:
+def restablecer(token: str, datos: NuevaContrasena, request: Request, tareas: BackgroundTasks,
+                bd: Session = Depends(obtener_bd)) -> dict:
     r = _restablecimiento_valido(bd, token)
     if motivo := error_contrasena(datos.contrasena):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, motivo)
@@ -182,6 +214,7 @@ def restablecer(token: str, datos: NuevaContrasena, request: Request, bd: Sessio
     revocar_sesiones(bd, usuario.usuario_id)
     registrar(bd, "contrasena_restablecida", usuario_id=usuario.usuario_id, entidad="usuario",
               entidad_id=usuario.usuario_id, ip=ip_de(request))
+    _avisar_cambio_contrasena(bd, usuario, tareas)
     bd.commit()
     return {"mensaje": "Listo. Ya puedes iniciar sesión con tu nueva contraseña."}
 
@@ -213,5 +246,9 @@ def aceptar_invitacion(
     iniciar_sesion(bd, usuario, request, response)
     registrar(bd, "invitacion_aceptada", usuario_id=usuario.usuario_id, entidad="usuario",
               entidad_id=usuario.usuario_id, ip=ip_de(request))
+    if i.invitado_por and i.invitado_por != usuario.usuario_id:
+        quien = f"{usuario.nombre} ({usuario.organizacion.nombre})" if usuario.organizacion else usuario.nombre
+        notificar(bd, i.invitado_por, "Invitación aceptada", f"{quien} creó su contraseña y ya puede entrar.",
+                  liga="/admin/usuarios")
     bd.commit()
     return armar_yo(bd, usuario)

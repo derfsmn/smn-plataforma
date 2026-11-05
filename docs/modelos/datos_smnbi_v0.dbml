@@ -1,0 +1,112 @@
+// Tablas de SMNBI para el semáforo de productos · esquema datos · v0 (2026-10-26, migración 0022).
+// Implementado. Reemplaza el borrador de datos.tienda y de los campos nuevos de datos.producto de datos_ventas_v0.dbml.
+// Se cargan subiendo el CSV de cada consulta (Centro de datos > ETL > «Descargar consultas»): Diego las corre en SSMS.
+// Cómo vienen los datos: docs/sistemas/revision_smnbi_2026-10-26.md. Sin RFC ni nombres de personas.
+
+// Campos de tblArticulos que se agregan a datos.producto (origen ETL; solo llena lo que API y tienda no traen)
+Table datos.producto {
+  producto_id int [pk]
+  categoria nvarchar(300) [note: 'tblArticulos.Categoria']
+  fabricante nvarchar(300)
+  tipo_compra nvarchar(100)
+  estatus_erp nvarchar(30) [note: 'ALTA / DESCONTINUADO; solo en SMNBI y descontinuado = activo 0']
+  Note: 'Solo los campos nuevos; el resto en datos_catalogo_v0.dbml'
+}
+
+Table datos.tienda {
+  almacen nvarchar(10) [pk, note: '= venta_semanal.tienda (tblVenta.Almacen)']
+  nombre nvarchar(100) [not null]
+  poblacion nvarchar(100)
+  estado nvarchar(30)
+  codigo_postal nvarchar(15)
+  grupo nvarchar(50)
+  ruta nvarchar(50) [note: 'TIENDAS = venta al público']
+  sucursal int
+  estatus nvarchar(15)
+  region nvarchar(50)
+  categoria nvarchar(50) [note: 'AA, A, B, C, D, E; MAY = mayoreo (no cuenta como tienda en el semáforo)']
+  fecha_apertura date
+  latitud float
+  longitud float
+  carga_id int [ref: > datos.carga.carga_id]
+}
+
+Table datos.proveedor {
+  proveedor nvarchar(10) [pk, note: '= producto.codigo_proveedor; sin RFC']
+  nombre nvarchar(100)
+  estatus nvarchar(15)
+  condicion nvarchar(30)
+  descuento nvarchar(30)
+  descuento_adicional decimal(9,4)
+  dias_entrega int [note: 'lo que promete']
+  penalizacion decimal(9,4)
+  carga_id int [ref: > datos.carga.carga_id]
+}
+
+Table datos.compra_orden {
+  empresa nvarchar(5) [pk]
+  orden nvarchar(20) [pk, note: 'tblCompra.NumMov de la Orden Compra']
+  proveedor nvarchar(10)
+  almacen nvarchar(10)
+  fecha_orden date [not null]
+  estatus nvarchar(15)
+  piezas_pedidas decimal(16,3)
+  importe_pedido decimal(18,2)
+  primera_entrada date [note: 'Entrada Compra ligada por Origen/OrigenID']
+  ultima_entrada date
+  piezas_recibidas decimal(16,3) [not null]
+  piezas_perdidas decimal(16,3) [not null, note: 'Compra Perdida']
+  piezas_rechazadas decimal(16,3) [not null, note: 'Compra Rechazada']
+  carga_id int [ref: > datos.carga.carga_id]
+}
+
+Table datos.costo_articulo {
+  sku nvarchar(80) [pk]
+  proveedor nvarchar(10)
+  fecha_ultima date
+  costo_ultimo decimal(14,4) [note: 'por pieza, sin IVA']
+  costo_12m decimal(14,4)
+  piezas_12m decimal(16,3)
+  compras_12m int
+  carga_id int [ref: > datos.carga.carga_id]
+}
+
+Table datos.inventario {
+  fecha_corte date [pk, note: 'cada carga reemplaza solo su fecha']
+  empresa nvarchar(5) [pk]
+  almacen nvarchar(10) [pk]
+  sku nvarchar(80) [pk]
+  existencia decimal(16,3) [not null]
+  costo_promedio decimal(14,4)
+  carga_id int [ref: > datos.carga.carga_id]
+}
+
+// Datos → Proveedores (migración 0027): cada «Calcular» crea una evaluación; se guardan las últimas 10.
+Table datos.proveedor_evaluacion {
+  evaluacion_id int [pk, increment]
+  estado varchar [note: 'en_curso / completa / fallida']
+  iniciada_por int [ref: > nucleo.usuario.usuario_id]
+  iniciada_en datetime
+  terminada_en datetime
+  proveedores int
+  calificados int
+  contexto nvarchar(max) [note: 'JSON: ventanas de venta, compras, inventario y radar de precios usadas; pesos; margen de la empresa']
+  error nvarchar(max)
+}
+
+Table datos.proveedor_calificacion {
+  evaluacion_id int [pk, ref: > datos.proveedor_evaluacion.evaluacion_id]
+  proveedor nvarchar(10) [pk]
+  nombre nvarchar
+  puntaje int [note: '0-100, promedio ponderado de los bloques con datos']
+  color varchar [note: 'verde > 80, amarillo 60-80, rojo < 60; verde baja a amarillo con confianza baja']
+  confianza varchar [note: 'alta / media / baja / sin_datos según el peso con datos']
+  cumplimiento int
+  comercial int
+  costo int
+  inventario int
+  skus_activos int
+  venta decimal(18,2)
+  compra decimal(18,2)
+  metricas nvarchar(max) [note: 'JSON con las métricas de cada bloque, notas y sus 40 SKU con más venta']
+}

@@ -1,0 +1,73 @@
+// Compras · Propuestas de productos nuevos (portal de proveedores) · v0 (2026-10-22)
+// Fuente del formulario: cuestionario v4 de Compras, con los ajustes del plan aprobado por Diego el 2026-10-22:
+//   código de barras por presentación, departamento, vida útil en días (la mínima no pasa de la total).
+// Plan: https://claude.ai/artifact/F3RQZisQdY7KkweuzMV3MX
+//
+// Lo capturado se guarda completo en propuesta.respuestas (JSON, estructura en api/modulos/compras/propuestas.py).
+// Lo que se busca o se filtra sale a columnas: estado, folio, proveedor, producto, departamento y las presentaciones
+// (con su código de barras), que son la entrada del radar de productos. Cuando se construya el semáforo, cada
+// propuesta «lista» se convierte en un compras.producto_candidato (modelo_semaforo_v3.dbml).
+
+Table compras.propuesta {
+  propuesta_id int [pk, increment]
+  folio nvarchar(20) [unique, null, note: 'PN-AAAA-NNNN; se asigna al enviar la primera vez y no cambia']
+  organizacion_id int [not null, ref: > nucleo.organizacion_externa.organizacion_id, note: 'El proveedor; un externo solo ve las de su organización']
+  creada_por int [not null, ref: > nucleo.usuario.usuario_id]
+  estado nvarchar(20) [not null, default: 'borrador', note: 'borrador / recibida / en_revision / devuelta / lista / rechazada']
+  producto nvarchar(300) [null, note: 'Marca + descripción de la primera presentación, para la bandeja']
+  marca nvarchar(120) [null]
+  departamento nvarchar(300) [null, note: 'Del catálogo SMN (datos.producto.departamento); Compras lo puede corregir']
+  presentaciones int [not null, default: 0]
+  respuestas nvarchar(max) [not null, note: 'JSON con todas las secciones del cuestionario']
+  revisiones nvarchar(max) [null, note: 'JSON: revisiones automáticas al enviar (RFC, código de barras, ya en catálogo, margen, vida útil)']
+  alertas int [not null, default: 0, note: 'Cuántas revisiones automáticas quedaron en alerta']
+  comentario nvarchar(1000) [null, note: 'Último comentario de Compras al regresarla o rechazarla']
+  enviada_en datetime [null, note: 'Último envío']
+  creada_en datetime [not null]
+  actualizada_en datetime [not null]
+  indexes {
+    (organizacion_id, estado)
+    (estado, enviada_en)
+  }
+}
+
+Table compras.propuesta_presentacion {
+  presentacion_id int [pk, increment]
+  propuesta_id int [not null, ref: > compras.propuesta.propuesta_id]
+  orden int [not null]
+  codigo_barras nvarchar(14) [null, note: 'EAN-8, UPC-12, EAN-13 o GTIN-14 con dígito verificador válido']
+  descripcion nvarchar(180) [null]
+  forma nvarchar(60) [null, note: 'Cápsula, tableta, líquido...']
+  contenido_neto decimal(12,3) [null]
+  unidad_medida nvarchar(20) [null]
+  costo_sin_iva decimal(12,2) [null, note: 'MXN']
+  pvp_sugerido decimal(12,2) [null, note: 'MXN, con impuestos']
+  tasa_iva decimal(5,2) [null]
+  tasa_ieps decimal(5,2) [null]
+  margen_calculado decimal(7,2) [null, note: '% sobre el precio sin impuestos si se vende al precio sugerido; informativo']
+  ya_en_catalogo bit [not null, default: 0, note: 'El código ya existe en datos.producto']
+  indexes {
+    (propuesta_id, orden) [unique]
+    codigo_barras
+  }
+}
+
+Table compras.propuesta_adjunto {
+  adjunto_id int [pk, increment]
+  propuesta_id int [not null, ref: > compras.propuesta.propuesta_id]
+  archivo_id bigint [not null, ref: > nucleo.archivo.archivo_id]
+  tipo nvarchar(40) [not null, note: 'imagen_producto / imagen_etiquetado / carta_gs1 / evidencia_registro_funcionamiento / evidencia_titulo_marca / ficha_tecnica / documento_adicional']
+  etiqueta nvarchar(40) [null, note: 'Fotos: Frente, Reverso, Lateral, Tabla nutrimental...']
+  agregado_en datetime [not null]
+}
+
+Table compras.propuesta_evento {
+  evento_id int [pk, increment]
+  propuesta_id int [not null, ref: > compras.propuesta.propuesta_id]
+  estado_antes nvarchar(20) [null]
+  estado_despues nvarchar(20) [not null]
+  comentario nvarchar(1000) [null]
+  usuario_id int [not null, ref: > nucleo.usuario.usuario_id]
+  ocurrido_en datetime [not null]
+  Note: 'Historia de la propuesta: envíos, cambios de estado y comentarios. El proveedor ve la suya.'
+}

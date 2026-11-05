@@ -1,14 +1,17 @@
 "use client";
 // Inicio de sesión con usuario (correo) y contraseña, sin Microsoft 365.
+// Primera pantalla con el diseño «sobrio»: letra Geist, esquinas de 8 px, líneas finas y el naranja solo para lo importante.
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { Building2, Eye, EyeOff, MailCheck, Store } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Boton, Campo } from "@/componentes/ui";
+import {
+  AlertCircle, ArrowLeft, ArrowRight, Building2, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, Store,
+} from "lucide-react";
+import { forwardRef, useEffect, useState } from "react";
 import { FranjaEntorno } from "@/componentes/avisos";
 import { SelectorTema } from "@/componentes/selector-tema";
+import { PanelMarca, Reticula } from "@/componentes/panel-marca";
 import { api, mensajeDe, type Yo } from "@/lib/api";
 import { destinoDe } from "@/componentes/sesion";
 
@@ -19,12 +22,14 @@ const pestanas: { tipo: Tipo; texto: string; icono: typeof Store }[] = [
   { tipo: "externo", texto: "Proveedor", icono: Store },
 ];
 
+
 export default function Login() {
   const router = useRouter();
   const [tipo, setTipo] = useState<Tipo>("interno");
   const [correo, setCorreo] = useState("");
   const [contrasena, setContrasena] = useState("");
   const [ver, setVer] = useState(false);
+  const [mayusculas, setMayusculas] = useState(false);
   const [errores, setErrores] = useState<{ correo?: string; contrasena?: string; general?: string }>({});
   const [cargando, setCargando] = useState(false);
   const [recuperar, setRecuperar] = useState(false);
@@ -63,137 +68,246 @@ export default function Login() {
     setCargando(false);
   };
 
+  const cambiarModo = (r: boolean) => {
+    setRecuperar(r);
+    setLigaEnviada(false);
+    setErrores({});
+  };
+
   return (
     <MotionConfig reducedMotion="user">
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-screen flex-col font-sobria">
         <FranjaEntorno />
-        <div className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
-          {/* Panel de marca */}
-          <section className="relative hidden overflow-hidden bg-smn-negro p-12 text-white lg:flex lg:flex-col lg:justify-between">
-            <motion.div
-              aria-hidden
-              className="absolute -top-32 -left-24 h-[28rem] w-[28rem] rounded-full bg-smn-naranja/30 blur-3xl"
-              animate={{ x: [0, 40, 0], y: [0, 30, 0] }}
-              transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
-            />
-            <motion.div
-              aria-hidden
-              className="absolute -right-24 -bottom-40 h-[30rem] w-[30rem] rounded-full bg-smn-naranja/20 blur-3xl"
-              animate={{ x: [0, -30, 0], y: [0, -40, 0] }}
-              transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-            />
-            <Image src="/marca/logo-1linea-naranja-blanco.png" alt="Súper Naturista" width={1200} height={171} className="relative h-auto w-64" priority />
-            <motion.div className="relative max-w-md" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}>
-              <p className="text-sm font-bold tracking-widest text-smn-naranja uppercase">Transformación digital</p>
-              <h1 className="mt-3 text-4xl leading-tight font-extrabold">Todas las iniciativas de SMN en un solo lugar.</h1>
-              <p className="mt-4 text-white/60">Compras, Recursos Humanos y las áreas que vienen, con la misma cuenta.</p>
-            </motion.div>
-            <p className="relative text-xs text-white/40">© Súper Mayoreo Naturista</p>
-          </section>
+        <div className="grid flex-1 lg:grid-cols-[1.05fr_1fr]">
+          <PanelMarca />
 
           {/* Formulario */}
-          <section className="relative flex items-center justify-center px-5 py-10 sm:px-10">
-            <div className="absolute top-4 right-4">
+          <section className="relative flex flex-col overflow-hidden bg-superficie">
+            <Reticula className="text-smn-gris-100 [mask-image:radial-gradient(ellipse_at_top,black,transparent_65%)]" />
+            <div aria-hidden className="pointer-events-none absolute -top-40 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-smn-naranja/10 blur-3xl lg:hidden" />
+
+            <header className="relative flex items-center justify-between px-5 pt-5 sm:px-8">
+              <span className="lg:invisible">
+                <Image src="/marca/logo-1linea-naranja-negro.png" alt="Súper Naturista" width={1200} height={171} className="h-auto w-40 dark:hidden" priority />
+                <Image src="/marca/logo-1linea-naranja-blanco.png" alt="Súper Naturista" width={1200} height={171} className="hidden h-auto w-40 dark:block" priority />
+              </span>
               <SelectorTema />
-            </div>
-            <motion.div className="w-full max-w-sm" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-              <Image src="/marca/logo-1linea-naranja-negro.png" alt="Súper Naturista" width={1200} height={171} className="mb-10 h-auto w-52 lg:hidden dark:hidden" priority />
-              <Image src="/marca/logo-1linea-naranja-blanco.png" alt="Súper Naturista" width={1200} height={171} className="mb-10 hidden h-auto w-52 dark:block lg:dark:hidden" priority />
+            </header>
 
-              <h2 className="text-2xl font-extrabold tracking-tight">{recuperar ? "Recupera tu contraseña" : "Inicia sesión"}</h2>
-              <p className="mt-1 text-sm text-smn-gris-500">
-                {recuperar ? "Te enviaremos una liga de un solo uso a tu correo." : "Usa el correo y la contraseña que te dio el administrador."}
-              </p>
+            <div className="relative flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
+              <motion.div className="w-full max-w-[380px]" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}>
+                <AnimatePresence mode="wait" initial={false}>
+                  {ligaEnviada ? (
+                    <motion.div key="enviada" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
+                      <span className="grid h-11 w-11 place-items-center rounded-lg border border-smn-gris-100 bg-smn-gris-50">
+                        <MailCheck className="h-5 w-5 text-smn-naranja" />
+                      </span>
+                      <h1 className="mt-5 text-[26px] leading-tight font-semibold tracking-tight">Revisa tu correo</h1>
+                      <p className="mt-2 text-sm text-smn-gris-500">
+                        Si <span className="font-medium text-tinta">{correo}</span> tiene cuenta, recibirá una liga válida por 30 minutos.
+                      </p>
+                      <p className="mt-3 text-sm text-smn-gris-500">Si no te llega en unos minutos, revisa la carpeta de spam o pide ayuda al administrador de la plataforma.</p>
+                      <BotonSobrio type="button" variante="secundario" className="mt-8 w-full" onClick={() => cambiarModo(false)}>
+                        <ArrowLeft className="h-4 w-4" /> Volver a iniciar sesión
+                      </BotonSobrio>
+                    </motion.div>
+                  ) : (
+                    <motion.div key={recuperar ? "rec" : "entrar"} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
+                      <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{recuperar ? "Recupera tu contraseña" : "Inicia sesión"}</h1>
+                      <p className="mt-1.5 text-sm text-smn-gris-500">
+                        {recuperar ? "Te enviamos una liga de un solo uso a tu correo." : "Usa el correo y la contraseña que te dio el administrador."}
+                      </p>
 
-              {!recuperar && (
-                <div className="mt-6 grid grid-cols-2 rounded-xl bg-smn-gris-100 p-1" role="tablist">
-                  {pestanas.map(({ tipo: t, texto, icono: Icono }) => (
-                    <button
-                      key={t}
-                      role="tab"
-                      aria-selected={tipo === t}
-                      onClick={() => setTipo(t)}
-                      className={`relative flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-bold transition-colors ${tipo === t ? "text-tinta" : "text-smn-gris-500"}`}
-                    >
-                      {tipo === t && <motion.span layoutId="pestana-login" className="absolute inset-0 rounded-lg bg-superficie shadow-sm" transition={{ type: "spring", stiffness: 500, damping: 40 }} />}
-                      <Icono className="relative h-4 w-4" />
-                      <span className="relative">{texto}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <AnimatePresence mode="wait">
-                {ligaEnviada ? (
-                  <motion.div key="enviada" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="mt-6 rounded-2xl border border-smn-gris-100 bg-superficie p-6 text-center">
-                    <MailCheck className="mx-auto h-10 w-10 text-smn-naranja" />
-                    <p className="mt-3 font-bold">Revisa tu correo</p>
-                    <p className="mt-1 text-sm text-smn-gris-500">Si {correo} tiene cuenta, recibirá una liga válida por 30 minutos.</p>
-                    <p className="mt-2 text-xs text-smn-gris-500">Mientras no hay correo de salida, pide la liga al administrador de la plataforma.</p>
-                    <Boton variante="secundario" className="mt-5 w-full" onClick={() => { setRecuperar(false); setLigaEnviada(false); }}>
-                      Volver a iniciar sesión
-                    </Boton>
-                  </motion.div>
-                ) : (
-                  <motion.form key={recuperar ? "rec" : tipo} onSubmit={entrar} noValidate className="mt-6 space-y-4" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.2 }}>
-                    <Campo
-                      etiqueta={tipo === "interno" ? "Correo de SMN" : "Correo de tu empresa"}
-                      type="email"
-                      autoComplete="email"
-                      placeholder={tipo === "interno" ? "nombre@ejemplo.mx" : "contacto@tuempresa.mx"}
-                      value={correo}
-                      onChange={(e) => setCorreo(e.target.value)}
-                      error={errores.correo}
-                    />
-                    {!recuperar && (
-                      <div className="relative">
-                        <Campo
-                          etiqueta="Contraseña"
-                          type={ver ? "text" : "password"}
-                          autoComplete="current-password"
-                          placeholder="Mínimo 10 caracteres"
-                          value={contrasena}
-                          onChange={(e) => setContrasena(e.target.value)}
-                          error={errores.contrasena}
-                        />
-                        <button type="button" onClick={() => setVer((v) => !v)} className="absolute top-9 right-3 text-smn-gris-500 hover:text-tinta" aria-label={ver ? "Ocultar contraseña" : "Mostrar contraseña"}>
-                          {ver ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                        </button>
-                      </div>
-                    )}
-                    <AnimatePresence>
-                      {errores.general && (
-                        <motion.p
-                          role="alert"
-                          initial={{ opacity: 0, x: 0 }}
-                          animate={{ opacity: 1, x: [0, -6, 6, -3, 0] }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.35 }}
-                          className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400"
-                        >
-                          {errores.general}
-                        </motion.p>
+                      {!recuperar && (
+                        <div className="mt-7 grid grid-cols-2 rounded-lg border border-smn-gris-100 bg-smn-gris-50 p-0.5" role="tablist" aria-label="Tipo de cuenta">
+                          {pestanas.map(({ tipo: t, texto, icono: Icono }) => (
+                            <button
+                              key={t}
+                              type="button"
+                              role="tab"
+                              aria-selected={tipo === t}
+                              onClick={() => setTipo(t)}
+                              className={`relative flex items-center justify-center gap-2 rounded-md py-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-smn-naranja ${tipo === t ? "text-tinta" : "text-smn-gris-500 hover:text-tinta"}`}
+                            >
+                              {tipo === t && (
+                                <motion.span layoutId="pestana-login" className="absolute inset-0 rounded-md border border-smn-gris-100 bg-superficie shadow-[0_1px_2px_rgba(0,0,0,0.06)]" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+                              )}
+                              <Icono className="relative h-3.5 w-3.5" />
+                              <span className="relative">{texto}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </AnimatePresence>
-                    <Boton type="submit" cargando={cargando} className="w-full py-3">
-                      {recuperar ? "Enviar liga" : "Entrar"}
-                    </Boton>
-                    <button type="button" onClick={() => { setRecuperar((v) => !v); setErrores({}); }} className="block w-full text-center text-sm font-semibold text-smn-gris-700 underline-offset-4 hover:underline">
-                      {recuperar ? "Volver a iniciar sesión" : "¿Olvidaste tu contraseña?"}
-                    </button>
-                  </motion.form>
-                )}
-              </AnimatePresence>
 
-              {tipo === "externo" && !recuperar && (
-                <p className="mt-6 rounded-xl bg-smn-gris-100 p-3 text-xs text-smn-gris-700">
-                  ¿Aún no tienes cuenta? El equipo de Compras de SMN te envía una invitación a tu correo.
-                </p>
-              )}
-            </motion.div>
+                      <form onSubmit={entrar} noValidate className="mt-6 space-y-4">
+                        <CampoSobrio
+                          id="correo"
+                          etiqueta={tipo === "interno" || recuperar ? "Correo" : "Correo de tu empresa"}
+                          icono={Mail}
+                          type="email"
+                          autoComplete="email"
+                          autoFocus
+                          placeholder={tipo === "interno" ? "nombre@ejemplo.mx" : "contacto@tuempresa.mx"}
+                          value={correo}
+                          onChange={(e) => setCorreo(e.target.value)}
+                          error={errores.correo}
+                        />
+                        {!recuperar && (
+                          <CampoSobrio
+                            id="contrasena"
+                            etiqueta="Contraseña"
+                            icono={Lock}
+                            accion={
+                              <button type="button" onClick={() => cambiarModo(true)} className="text-[13px] font-medium text-smn-gris-500 underline-offset-4 hover:text-tinta hover:underline">
+                                ¿La olvidaste?
+                              </button>
+                            }
+                            type={ver ? "text" : "password"}
+                            autoComplete="current-password"
+                            placeholder="Mínimo 10 caracteres"
+                            value={contrasena}
+                            onChange={(e) => setContrasena(e.target.value)}
+                            onKeyUp={(e) => setMayusculas(e.getModifierState?.("CapsLock") ?? false)}
+                            onBlur={() => setMayusculas(false)}
+                            error={errores.contrasena}
+                            nota={mayusculas ? "Tienes activadas las mayúsculas." : undefined}
+                            final={
+                              <button type="button" onClick={() => setVer((v) => !v)} className="grid h-8 w-8 place-items-center rounded-md text-smn-gris-500 hover:bg-smn-gris-50 hover:text-tinta" aria-label={ver ? "Ocultar contraseña" : "Mostrar contraseña"}>
+                                {ver ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </button>
+                            }
+                          />
+                        )}
+
+                        <AnimatePresence>
+                          {errores.general && (
+                            <motion.p
+                              role="alert"
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto", x: [0, -5, 5, -2, 0] }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.3 }}
+                              className="flex items-start gap-2 overflow-hidden rounded-lg border border-red-500/25 bg-red-500/[0.06] px-3 py-2.5 text-sm text-red-700 dark:text-red-300"
+                            >
+                              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                              {errores.general}
+                            </motion.p>
+                          )}
+                        </AnimatePresence>
+
+                        <BotonSobrio type="submit" cargando={cargando} className="group w-full">
+                          {recuperar ? "Enviar liga" : "Entrar"}
+                          {!cargando && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+                        </BotonSobrio>
+
+                        {recuperar && (
+                          <button type="button" onClick={() => cambiarModo(false)} className="flex w-full items-center justify-center gap-1.5 text-sm font-medium text-smn-gris-500 hover:text-tinta">
+                            <ArrowLeft className="h-3.5 w-3.5" /> Volver a iniciar sesión
+                          </button>
+                        )}
+                      </form>
+
+                      {tipo === "externo" && !recuperar && (
+                        <p className="mt-6 border-t border-smn-gris-100 pt-5 text-[13px] text-smn-gris-500">
+                          ¿Aún no tienes cuenta? El equipo de Compras de SMN te envía una invitación a tu correo.
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            </div>
+
+            <footer className="relative flex items-center justify-between gap-4 px-5 pb-5 text-[13px] text-smn-gris-500 sm:px-8">
+              <span>© {new Date().getFullYear()} Súper Mayoreo Naturista</span>
+              <span className="hidden sm:inline">¿Problemas para entrar? Escribe al administrador de la plataforma.</span>
+            </footer>
           </section>
         </div>
       </div>
     </MotionConfig>
+  );
+}
+
+// ---------------------------------------------------------------- piezas del diseño sobrio
+
+type CampoProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  etiqueta: string;
+  icono: typeof Mail;
+  error?: string;
+  nota?: string;
+  accion?: React.ReactNode;
+  final?: React.ReactNode;
+};
+
+const CampoSobrio = forwardRef<HTMLInputElement, CampoProps>(function CampoSobrio(
+  { id, etiqueta, icono: Icono, error, nota, accion, final, className = "", ...resto },
+  ref,
+) {
+  const ayuda = error ?? nota;
+  return (
+    <div className={className}>
+      <div className="mb-1.5 flex items-center justify-between">
+        <label htmlFor={id} className="text-[13px] font-medium text-smn-gris-700">
+          {etiqueta}
+        </label>
+        {accion}
+      </div>
+      <div
+        className={`group flex h-11 items-center gap-2.5 rounded-lg border bg-superficie pr-1.5 pl-3 transition-[border-color,box-shadow] focus-within:ring-4 ${
+          error
+            ? "border-red-500/60 focus-within:ring-red-500/15"
+            : "border-smn-gris-100 hover:border-smn-gris-300 focus-within:border-smn-naranja focus-within:ring-smn-naranja/15"
+        }`}
+      >
+        <Icono className={`h-4 w-4 shrink-0 transition-colors ${error ? "text-red-500" : "text-smn-gris-500 group-focus-within:text-smn-naranja"}`} aria-hidden />
+        <input
+          ref={ref}
+          id={id}
+          aria-invalid={!!error}
+          aria-describedby={ayuda ? `${id}-ayuda` : undefined}
+          className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-smn-gris-300"
+          {...resto}
+        />
+        {final}
+      </div>
+      <AnimatePresence initial={false}>
+        {ayuda && (
+          <motion.p
+            id={`${id}-ayuda`}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`mt-1.5 text-[13px] ${error ? "text-red-700 dark:text-red-400" : "text-aviso-texto"}`}
+          >
+            {ayuda}
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+function BotonSobrio({
+  variante = "primario",
+  cargando,
+  className = "",
+  children,
+  disabled,
+  ...resto
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variante?: "primario" | "secundario"; cargando?: boolean }) {
+  const estilos =
+    variante === "primario"
+      ? "bg-smn-naranja text-smn-negro shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_1px_2px_rgba(0,0,0,0.12)] hover:brightness-[1.04]"
+      : "border border-smn-gris-100 bg-superficie text-tinta hover:border-smn-gris-300";
+  return (
+    <button
+      disabled={disabled || cargando}
+      className={`inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-[filter,border-color,transform] active:scale-[0.99] disabled:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-smn-naranja ${estilos} ${className}`}
+      {...resto}
+    >
+      {cargando && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+      {children}
+    </button>
   );
 }

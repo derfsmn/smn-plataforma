@@ -24,3 +24,24 @@ almacen/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+# Archivos subidos en local y en pruebas
+api/datos/archivos/
+api/.pruebas-archivos/
+# --- SMN: no se guarda en Git ---
+.env
+env_local
+**/node_modules/
+**/.next/
+**/__pycache__/
+*.pyc
+*.tsbuildinfo
+api/.pruebas-archivos/
+salida/
+*.bak
+*.log
+docs/sistemas/**/*.csv
+sistemas/*.csv
+docs/datos/*.zip
+# copia vieja que qued? en una ruta equivocada (29 oct); el c?digo bueno est? en api/ y web/
+plataforma/

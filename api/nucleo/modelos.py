@@ -1,10 +1,11 @@
-"""Tablas del núcleo (esquema nucleo): identidad, acceso, módulos y bitácora.
+"""Tablas del núcleo (esquema nucleo): identidad, acceso, módulos, bitácora, servicios comunes e IA.
 
 Fuente: docs/modelos/nucleo_plataforma_v0.dbml. Las fechas se guardan en UTC sin zona.
 """
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Unicode, UnicodeText
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Unicode, UnicodeText
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 ESQUEMA = "nucleo"
@@ -26,6 +27,7 @@ class OrganizacionExterna(Base):
     tipo: Mapped[str] = mapped_column(Unicode(20), default="proveedor")
     nombre: Mapped[str] = mapped_column(Unicode(200))
     rfc: Mapped[str | None] = mapped_column(Unicode(13))
+    proveedor_intelisis: Mapped[str | None] = mapped_column(Unicode(10))  # clave en tblProveedores (datos.proveedor)
     estatus: Mapped[str] = mapped_column(Unicode(20), default="activa")
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
     actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora, onupdate=ahora)
@@ -183,3 +185,116 @@ class Bitacora(Base):
     detalle: Mapped[str | None] = mapped_column(UnicodeText)
     ip: Mapped[str | None] = mapped_column(Unicode(45))
     ocurrido_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+# ---------------------------------------------------------------- servicios comunes (etapa 4)
+
+class Archivo(Base):
+    __tablename__ = "archivo"
+    __table_args__ = {"schema": ESQUEMA}
+
+    archivo_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    modulo_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.modulo.modulo_id"))
+    entidad: Mapped[str | None] = mapped_column(Unicode(60))
+    entidad_id: Mapped[str | None] = mapped_column(Unicode(60))
+    nombre_original: Mapped[str] = mapped_column(Unicode(255))
+    tipo_contenido: Mapped[str] = mapped_column(Unicode(120))
+    tamano_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(Unicode(64))
+    ruta_almacenamiento: Mapped[str] = mapped_column(Unicode(400))
+    subido_por: Mapped[int] = mapped_column(ForeignKey(f"{ESQUEMA}.usuario.usuario_id"))
+    subido_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class Notificacion(Base):
+    __tablename__ = "notificacion"
+    __table_args__ = {"schema": ESQUEMA}
+
+    notificacion_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey(f"{ESQUEMA}.usuario.usuario_id"))
+    modulo_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.modulo.modulo_id"))
+    canal: Mapped[str] = mapped_column(Unicode(10), default="app")  # app / correo
+    titulo: Mapped[str] = mapped_column(Unicode(200))
+    mensaje: Mapped[str] = mapped_column(Unicode(1000))
+    liga: Mapped[str | None] = mapped_column(Unicode(400))
+    # Evita repetir el mismo aviso (p. ej. "80 % del tope de IA" una vez por mes)
+    clave: Mapped[str | None] = mapped_column(Unicode(120))
+    enviada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+    leida_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+# ---------------------------------------------------------------- IA (etapa 4)
+
+class IaTarea(Base):
+    __tablename__ = "ia_tarea"
+    __table_args__ = {"schema": ESQUEMA}
+
+    tarea_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    modulo_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.modulo.modulo_id"))
+    codigo: Mapped[str] = mapped_column(Unicode(120), unique=True)
+    descripcion: Mapped[str] = mapped_column(Unicode(300))
+    proveedor_ia: Mapped[str] = mapped_column(Unicode(30), default="ollama")  # ollama / api / ollama_y_api_respaldo
+    modelo: Mapped[str | None] = mapped_column(Unicode(120))  # nulo = el de la configuración
+    activa: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    modulo: Mapped[Modulo | None] = relationship()
+
+
+class IaPresupuesto(Base):
+    __tablename__ = "ia_presupuesto"
+    __table_args__ = {"schema": ESQUEMA}
+
+    presupuesto_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alcance: Mapped[str] = mapped_column(Unicode(20))  # plataforma (mes) / modulo (mes) / usuario_dia
+    modulo_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.modulo.modulo_id"))
+    tope_mxn: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    aviso_pct: Mapped[int] = mapped_column(Integer, default=80)
+    al_superar: Mapped[str] = mapped_column(Unicode(20), default="rechazar")  # rechazar / usar_ollama
+    vigente_desde: Mapped[date] = mapped_column(Date)
+
+    modulo: Mapped[Modulo | None] = relationship()
+
+
+class IaLlamada(Base):
+    __tablename__ = "ia_llamada"
+    __table_args__ = {"schema": ESQUEMA}
+
+    llamada_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    tarea_id: Mapped[int] = mapped_column(ForeignKey(f"{ESQUEMA}.ia_tarea.tarea_id"))
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.usuario.usuario_id"))
+    proveedor_ia: Mapped[str] = mapped_column(Unicode(20))  # ollama / api
+    modelo: Mapped[str | None] = mapped_column(Unicode(120))
+    tokens_entrada: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_salida: Mapped[int] = mapped_column(Integer, default=0)
+    costo_mxn: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
+    duracion_ms: Mapped[int] = mapped_column(Integer, default=0)
+    resultado: Mapped[str] = mapped_column(Unicode(30))  # ok / error / rechazada_por_tope / rechazada_por_modelo
+    detalle: Mapped[str | None] = mapped_column(Unicode(500))
+    ocurrido_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+    tarea: Mapped[IaTarea] = relationship()
+    usuario: Mapped[Usuario | None] = relationship()
+
+
+class IaCostoReal(Base):
+    """Lo que el proveedor de IA realmente cobró por día (UTC), bajado de su API de costos."""
+    __tablename__ = "ia_costo_real"
+    __table_args__ = {"schema": ESQUEMA}
+
+    fecha: Mapped[date] = mapped_column(Date, primary_key=True)
+    proveedor: Mapped[str] = mapped_column(Unicode(20), primary_key=True)
+    costo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    tipo_cambio: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    costo_mxn: Mapped[Decimal] = mapped_column(Numeric(12, 4))
+    obtenido_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class ConfiguracionAjuste(Base):
+    """Ajuste cambiado desde Administración > Configuración. Sobrepone el valor del .env (ver core/ajustes.py)."""
+    __tablename__ = "configuracion"
+    __table_args__ = {"schema": ESQUEMA}
+
+    clave: Mapped[str] = mapped_column(Unicode(80), primary_key=True)
+    valor: Mapped[str] = mapped_column(Unicode(1000))  # los secretos van cifrados
+    actualizado_por: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.usuario.usuario_id"))
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora, onupdate=ahora)
