@@ -770,7 +770,7 @@ async def referencia(periodo_id: int, request: Request, archivo: UploadFile = Fi
 
 @router.get("/periodos/{periodo_id}/comprobaciones")
 def comprobaciones(periodo_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
-    """Las 8 comprobaciones del mes, en palabras, con su semáforo y el estado de las firmas."""
+    """Las 9 comprobaciones del mes, en palabras, con su semáforo y el estado de las firmas."""
     return validacion.comprobaciones(bd, _periodo(bd, periodo_id))
 
 

@@ -439,6 +439,133 @@ def _banco(bd: Session, p: DiotPeriodo) -> dict:
                      + " salen del banco por el mismo importe." + falta}
 
 
+
+# ---------------------------------------------------------------- facturas del SAT
+
+SAT_IGUAL = Decimal("1")  # al peso: el TXT va redondeado
+SAT_CHICA, SAT_CHICA_PCT = Decimal("50"), Decimal("0.01")  # diferencia pequeña: hasta $50 o 1 % del IVA
+SAT_TERCEROS_SIN_CFDI = ("05", "15")  # extranjeros y operaciones globales no tienen factura con RFC del proveedor
+_sat_cache: dict[tuple, dict] = {}
+
+
+def _entero(v) -> int | None:
+    n = _num(v)
+    return int(n) if n is not None else None
+
+
+def iva_del_sat(cfdi: list[lectura.Tabla], anio: int, mes: int) -> dict:
+    """El IVA que el SAT tiene de cada proveedor en el mes, como se paga (la DIOT va por lo pagado):
+    facturas de contado (PUE) del mes, menos notas de crédito del mes, más los complementos de pago con fecha de
+    pago del mes. Solo comprobantes vigentes. Los importes del Visor ya vienen en pesos (en ODP agosto 2026 los
+    proveedores en dólares cuadran sin convertir). También junta las facturas a crédito (PPD) del mes, para decir
+    cuándo un proveedor facturó pero no ha mandado su complemento de pago."""
+    iva: dict[str, Decimal] = defaultdict(Decimal)
+    nombre: dict[str, str] = {}
+    ppd: dict[str, Decimal] = defaultdict(Decimal)
+    filas_mes = 0
+    for t in cfdi:
+        for f in t.filas:
+            if lectura.texto(f.get("EstadoComprobante")).upper() != "VIGENTE":
+                continue
+            rfc = lectura.texto(f.get("EmisorRFC")).upper()
+            if not rfc:
+                continue
+            tipo = lectura.texto(f.get("TipoDeComprobante")).upper()[:1]
+            imp = (_num(f.get("TotalTrasladosImpuestoIVA16")) or CERO) + (_num(f.get("TotalTrasladosImpuestoIVA8")) or CERO)
+            if tipo == "P":
+                del_mes = (_entero(f.get("EjercicioPago")), _entero(f.get("PeriodoPago"))) == (anio, mes)
+            else:
+                del_mes = (_entero(f.get("EjercicioCFDI")), _entero(f.get("PeriodoCFDI"))) == (anio, mes)
+            if not del_mes:
+                continue
+            filas_mes += 1
+            nombre.setdefault(rfc, lectura.texto(f.get("EmisorNombre")))
+            metodo = lectura.texto(f.get("MetodoDePago")).upper()
+            if tipo == "I" and metodo == "PUE":
+                iva[rfc] += imp
+            elif tipo == "I" and metodo == "PPD":
+                ppd[rfc] += imp
+            elif tipo == "E":
+                iva[rfc] -= imp
+            elif tipo == "P":
+                iva[rfc] += imp
+    return {"iva": dict(iva), "nombre": nombre, "ppd": dict(ppd), "filas_mes": filas_mes}
+
+
+def comparar_sat(terceros: list[DiotTercero], sat: dict) -> dict:
+    iguales, chicas, grandes, sin_factura = 0, [], [], []
+    vistos = set()
+    for t in sorted(terceros, key=lambda t: -_iva(t)):
+        if t.tipo_tercero in SAT_TERCEROS_SIN_CFDI:
+            continue
+        rfc = (t.rfc or "").upper()
+        vistos.add(rfc)
+        diot_iva = Decimal(_iva(t))
+        s = sat["iva"].get(rfc)
+        if s is None or (abs(s) < SAT_IGUAL and diot_iva >= SAT_IGUAL):
+            sin_factura.append({"rfc": rfc, "nombre": t.nombre, "diot": float(diot_iva),
+                                "ppd": float(sat["ppd"].get(rfc, CERO))})
+            continue
+        d = s - diot_iva
+        x = {"rfc": rfc, "nombre": t.nombre, "diot": float(diot_iva), "sat": float(s.quantize(Decimal("0.01"))),
+             "diferencia": float(d.quantize(Decimal("0.01")))}
+        if abs(d) <= SAT_IGUAL:
+            iguales += 1
+        elif abs(d) <= max(SAT_CHICA, diot_iva * SAT_CHICA_PCT):
+            chicas.append(x)
+        else:
+            grandes.append(x)
+    solo_sat = sorted(({"rfc": r, "nombre": sat["nombre"].get(r, ""), "sat": float(v.quantize(Decimal("0.01")))}
+                       for r, v in sat["iva"].items() if r not in vistos and v >= SAT_IGUAL),
+                      key=lambda x: -x["sat"])
+    revisados = iguales + len(chicas) + len(grandes) + len(sin_factura)
+    return {"proveedores": revisados, "iguales": iguales, "chicas": chicas, "grandes": grandes,
+            "sin_factura": sin_factura, "solo_sat": solo_sat,
+            "iva_diot": sum(_iva(t) for t in terceros if t.tipo_tercero not in SAT_TERCEROS_SIN_CFDI),
+            "iva_sat": float(sum((v for r, v in sat["iva"].items()), CERO).quantize(Decimal("0.01")))}
+
+
+def _sat(bd: Session, p: DiotPeriodo, ok: list[DiotTercero]) -> dict:
+    c = {"clave": "sat", "titulo": "Cuadra con las facturas del SAT",
+         "pregunta": "¿El IVA de cada proveedor es el mismo que tiene el SAT en sus facturas y complementos de pago?"}
+    docs = [d for d in diot.vigentes(bd, p.periodo_id) if d.tipo == "cfdi_sat"]
+    mes = f"{diot.MESES[p.mes - 1]} {p.anio}"
+    if not docs:
+        return {**c, "estado": SIN_DATOS, "detalle": {},
+                "frase": "No se subieron los archivos del SAT (Visor de CFDI), así que no se comparó. Es opcional."}
+    if not ok:
+        return {**c, "estado": SIN_DATOS, "detalle": {}, "frase": "No hay proveedores que comparar."}
+    llave = (p.periodo_id, p.procesado_en, *sorted(d.documento_id for d in docs))
+    if llave not in _sat_cache:
+        tablas = [lectura.leer(d.nombre_archivo, d.contenido, d.tipo) for d in docs]
+        _sat_cache.clear()
+        sat = iva_del_sat(tablas, p.anio, p.mes)
+        _sat_cache[llave] = {**comparar_sat(ok, sat), "filas_mes": sat["filas_mes"],
+                             "tipos": sorted({lectura.texto(f.get("TipoDeComprobante")).upper()[:1]
+                                              for t in tablas for f in t.filas[:1]})}
+    d = _sat_cache[llave]
+    if not d["filas_mes"]:
+        return {**c, "estado": SIN_DATOS, "detalle": d,
+                "frase": f"Los archivos del SAT que se subieron no traen comprobantes de {mes}."}
+    faltan_tipos = [n for k, n in (("I", "facturas (Ingreso)"), ("E", "notas de crédito (Egreso)"),
+                                   ("P", "complementos de pago (Pago)")) if k not in d["tipos"]]
+    nota = (" Falta subir " + " y ".join(faltan_tipos) + ".") if faltan_tipos else ""
+    n = d["proveedores"]
+    total = f" IVA del SAT {_pesos(d['iva_sat'])} contra {_pesos(d['iva_diot'])} del TXT."
+    if not (d["chicas"] or d["grandes"] or d["sin_factura"]):
+        return {**c, "estado": OK if not faltan_tipos else INFO, "detalle": d,
+                "frase": f"Sí. Los {n} proveedores tienen el mismo IVA que el SAT." + total + nota}
+    partes = []
+    if d["chicas"]:
+        partes.append(f"{len(d['chicas'])} con diferencia pequeña (hasta $50 o 1 %)")
+    if d["grandes"]:
+        partes.append(f"{len(d['grandes'])} con diferencia mayor")
+    if d["sin_factura"]:
+        partes.append(f"{len(d['sin_factura'])} sin factura del mes en el SAT")
+    return {**c, "estado": INFO, "detalle": d,
+            "frase": f"{d['iguales']} de {n} proveedores tienen el mismo IVA que el SAT; " + ", ".join(partes) + "."
+                     + total + nota + " Es informativo: no frena la firma."}
+
 # ---------------------------------------------------------------- 5. mes anterior
 
 def _mes_anterior(bd: Session, p: DiotPeriodo, ok: list[DiotTercero]) -> dict:
@@ -562,7 +689,7 @@ def comprobaciones(bd: Session, p: DiotPeriodo) -> dict:
     resumen = json.loads(p.resumen) if p.resumen else {}
     ok = [t for t in _terceros(bd, p.periodo_id) if t.estado == "ok"]
     lista = [_contabilidad(bd, p, resumen, ok), _pagos(bd, p), _declaracion(bd, p, ok), _muestra(bd, p, ok),
-             _banco(bd, p), _mes_anterior(bd, p, ok), _formato(p, resumen), _presentado(bd, p)]
+             _banco(bd, p), _sat(bd, p, ok), _mes_anterior(bd, p, ok), _formato(p, resumen), _presentado(bd, p)]
     pendientes = diot.pendientes_que_bloquean(bd, p.periodo_id)
     resueltas = len(list(bd.scalars(select(DiotIncidencia.incidencia_id).where(
         DiotIncidencia.periodo_id == p.periodo_id, DiotIncidencia.impacto != motor.POSIBLE))))

@@ -11,7 +11,7 @@ from tests.conftest import alta_usuario
 from tests.test_diot import _procesar, _subir, documentos
 
 BASE = "/api/contraloria/diot"
-CLAVES = ["contabilidad", "pagos", "declaracion", "muestra", "banco", "mes_anterior", "formato", "presentado"]
+CLAVES = ["contabilidad", "pagos", "declaracion", "muestra", "banco", "sat", "mes_anterior", "formato", "presentado"]
 
 
 def _mes_listo(admin, mes):
@@ -43,6 +43,7 @@ def test_comprobaciones_en_palabras(admin):
     assert por["declaracion"]["estado"] == "sin_datos" and por["presentado"]["estado"] == "sin_datos"
     assert por["mes_anterior"]["estado"] in ("info", "sin_datos")
     assert por["banco"]["estado"] == "sin_datos"  # sin estado de cuenta no se compara (es opcional)
+    assert por["sat"]["estado"] == "sin_datos"  # sin archivos del SAT no se compara (es opcional)
 
     # embudo: cada renglón leído cae en un grupo y los grupos suman lo del reporte
     for r in por["pagos"]["detalle"]["embudo"]:

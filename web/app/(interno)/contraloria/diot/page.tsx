@@ -127,7 +127,7 @@ export default function ProcesoDiot() {
       </Link>
       <Encabezado
         titulo="Proceso de la DIOT"
-        descripcion="Cuatro pasos: sube y procesa los reportes del mes, resuelve lo que pide una decisión, valida el resultado con 8 comprobaciones en palabras y firma antes de descargar el TXT para el SAT."
+        descripcion="Cuatro pasos: sube y procesa los reportes del mes, resuelve lo que pide una decisión, valida el resultado con 9 comprobaciones en palabras y firma antes de descargar el TXT para el SAT."
         accion={<PreguntaManuales origen="contraloria.diot" texto="¿Dudas del proceso? Pregunta a los manuales" />}
       />
 
@@ -298,7 +298,7 @@ function Documentos({ p, cat, opera, poner }: { p: Periodo; cat: Catalogos; oper
             {p.empresa.codigo} · {p.nombre}
           </h2>
           <p className="text-sm text-smn-gris-500">
-            Sube los archivos como los entrega Fiscal: los reportes del portal, el papel de trabajo completo, los estados de cuenta, el TXT presentado o un .zip con todo.
+            Sube los archivos como los entrega Fiscal: los reportes del portal, el papel de trabajo completo, los estados de cuenta, los archivos del SAT, el TXT presentado o un .zip con todo.
             El sistema reconoce cada uno y del papel de trabajo toma solo las hojas que vienen tal cual de Intelisis.
             {p.faltan.length > 0 && <span className="font-semibold text-red-700"> Faltan {p.faltan.length} obligatorios.</span>}
           </p>

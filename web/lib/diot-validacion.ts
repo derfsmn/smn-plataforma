@@ -33,7 +33,7 @@ export type Cambio = { rfc: string; nombre: string | null; antes: number; ahora:
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Comprobacion = {
-  clave: "contabilidad" | "pagos" | "declaracion" | "muestra" | "banco" | "mes_anterior" | "formato" | "presentado";
+  clave: "contabilidad" | "pagos" | "declaracion" | "muestra" | "banco" | "sat" | "mes_anterior" | "formato" | "presentado";
   titulo: string;
   pregunta: string;
   estado: EstadoComprobacion;
@@ -69,7 +69,7 @@ export const ESTADO: Record<EstadoComprobacion, { texto: string; punto: string; 
 export const PASOS = [
   { n: 1, titulo: "Subir y procesar", ayuda: "Los reportes del mes" },
   { n: 2, titulo: "Resolver pendientes", ayuda: "Lo que necesita una decisión" },
-  { n: 3, titulo: "Validar", ayuda: "Las 8 comprobaciones" },
+  { n: 3, titulo: "Validar", ayuda: "Las 9 comprobaciones" },
   { n: 4, titulo: "Firmar y descargar", ayuda: "Revisión y visto bueno" },
 ] as const;
 

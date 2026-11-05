@@ -374,6 +374,7 @@ export function Validar({ p, c, setC }: { p: Periodo; c: Comprobaciones | null; 
             {sel.clave === "declaracion" && <DetalleDeclaracion p={p} d={sel.detalle} setC={setC} />}
             {sel.clave === "muestra" && <DetalleMuestra p={p} muestra={sel.detalle.muestra ?? []} setC={setC} />}
             {sel.clave === "banco" && <DetalleBanco d={sel.detalle} />}
+            {sel.clave === "sat" && <DetalleSat d={sel.detalle} />}
             {sel.clave === "mes_anterior" && <DetalleMesAnterior d={sel.detalle} />}
             {sel.clave === "formato" && <DetalleFormato lista={sel.detalle.verificaciones ?? []} />}
             {sel.clave === "presentado" && <DetallePresentado p={p} d={sel.detalle} setC={setC} />}
@@ -555,6 +556,59 @@ function DetalleMuestra({ p, muestra, setC }: { p: Periodo; muestra: ProveedorMu
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const centavos = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+
+function DetalleSat({ d }: { d: any }) {
+  if (d.proveedores === undefined) return <p className="text-sm text-smn-gris-500">Sube los 3 archivos del «Visor de CFDI» del SAT (Ingreso, Egreso y Pago, recibidos) en la lista de documentos y aquí se compara el IVA de cada proveedor.</p>;
+  const lista = (titulo: string, ayuda: string, filas: any[], texto: (x: any) => React.ReactNode) =>
+    filas.length > 0 && (
+      <div className="mt-3">
+        <p className="font-semibold">
+          {titulo} ({filas.length})
+        </p>
+        <p className="text-[13px] text-smn-gris-500">{ayuda}</p>
+        <ul className="mt-1 max-h-64 space-y-1 overflow-auto text-sm">
+          {filas.slice(0, 100).map((x) => (
+            <li key={x.rfc} className="flex justify-between gap-3">{texto(x)}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  const nombre = (x: any) => <span className="min-w-0 truncate">{x.nombre || x.rfc}</span>;
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-smn-gris-700">
+        La DIOT va por lo pagado. Del SAT se toma, por proveedor: facturas de contado (PUE) del mes, menos notas de crédito del mes, más complementos de pago con fecha de pago del mes. Extranjeros y global (XAXX) no se comparan porque no tienen factura con RFC. Es informativo: no cambia el cálculo ni frena la firma.
+      </p>
+      <p className="text-sm">
+        {d.iguales} de {d.proveedores} proveedores tienen el mismo IVA que el SAT. IVA del SAT {centavos(d.iva_sat)} contra {centavos(d.iva_diot)} del TXT.
+      </p>
+      {lista("Sin factura del mes en el SAT", "Puede ser que la factura sea de otro mes, que esté a nombre de otra empresa o que el proveedor facturó a crédito (PPD) y no ha mandado su complemento de pago. Sin factura o complemento, ese IVA podría no ser acreditable: pregúntale a Fiscal.", d.sin_factura, (x) => (
+        <>
+          {nombre(x)}
+          <span className="shrink-0 text-right tabular-nums">{centavos(x.diot)} en el TXT{x.ppd > 0 && <span className="block text-[13px] text-smn-gris-500">facturó {centavos(x.ppd)} de IVA a crédito este mes, sin complemento de pago</span>}</span>
+        </>
+      ))}
+      {lista("Con diferencia mayor", "El SAT tiene otro IVA pagado en el mes. Puede ser un pago registrado en otro mes, un complemento con otra fecha o un error de captura.", d.grandes, (x) => (
+        <>
+          {nombre(x)}
+          <span className="shrink-0 tabular-nums">{centavos(x.diot)} en el TXT, {centavos(x.sat)} en el SAT</span>
+        </>
+      ))}
+      {lista("Con diferencia pequeña", "Hasta $50 o 1 % del IVA. Casi siempre es tipo de cambio (proveedores en dólares) o redondeo.", d.chicas, (x) => (
+        <>
+          {nombre(x)}
+          <span className="shrink-0 tabular-nums">{centavos(x.diot)} en el TXT, {centavos(x.sat)} en el SAT</span>
+        </>
+      ))}
+      {lista("En el SAT pero no en la DIOT", "Proveedores con IVA pagado en el mes según el SAT que no aparecen en el TXT.", d.solo_sat, (x) => (
+        <>
+          {nombre(x)}
+          <span className="shrink-0 tabular-nums">{centavos(x.sat)}</span>
+        </>
+      ))}
+    </div>
+  );
+}
 
 function DetalleBanco({ d }: { d: any }) {
   if (!d.cuentas) return <p className="text-sm text-smn-gris-500">Sube el estado de cuenta del banco (un archivo por cuenta) en la lista de documentos y aquí se compara cada pago de tesorería contra sus cargos.</p>;
@@ -1031,7 +1085,7 @@ export function Firmar({
             </Boton>
           )}
         </div>
-        <p className="mt-3 text-[13px] text-smn-gris-500">La evidencia trae en su primera hoja las 8 comprobaciones, las firmas y dónde están los ajustes con su motivo. Sirve si el SAT pregunta.</p>
+        <p className="mt-3 text-[13px] text-smn-gris-500">La evidencia trae en su primera hoja las 9 comprobaciones, las firmas y dónde están los ajustes con su motivo. Sirve si el SAT pregunta.</p>
       </div>
     </div>
   );

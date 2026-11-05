@@ -64,6 +64,11 @@ TIPOS: dict[str, TipoDocumento] = {t.codigo: t for t in (
                   ("Tipo de Movimiento", "Importe", "Folio Aceptación"),
                   False, "Movimientos del banco (BBVA, un archivo por cuenta). Sirven para confirmar que cada pago de "
                          "tesorería salió del banco; no cambian el cálculo.", comprobar=True, varios=True),
+    TipoDocumento("cfdi_sat", "Facturas del SAT (Visor de CFDI)",
+                  ("UUID", "TipoDeComprobante", "EmisorRFC", "EstadoComprobante", "TotalTrasladosImpuestoIVA16"),
+                  False, "Facturas, notas de crédito y complementos de pago recibidos, como los tiene el SAT (un "
+                         "archivo por tipo). Sirven para confirmar el IVA de cada proveedor; no cambian el cálculo.",
+                  comprobar=True, varios=True),
 )}
 CUENTA_IVA_RETENIDO = "2500-002-007"
 
@@ -366,9 +371,6 @@ def _conocido(contenido: bytes) -> str | None:
     except ErrorLectura:
         return None
     textos = " ".join(str(x) for _, filas in hojas for f in filas[:10] for x in f if isinstance(x, str)).upper()
-    if "VISOR DE CFDI" in textos.replace("  ", " ") and "UUID" in textos:
-        return ("CFDI recibidos del SAT (Visor de CFDI): todavía no se cruzan contra los reportes. "
-                "No cambia el cálculo de la DIOT.")
     if "MONEX" in textos:
         return ("Estado de cuenta de MONEX: este formato todavía no se lee. No cambia el cálculo de la DIOT; "
                 "los pagos a proveedores salen del reporte de tesorería.")

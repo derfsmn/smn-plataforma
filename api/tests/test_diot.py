@@ -4,6 +4,7 @@ Todos los datos de estas pruebas son ficticios (RFC inventados con formato váli
 reales de Fiscal está al final y solo corre si existe la carpeta de DIOT_ARCHIVOS_REALES (fuera del repositorio).
 """
 import io
+import json
 import os
 import time
 import zipfile
@@ -165,20 +166,64 @@ def test_estado_de_cuenta_contra_tesoreria():
     assert r["sin_estado"] == [{"cuenta": "BCO2", "pagos": 1, "importe": 10.0}]
 
 
+COL_VISOR = ("UUID", "FechaCFDI", "EjercicioCFDI", "PeriodoCFDI", "MetodoDePago", "TipoDeComprobante", "EmisorRFC",
+             "EmisorNombre", "EstadoComprobante", "Moneda", "EjercicioPago", "PeriodoPago",
+             "TotalTrasladosImpuestoIVA16", "TotalTrasladosImpuestoIVA8", "Total")
+
+
+def _visor(tipo: str, filas) -> bytes:
+    """Un «Visor de CFDI» ficticio como lo baja Fiscal del SAT: datos del contribuyente arriba y el encabezado abajo."""
+    b = _xlsx(COL_VISOR, [(f"U{tipo}{k}", "2099-01-10T10:00:00", ej, per, metodo, tipo, rfc, f"Proveedor {rfc[:3]}",
+                           estado, "MXN", ej_pago, per_pago, iva, 0, 0)
+                          for k, (rfc, ej, per, metodo, estado, ej_pago, per_pago, iva) in enumerate(filas)])
+    wb = openpyxl.load_workbook(io.BytesIO(b))
+    wb.active.insert_rows(1, 6)
+    wb.active["A1"], wb.active["B1"] = "Contribuyente:", "EMPRESA FICTICIA"
+    wb.active["A5"] = f"XAX010101000 Visor de CFDI(s) de tipo {tipo} Recibidos"
+    salida = io.BytesIO()
+    wb.save(salida)
+    return salida.getvalue()
+
+
+def test_iva_de_cada_proveedor_contra_las_facturas_del_sat():
+    from modulos.contraloria import diot_validacion as validacion
+    from modulos.contraloria.modelos_diot import DiotTercero
+
+    ingreso = _visor("I", [("AAA990101AA1", 2099, 1, "PUE", "Vigente", None, None, 160),    # de contado: igual
+                           ("CCC990101CC1", 2099, 1, "PUE", "Vigente", None, None, 500),    # menos nota de crédito
+                           ("DDD990101DD1", 2099, 1, "PPD", "Vigente", None, None, 320),    # a crédito, sin complemento
+                           ("FFF990101FF1", 2099, 1, "PUE", "Vigente", None, None, 1010),   # $10 más que el TXT
+                           ("AAA990101AA1", 2099, 1, "PUE", "Cancelado", None, None, 999),  # cancelada: no cuenta
+                           ("AAA990101AA1", 2098, 12, "PUE", "Vigente", None, None, 777),   # de otro mes
+                           ("HHH990101HH1", 2099, 1, "PUE", "Vigente", None, None, 48)])    # no está en la DIOT
+    egreso = _visor("E", [("CCC990101CC1", 2099, 1, "PUE", "Vigente", None, None, 100)])
+    pago = _visor("P", [("BBB990101BB1", 2098, 12, "", "Vigente", 2099, 1, 240),             # factura de diciembre
+                        ("BBB990101BB1", 2099, 1, "", "Vigente", 2099, 2, 999)])              # se pagó en febrero
+    tablas = []
+    for tipo, b in (("Ingreso", ingreso), ("Egreso", egreso), ("Pago", pago)):
+        archivo = lectura.separar(f"Visor {tipo}.xlsx", b)
+        assert [(a.clase, a.tipo) for a in archivo] == [("documento", "cfdi_sat")], archivo[0].mensaje
+        tablas.append(lectura.leer(archivo[0].nombre, archivo[0].contenido, "cfdi_sat"))
+    sat = validacion.iva_del_sat(tablas, 2099, 1)
+
+    def t(rfc, iva, tipo="04"):
+        return DiotTercero(rfc=rfc, nombre=f"Proveedor {rfc[:3]}", tipo_tercero=tipo, redondeados=json.dumps({"iva16": iva}))
+    r = validacion.comparar_sat([t("AAA990101AA1", 160), t("BBB990101BB1", 240), t("CCC990101CC1", 400),
+                                 t("DDD990101DD1", 320), t("EEE990101EE1", 50, "05"), t("FFF990101FF1", 1000)], sat)
+    assert r["proveedores"] == 5 and r["iguales"] == 3  # el extranjero (05) no se compara
+    assert [(x["rfc"], x["diferencia"]) for x in r["chicas"]] == [("FFF990101FF1", 10.0)] and r["grandes"] == []
+    assert [(x["rfc"], x["ppd"]) for x in r["sin_factura"]] == [("DDD990101DD1", 320.0)]
+    assert [(x["rfc"], x["sat"]) for x in r["solo_sat"]] == [("HHH990101HH1", 48.0)]
+
+
 def test_archivos_del_mes_que_no_se_usan_dicen_que_son():
-    visor = _xlsx(("UUID", "VersionCFDI", "Serie"), [("x", "4.0", "A")])
-    wb = openpyxl.load_workbook(io.BytesIO(visor))
-    wb.active.insert_rows(1, 3)
-    wb.active["A1"] = "AAA010101AAA Visor de CFDI(s) de tipo Pago Recibidos"
-    b = io.BytesIO()
-    wb.save(b)
     monex = _xlsx(("Tipo de mov", "Divisa", "Descripción"), [("G", "MXP", "Retiro")])
     wb = openpyxl.load_workbook(io.BytesIO(monex))
     wb.active.insert_rows(1, 2)
     wb.active["B1"] = "EMPRESA FICTICIA (MONEX)"
     b2 = io.BytesIO()
     wb.save(b2)
-    for nombre, contenido, texto in (("visor.xlsx", b.getvalue(), "Visor de CFDI"), ("monex.xlsx", b2.getvalue(), "MONEX")):
+    for nombre, contenido, texto in (("monex.xlsx", b2.getvalue(), "MONEX"),):
         a = lectura.separar(nombre, contenido)
         assert a[0].clase == "no_se_usa" and texto in a[0].mensaje, a[0].mensaje
 
