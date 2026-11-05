@@ -4,6 +4,10 @@ ENVF=$BASE/.env
 VERS=$BASE/versiones
 IP=172.31.104.4
 HIST=$BASE/historial.log
+REPO=$BASE/repo.git                 # copia del repositorio de GitHub (solo lectura)
+export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/smn_github -o IdentitiesOnly=yes"
+gitr(){ git --git-dir="$REPO" "$@"; }
+traer_github(){ gitr fetch -q --prune --tags origin '+refs/heads/*:refs/heads/*'; }
 
 leer_env(){ grep -m1 "^$1=" "$ENVF" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
 bd(){ local b; b=$(leer_env BD_NOMBRE); echo "${b:-smn_td}"; }

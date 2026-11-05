@@ -15,6 +15,8 @@ sudo usermod -aG sudo,docker "$U"
 echo "$U ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/90-$U" >/dev/null; sudo chmod 440 "/etc/sudoers.d/90-$U"
 sudo install -d -m 700 -o "$U" -g "$U" "/home/$U/.ssh"
 sudo install -m 600 -o "$U" -g "$U" "$LLAVE" "/home/$U/.ssh/authorized_keys"
+# llave de GitHub (solo lectura) para que el nuevo usuario también pueda publicar
+for f in smn_github smn_github.pub known_hosts; do [ -f ~/.ssh/$f ] && sudo install -m 600 -o "$U" -g "$U" ~/.ssh/$f "/home/$U/.ssh/$f"; done
 echo "[usuario] $U creado, en sudo y docker, entra con tu llave."
 
 # 2. Que los dos usuarios puedan publicar (carpeta de la plataforma compartida con el grupo docker)

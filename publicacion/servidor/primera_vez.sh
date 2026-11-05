@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Solo una vez: prepara /datos/plataforma, restaura tu base y publica la primera versión.
-# Antes deja en tu carpeta (~): plataforma-v1.0.tgz, smn_td.bak, env_local (copia del .env de tu equipo)
-# Uso:  bash ~/primera_vez.sh ~/plataforma-v1.0.tgz
+# Antes: la llave de GitHub, la copia del repositorio en /datos/plataforma/repo.git y en tu carpeta (~)
+#        smn_td.bak y env_local (copia del .env de tu laptop). Ver publicacion/LEEME.md
+# Uso:  bash ~/primera_vez.sh v1.0
 set -euo pipefail
-PAQ=${1:-}
+V=${1:-}
 BASE=/datos/plataforma
-[ -n "$PAQ" ] && [ -f "$PAQ" ] || { echo "Uso: bash primera_vez.sh ~/plataforma-v1.0.tgz"; exit 1; }
+[[ "$V" =~ ^v[0-9]+(\.[0-9]+)+$ ]] || { echo "Uso: bash primera_vez.sh v1.0"; exit 1; }
+[ -d $BASE/repo.git ] || { echo "ERROR: falta la copia del repositorio ($BASE/repo.git). Ver LEEME."; exit 1; }
 for f in ~/smn_td.bak ~/env_local; do [ -f "$f" ] || { echo "ERROR: falta $f. No se hizo nada."; exit 1; }; done
 [ -f $BASE/.env ] && { echo "ERROR: el servidor ya está preparado ($BASE/.env existe). Para publicar usa publicar.sh."; exit 1; }
 docker info >/dev/null 2>&1 || { echo "ERROR: tu usuario no puede usar docker (sal y vuelve a entrar)."; exit 1; }
@@ -18,12 +20,13 @@ sudo mkdir -p /datos/sqlserver /datos/respaldos /datos/ollama /datos/archivos /d
 sudo chown -R 10001:0 /datos/sqlserver /datos/respaldos      # usuario interno de SQL Server
 sudo chmod 755 /datos/respaldos
 sudo chown "$USER":"$USER" $BASE $BASE/versiones
+sudo chgrp -R docker $BASE && sudo chmod -R g+rwX $BASE
 
 # 2. .env del servidor a partir del de tu equipo
 #    MSSQL_SA_PASSWORD y CLAVE_CIFRADO se quedan IGUAL: con ellas se descifran los secretos de Configuración.
 tr -d '\r' < ~/env_local > $BASE/.env
 chmod 600 $BASE/.env
-TMP=$(mktemp -d); tar -xzf "$PAQ" -C "$TMP" publicacion/servidor
+TMP=$(mktemp -d); git --git-dir=$BASE/repo.git archive "$V" publicacion/servidor | tar -x -C "$TMP"; find "$TMP" -type f -exec sed -i 's/\r$//' {} +
 . "$TMP/publicacion/servidor/comun.sh"
 [ -n "$(leer_env MSSQL_SA_PASSWORD)" ] || { echo "ERROR: env_local no trae MSSQL_SA_PASSWORD."; rm -f $BASE/.env; exit 1; }
 poner_env API_ENTORNO produccion
@@ -65,7 +68,13 @@ echo "[base] La plataforma usa smn_app (no sa). Contraseña de smn_lectura en ~/
 echo "30 2 * * * root bash $BASE/actual/publicacion/servidor/respaldo_diario.sh" | sudo tee /etc/cron.d/smn-respaldo >/dev/null
 sudo chmod 644 /etc/cron.d/smn-respaldo
 echo "[respaldo] Programado diario a las 2:30 am en /datos/respaldos"
-rm -rf "$TMP"
 
-# 6. Publicar la primera versión
-bash "$(dirname "$(readlink -f "$0")")/publicar.sh" "$PAQ"
+# 6. Comandos «publicar» y «regresar»
+sudo install -m 755 "$TMP/publicacion/servidor/publicar_comando.sh" /usr/local/bin/publicar
+printf '#!/usr/bin/env bash\nexec bash /datos/plataforma/actual/publicacion/servidor/regresar.sh "$@"\n' | sudo tee /usr/local/bin/regresar >/dev/null
+sudo chmod 755 /usr/local/bin/regresar
+rm -rf "$TMP"
+echo "[comandos] Ya puedes usar: publicar vX.Y  y  regresar"
+
+# 7. Publicar la primera versión
+publicar "$V"

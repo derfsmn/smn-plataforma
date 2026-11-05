@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regresa a la versión anterior.
-# Uso:  bash /datos/plataforma/actual/publicacion/servidor/regresar.sh            (solo código, ~2 min, no se pierde nada)
-#       bash /datos/plataforma/actual/publicacion/servidor/regresar.sh --con-base (código + base como estaba antes de publicar)
+# Uso:  regresar             (solo código, ~2 min, no se pierde nada)
+#       regresar --con-base  (código + base como estaba antes de publicar)
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/comun.sh"
 CON_BASE=${1:-}

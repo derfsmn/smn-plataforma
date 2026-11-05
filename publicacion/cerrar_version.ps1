@@ -1,4 +1,4 @@
-﻿# Paso 5 del flujo: cierra una versión y arma el paquete para el servidor.
+﻿# Paso 5 del flujo: cierra una versión y la sube a GitHub, de donde la toma el servidor.
 # Uso:  powershell -ExecutionPolicy Bypass -File publicacion\cerrar_version.ps1 -Version v1.1 -Nota "Qué cambió, en palabras de usuario"
 param(
   [Parameter(Mandatory = $true)][string]$Version,
@@ -35,15 +35,11 @@ git commit -q -m "Versión $Version"
 git tag -a $Version -m $Nota
 if ($LASTEXITCODE -ne 0) { Write-Host "No se pudo etiquetar la versión." -ForegroundColor Red; exit 1 }
 
-$salida = Join-Path (Get-Location) "salida\$Version"
-New-Item -ItemType Directory -Force -Path $salida | Out-Null
-git archive --format=tar.gz -o "$salida\plataforma-$Version.tgz" $Version
-if ($LASTEXITCODE -ne 0) { Write-Host "No se pudo armar el paquete." -ForegroundColor Red; exit 1 }
-Copy-Item publicacion\servidor\publicar.sh, publicacion\servidor\primera_vez.sh $salida
-$mb = [math]::Round((Get-Item "$salida\plataforma-$Version.tgz").Length / 1MB, 1)
+Write-Host "Subiendo a GitHub..."
+git push -q origin HEAD
+git push -q origin $Version
+if ($LASTEXITCODE -ne 0) { Write-Host "No se pudo subir a GitHub. Revisa tu internet y vuelve a correr:  git push origin HEAD ; git push origin $Version" -ForegroundColor Red; exit 1 }
 Write-Host ""
-Write-Host "Listo: $Version cerrada ($mb MB) en $salida" -ForegroundColor Green
-Write-Host "Súbela al servidor con:"
-Write-Host "  scp `"$salida\plataforma-$Version.tgz`" `"$salida\publicar.sh`" smnnatural@172.31.104.4:"
-Write-Host "Y en el servidor:"
-Write-Host "  sed -i 's/\r`$//' ~/publicar.sh && bash ~/publicar.sh ~/plataforma-$Version.tgz"
+Write-Host "Listo: $Version cerrada y en GitHub." -ForegroundColor Green
+Write-Host "Para publicarla, desde la PC de la empresa entra al servidor (ssh smnnatural@172.31.104.4) y escribe:"
+Write-Host "  publicar $Version" -ForegroundColor Cyan

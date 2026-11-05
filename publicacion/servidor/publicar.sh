@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 # Publica una versión cerrada en el servidor.
-# Uso:  bash ~/publicar.sh ~/plataforma-v1.3.tgz
+# Uso:  publicar v1.3      (el comando trae la versión de GitHub y corre este script)
 # Hace: respaldo previo de la base, instala la versión, aplica migraciones, revisa salud
 #       y, si algo falla, regresa sola a la versión anterior. Guarda las últimas 3 versiones.
 set -euo pipefail
-PAQ=${1:-}
-[ -n "$PAQ" ] && [ -f "$PAQ" ] || { echo "Uso: bash publicar.sh ~/plataforma-vX.Y.tgz"; exit 1; }
-V=$(basename "$PAQ" | sed -nE 's/^plataforma-(v[0-9]+(\.[0-9]+)*)\.tgz$/\1/p')
-[ -n "$V" ] || { echo "ERROR: el nombre debe ser plataforma-vX.Y.tgz"; exit 1; }
+V=${1:-}
+[[ "$V" =~ ^v[0-9]+(\.[0-9]+)+$ ]] || { echo "Uso: publicar v1.3"; exit 1; }
 BASE=/datos/plataforma
-[ -f $BASE/.env ] || { echo "ERROR: no existe $BASE/.env. La primera vez se usa primera_vez.sh."; exit 1; }
+[ -f $BASE/.env ] || { echo "ERROR: no existe $BASE/.env. La primera vez se usa primera_vez.sh (ver LEEME)."; exit 1; }
 docker info >/dev/null 2>&1 || { echo "ERROR: tu usuario no puede usar docker (sal y vuelve a entrar)."; exit 1; }
-if [ -d "$BASE/versiones/$V" ]; then echo "ERROR: $V ya se publicó. Cierra una versión nueva (v1.N+1)."; exit 1; fi
+if [ -d "$BASE/versiones/$V" ]; then echo "ERROR: $V ya está en el servidor. Cierra una versión nueva en tu laptop (siguiente número)."; exit 1; fi
 
 exec > >(tee -a "$BASE/publicar_$V.log") 2>&1
 echo "=== Publicar $V - $(date '+%Y-%m-%d %H:%M') ==="
 
-# 1. Desempacar
+# 1. Sacar la versión de la copia del repositorio
 mkdir -p "$BASE/versiones/$V"
-tar -xzf "$PAQ" -C "$BASE/versiones/$V"
+git --git-dir="$BASE/repo.git" archive "$V" | tar -x -C "$BASE/versiones/$V"
 find "$BASE/versiones/$V" \( -name "*.sh" -o -name "Caddyfile" -o -name "*.yml" \) -exec sed -i 's/\r$//' {} +
 . "$BASE/versiones/$V/publicacion/servidor/comun.sh"
 ANT=$(version_actual)
@@ -56,7 +54,7 @@ else
     ln -sfn "$VERS/$ANT" "$BASE/actual"
     dc "$ANT" up -d --remove-orphans
     salud_ok "$ANT" && echo "Se regresó a $ANT y responde." || echo "ATENCIÓN: $ANT tampoco responde. Manda captura a Claude."
-    echo "Si $V alcanzó a cambiar tablas y $ANT falla, corre: bash $VERS/$ANT/publicacion/servidor/regresar.sh --con-base"
+    echo "Si $V alcanzó a cambiar tablas y $ANT falla, corre: regresar --con-base"
     anotar "FALLÓ $V; se regresó a $ANT"
     rm -rf "${VERS:?}/$V"   # para poder publicarla otra vez corregida
   else
