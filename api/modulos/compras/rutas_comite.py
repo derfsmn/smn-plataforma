@@ -7,14 +7,16 @@ siguiente reunión. Se registran los asistentes con su puesto y lo que pidió ca
 Una sola reunión sin cerrar a la vez. Nada se borra al cerrar: el ciclo queda de solo lectura.
 """
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from core.bd import obtener_bd
@@ -39,7 +41,7 @@ DECIDIR = "compras.comite.decidir"
 ESTADOS = {"abierta": "Subiendo productos", "prefiltro": "Pre-filtro de Compras", "comite": "En comité",
            "cerrada": "Cerrada"}
 # Se puede regresar un paso mientras no esté cerrada (por si se avanzó antes de tiempo)
-PASOS = {"abierta": {"prefiltro"}, "prefiltro": {"abierta", "comite"}, "comite": {"prefiltro", "cerrada"}}
+PASOS = {"abierta": {"prefiltro"}, "prefiltro": {"abierta", "comite"}, "comite": {"prefiltro", "cerrada"}, "cerrada": {"comite"}}
 DECISIONES = {"aceptado": "Aceptado", "denegado": "Denegado", "en_espera": "En espera"}
 REVISIONES = {"inventario": "Espacio en inventario", "regulacion": "Regulación"}
 ESTADOS_IDEA = {"nueva": "Nueva", "buscar_proveedor": "Buscar proveedor", "vigilar": "Vigilar", "descartada": "Descartada"}
@@ -52,6 +54,13 @@ def _bitacora(bd: Session, accion: str, ctx: Contexto, request: Request, entidad
     modulo_id = bd.scalar(select(Modulo.modulo_id).where(Modulo.codigo == "compras"))
     registrar(bd, f"comite_{accion}", usuario_id=ctx.usuario.usuario_id, modulo_id=modulo_id, entidad=entidad,
               entidad_id=entidad_id, detalle=detalle, ip=ip_de(request))
+
+
+def _decimal(v) -> Decimal | None:
+    try:
+        return Decimal(str(v)) if v not in (None, "") else None
+    except (ArithmeticError, ValueError):
+        return None
 
 
 def _texto(v: str | None) -> str | None:
@@ -77,6 +86,23 @@ class FactorBreve(BaseModel):
     peso: Decimal
 
 
+class PuntoClave(BaseModel):
+    factor: str
+    nombre: str
+    puntaje: int
+    texto: str
+
+
+class Ejecutivo(BaseModel):
+    """El semáforo en una lámina ejecutiva: un titular, lo que está a favor y en contra, y qué haría falta para verde."""
+    titular: str
+    a_favor: list[PuntoClave]
+    en_contra: list[PuntoClave]
+    para_verde: str | None
+    faltan_puntos: int | None
+    margen_minimo: Decimal | None
+
+
 class SemaforoSalida(BaseModel):
     id: int
     estado: str  # en_curso / lista / fallida
@@ -90,6 +116,7 @@ class SemaforoSalida(BaseModel):
     explicacion: str | None
     motivo_cambio: str | None
     factores: list[FactorBreve]
+    ejecutivo: Ejecutivo | None = None
 
 
 class Criterio(BaseModel):
@@ -128,6 +155,8 @@ class ItemSalida(BaseModel):
     foto_externa: str | None  # foto de internet de una oportunidad
     estado_sujeto: str
     falta: str | None  # por qué todavía no se puede evaluar
+    # «Listo para presentar» (Diego, 2026-11-06): lo que le falta para que la diapositiva salga completa
+    faltantes: list[str] = []
     llego_solo: bool = False  # la mandó el proveedor por el portal durante el ciclo y entró sola
     evaluacion: SemaforoSalida | None
     prefiltro: str | None
@@ -209,7 +238,7 @@ def _nombres(bd: Session, ids: set[int | None]) -> dict[int, str]:
     return dict(bd.execute(select(Usuario.usuario_id, Usuario.nombre).where(Usuario.usuario_id.in_(ids or {0}))).all())
 
 
-def _semaforo(e: ProductoEvaluacion | None) -> SemaforoSalida | None:
+def _semaforo(e: ProductoEvaluacion | None, precio: Decimal | None = None, costo: Decimal | None = None) -> SemaforoSalida | None:
     if not e:
         return None
     orden = {f: i for i, f in enumerate(rp.FACTORES)}
@@ -218,7 +247,76 @@ def _semaforo(e: ProductoEvaluacion | None) -> SemaforoSalida | None:
         confianza=e.confianza, modelo=e.modelo, avance=e.avance, error=e.error, explicacion=e.explicacion,
         motivo_cambio=e.motivo_cambio,
         factores=[FactorBreve(factor=f.factor, nombre=rp.NOMBRES.get(f.factor, f.factor), puntaje=f.puntaje, valor=f.valor,
-                              peso=f.peso) for f in sorted(e.factores, key=lambda f: orden.get(f.factor, 99))])
+                              peso=f.peso) for f in sorted(e.factores, key=lambda f: orden.get(f.factor, 99))],
+        ejecutivo=_ejecutivo(e, precio, costo) if e.estado == "lista" else None)
+
+
+A_FAVOR, EN_CONTRA = 70, 60  # 70 o más se cuenta a favor; menos de 60, en contra (entre 60 y 69 no destaca)
+
+
+def _y(nombres: list[str]) -> str:
+    return nombres[0] if len(nombres) == 1 else ", ".join(nombres[:-1]) + " y " + nombres[-1]
+
+
+def _dinero(x: Decimal) -> str:
+    return f"${x:,.2f}"
+
+
+def _ejecutivo(e: ProductoEvaluacion, precio: Decimal | None, costo: Decimal | None) -> Ejecutivo:
+    """Sin IA: sale de los mismos factores del semáforo, ordenados por lo que pesan."""
+    con = [f for f in e.factores if f.puntaje is not None]
+    peso = lambda f: float(f.peso or 0)  # noqa: E731
+    favor = sorted((f for f in con if f.puntaje >= A_FAVOR), key=lambda f: (-f.puntaje * peso(f), f.factor))[:3]
+    contra = sorted((f for f in con if f.puntaje < EN_CONTRA), key=lambda f: (f.puntaje * peso(f) - 100 * peso(f), f.factor))[:3]
+
+    def punto(f) -> PuntoClave:
+        return PuntoClave(factor=f.factor, nombre=rp.NOMBRES.get(f.factor, f.factor), puntaje=f.puntaje,
+                          texto=f.valor or (f.detalle or "").split(". ")[0])
+
+    nombre = lambda f: rp.NOMBRES.get(f.factor, f.factor).lower()  # noqa: E731
+    politicas = json.loads(e.politicas) if e.politicas else {}
+    if (r := politicas.get("rechazo")):
+        titular = f"Cae en una regla de rechazo de Compras: {r.get('titulo')}."
+    elif favor and contra:
+        titular = f"Fuerte en {_y([nombre(f) for f in favor])}; débil en {_y([nombre(f) for f in contra])}."
+    elif favor:
+        titular = f"Fuerte en {_y([nombre(f) for f in favor])}, sin puntos débiles."
+    elif contra:
+        titular = f"Débil en {_y([nombre(f) for f in contra])}, sin factores a favor."
+    else:
+        titular = "Ningún factor destaca: todos quedan en medio."
+
+    color = e.color_final or e.color
+    faltan = (81 - e.puntaje) if e.puntaje is not None and color != "verde" and e.puntaje <= 80 else None
+    renta = next((f for f in con if f.factor == "rentabilidad"), None)
+    minimo = None
+    if renta and renta.valor and (m := re.search(r"mínimo ([\d.]+) %", renta.valor)):
+        minimo = Decimal(m.group(1))
+    para_verde = None
+    if color != "verde":
+        sin = [nombre(f) for f in e.factores if f.puntaje is None and not (e.modelo == "sin_proveedor" and f.factor == "proveedor")]
+        meta = re.search(r"al menos ([\d.]+) % de margen", renta.mejora or "") if renta else None
+        actual = re.search(r"Deja ([\d.]+) % de margen", renta.valor or "") if renta else None
+        if e.puntaje is not None and e.puntaje > 80:
+            para_verde = f"Tiene puntos para verde, pero faltan datos de {_y(sin)}." if sin else None
+        elif renta in contra and meta and actual and precio and costo:
+            m_meta, m_hoy = Decimal(meta.group(1)) / 100, Decimal(actual.group(1)) / 100
+            base = costo / (1 - m_hoy)  # el precio sin impuestos, sacado del margen que ya se calculó
+            precio_meta = (precio * (costo / (1 - m_meta)) / base).quantize(Decimal("0.01"))
+            costo_meta = (base * (1 - m_meta)).quantize(Decimal("0.01"))
+            para_verde = (f"Rentabilidad arriba de 80: que deje {meta.group(1)} % de margen, vendiéndolo en "
+                          f"{_dinero(precio_meta)} o consiguiéndolo en {_dinero(costo_meta)} sin IVA.")
+        else:
+            palanca = sorted((f for f in con if f.mejora and f.puntaje <= 80),
+                             key=lambda f: (-peso(f) * (100 - f.puntaje), f.factor))
+            if palanca:
+                texto = re.sub(r"^Para que este factor salga arriba de 80,? (tendría que )?", "", palanca[0].mejora)
+                texto = re.sub(r"\s*\([^)]*\)(?=\.?$)", "", texto)  # sin el paréntesis final con la escala
+                para_verde = f"{rp.NOMBRES.get(palanca[0].factor)} arriba de 80: {texto[0].lower()}{texto[1:]}"
+            elif sin:
+                para_verde = f"Faltan datos de {_y(sin)}."
+    return Ejecutivo(titular=titular, a_favor=[punto(f) for f in favor], en_contra=[punto(f) for f in contra],
+                     para_verde=para_verde, faltan_puntos=faltan, margen_minimo=minimo)
 
 
 def _datos_propuesta(p: Propuesta) -> dict:
@@ -294,7 +392,7 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
                         estado_sujeto=ESTADOS_IDEA.get(idea.estado, idea.estado), falta=None, presentacion=presentacion,
                         descripcion=idea.descripcion, precio=idea.precio_visto, costo=idea.costo_estimado, margen=margen)
         salida.append(ItemSalida(
-            id=i.item_id, origen=i.origen, viene_de_fecha=origenes.get(i.viene_de), evaluacion=_semaforo(e),
+            id=i.item_id, origen=i.origen, viene_de_fecha=origenes.get(i.viene_de), evaluacion=_semaforo(e, _decimal(base.get("precio")), _decimal(base.get("costo"))),
             llego_solo=i.agregado_por in externos,
             prefiltro=i.prefiltro, prefiltro_motivo=i.prefiltro_motivo,
             criterios=[Criterio(**c) for c in json.loads(i.criterios or "[]")], prefiltro_color=i.prefiltro_color,
@@ -304,8 +402,24 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
             revisiones=[RevisionSalida(tipo=r.tipo, nombre=REVISIONES[r.tipo], resultado=r.resultado, nota=r.nota,
                                        por=usuarios.get(r.actualizada_por), en=r.actualizada_en)
                         for r in sorted(i.revisiones, key=lambda r: list(REVISIONES).index(r.tipo))],
-            **base))
+            faltantes=_faltantes(e, base), **base))
     return salida
+
+
+def _faltantes(e: ProductoEvaluacion | None, base: dict) -> list[str]:
+    """Lo que le falta a un producto para presentarse completo en el comité, en palabras."""
+    falta = []
+    if not base.get("fotos") and not base.get("foto_externa"):
+        falta.append("foto")
+    if base.get("precio") in (None, ""):
+        falta.append("precio")
+    if base.get("costo") in (None, ""):
+        falta.append("costo")
+    if not e or e.estado != "lista":
+        falta.append("semáforo terminado")
+    elif not e.comparables:
+        falta.append("productos parecidos")
+    return falta
 
 
 def _embudo(bd: Session, items: list[ComiteProducto]) -> Embudo:
@@ -499,6 +613,17 @@ def abrir(datos: NuevaReunion, request: Request, ctx: Contexto = Depends(requier
     return _salida(bd, r)
 
 
+@router.get("/reuniones/{reunion_id}/acta")
+def acta(reunion_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> Response:
+    """Acta en PDF para mandar por correo; si la reunión no está cerrada sale como borrador."""
+    from modulos.compras import acta_comite
+
+    r = _salida(bd, _reunion(bd, reunion_id))
+    pdf = acta_comite.generar(r, datetime.now(ZoneInfo("America/Mexico_City")))
+    nombre = f"Acta comite producto nuevo {r.fecha:%Y-%m-%d}{'' if r.estado == 'cerrada' else ' borrador'}.pdf"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
 @router.get("/reuniones/{reunion_id}", response_model=ReunionSalida)
 def reunion(reunion_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> ReunionSalida:
     return _salida(bd, _reunion(bd, reunion_id))
@@ -531,6 +656,9 @@ def cambiar(reunion_id: int, datos: CambioReunion, request: Request, ctx: Contex
 
 class CambioEstado(BaseModel):
     estado: Literal["abierta", "prefiltro", "comite", "cerrada"]
+    # Para regresar del comité al pre-filtro cuando ya hay decisiones (Diego, 2026-11-05: «que pudiera regresar a los
+    # status previos… estoy haciendo pruebas»). Las decisiones se borran y queda en la bitácora qué había.
+    borrar_decisiones: bool = False
 
 
 @router.post("/reuniones/{reunion_id}/estado", response_model=ReunionSalida)
@@ -545,20 +673,40 @@ def avanzar(reunion_id: int, datos: CambioEstado, request: Request, ctx: Context
             raise HTTPException(status.HTTP_409_CONFLICT, f"Faltan {len(faltan)} producto(s) por pre-filtrar.")
         if not any(i.prefiltro == "pasa" for i in r.productos):
             raise HTTPException(status.HTTP_409_CONFLICT, "Ningún producto pasó el pre-filtro: no hay qué presentar.")
-    if datos.estado == "prefiltro" and r.estado == "comite" and any(i.decision for i in r.productos):
-        raise HTTPException(status.HTTP_409_CONFLICT, "El comité ya decidió sobre algunos productos: no se puede regresar al pre-filtro.")
+    decididos = [i for i in r.productos if i.decision]
+    if datos.estado == "prefiltro" and r.estado == "comite" and decididos and not datos.borrar_decisiones:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"El comité ya decidió sobre {len(decididos)} producto(s). Para regresar al pre-filtro hay que borrar esas decisiones.")
+    if r.estado == "cerrada":  # reabrir: volver al comité
+        if otra := bd.scalar(select(ComiteReunion).where(ComiteReunion.estado != "cerrada", ComiteReunion.reunion_id != r.reunion_id)):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"Ya hay otra reunión sin cerrar (la del {otra.fecha:%d/%m/%Y}). Solo puede haber una abierta a la vez.")
+        llevados = bd.scalar(select(func.count()).select_from(ComiteProducto).where(
+            ComiteProducto.viene_de.in_([i.item_id for i in r.productos] or [0])))
+        if llevados:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"{llevados} producto(s) que quedaron «En espera» ya entraron a otra reunión: no se puede reabrir esta.")
     if datos.estado == "prefiltro" and r.estado == "abierta" and not r.productos:
         raise HTTPException(status.HTTP_409_CONFLICT, "Sube al menos un producto antes de empezar el pre-filtro.")
     if datos.estado == "cerrada" and (faltan := [i for i in r.productos if i.prefiltro == "pasa" and not i.decision]):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Falta la decisión del comité en {len(faltan)} producto(s).")
+    borradas = []
+    if datos.estado == "prefiltro" and r.estado == "comite":
+        for i in decididos:
+            borradas.append({"item": i.item_id, "decision": i.decision, "motivo": i.decision_motivo})
+            i.decision = i.decision_motivo = i.decision_color = i.decision_puntaje = None
+            i.decision_por = i.decision_en = None
+            i.revisiones.clear()
     antes, r.estado = r.estado, datos.estado
+    if antes == "cerrada":
+        r.cerrada_en = r.cerrada_por = None
     if datos.estado == "prefiltro" and antes == "abierta":
         r.prefiltro_en = ahora()
     elif datos.estado == "comite":
         r.comite_en = r.comite_en or ahora()
     elif datos.estado == "cerrada":
         r.cerrada_en, r.cerrada_por = ahora(), ctx.usuario.usuario_id
-    _bitacora(bd, "estado", ctx, request, "comite_reunion", r.reunion_id, {"antes": antes, "despues": r.estado})
+    _bitacora(bd, "estado", ctx, request, "comite_reunion", r.reunion_id, {"antes": antes, "despues": r.estado, **({"decisiones_borradas": borradas} if borradas else {})})
     bd.commit()
     return _salida(bd, r)
 
@@ -955,3 +1103,80 @@ def aceptados(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtene
         ComiteReunion.reunion_id.in_({i.reunion_id for i in filas} or {0}))).all())
     return [Aceptado(reunion_id=i.reunion_id, fecha_reunion=fechas[i.reunion_id], producto=x)
             for i, x in zip(filas, _items(bd, filas))]
+
+
+# ---------------------------------------------------------------- asistente de IA por producto
+
+class Turno(BaseModel):
+    pregunta: str = Field(max_length=500)
+    respuesta: str = Field(max_length=2000)
+
+
+class PreguntaEntrada(BaseModel):
+    pregunta: str = Field(min_length=3, max_length=500)
+    historial: list[Turno] = Field(default_factory=list, max_length=10)
+
+
+class Fuente(BaseModel):
+    numero: int
+    titulo: str
+
+
+class RespuestaAsistente(BaseModel):
+    texto: str
+    encontrada: bool
+    fuentes: list[Fuente]
+    aviso: str | None = None
+
+
+class ParecidoSalida(BaseModel):
+    producto_id: int
+    sku: str
+    descripcion: str | None
+    marca: str | None
+    imagen: str | None
+    precio: Decimal | None
+    al_mes: float | None
+    tiendas: int | None
+    por_tienda_mes: float | None
+    cambio: float | None
+
+
+class Parecidos(BaseModel):
+    ventana: str | None  # de qué periodo es la venta; None si no hay ventas cargadas
+    productos: list[ParecidoSalida]
+
+
+@router.get("/productos/{item_id}/parecidos", response_model=Parecidos)
+def parecidos(item_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> Parecidos:
+    """Para la diapositiva: los parecidos que ya vendemos con su precio y su venta real, junto al producto nuevo."""
+    from modulos.compras import asistente_comite as ac
+
+    i = _item(bd, item_id)
+    e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
+    if not e or e.estado != "lista":
+        return Parecidos(ventana=None, productos=[])
+    ventana, filas = ac.parecidos_con_venta(bd, e, n=3)
+    return Parecidos(ventana=ventana, productos=[ParecidoSalida(
+        producto_id=x.producto.producto_id, sku=x.producto.sku, descripcion=x.producto.descripcion, marca=x.producto.marca,
+        imagen=x.producto.liga_imagen or x.producto.imagen_cdn, precio=x.precio, al_mes=x.al_mes, tiendas=x.tiendas,
+        por_tienda_mes=x.por_tienda_mes, cambio=x.cambio) for x in filas])
+
+
+@router.post("/productos/{item_id}/preguntar", response_model=RespuestaAsistente)
+def preguntar(item_id: int, datos: PreguntaEntrada, ctx: Contexto = Depends(requiere(VER)),
+              bd: Session = Depends(obtener_bd)) -> RespuestaAsistente:
+    """Pregunta sobre un producto del comité. Solo IA local; contesta con la ficha del producto y dice de dónde sale."""
+    from ia import puerta
+    from modulos.compras import asistente_comite as ac
+
+    item = _item(bd, item_id)
+    pregunta = _texto(datos.pregunta)
+    if not pregunta:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escribe la pregunta.")
+    try:
+        r = ac.preguntar(bd, ctx.usuario.usuario_id, item, _items(bd, [item])[0].model_dump(), pregunta,
+                         [t.model_dump() for t in datos.historial])
+    except puerta.ErrorIA as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
+    return RespuestaAsistente(texto=r.texto, encontrada=r.encontrada, fuentes=[Fuente(**f) for f in r.fuentes], aviso=r.aviso)

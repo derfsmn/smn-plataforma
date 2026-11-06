@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  ArrowLeft, ArrowRight, Check, Filter, Lightbulb, Loader2, PackagePlus, PenLine, Presentation, RefreshCw, Search, Trash2,
-  UserPlus, Users, X,
+  ArrowLeft, ArrowRight, Check, FileDown, Filter, Lightbulb, Loader2, PackagePlus, PenLine, Presentation, RefreshCw, Search, Trash2,
+  TriangleAlert, UserPlus, Users, X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
@@ -18,7 +18,7 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe } from "@/lib/api";
 import {
-  columna, DECISION, fechaReunion, MODELO, PASOS, RESULTADO_REVISION, RUTA, VALOR, type EstadoReunion, type Item, type Peticion,
+  columna, DECISION, descargarActa, fechaReunion, MODELO, PASOS, RESULTADO_REVISION, RUTA, VALOR, type EstadoReunion, type Item, type Peticion,
   type Reunion, type Revision,
 } from "@/lib/comite";
 import { Capturar } from "../../capturar";
@@ -33,12 +33,13 @@ const COLUMNAS = [
 
 const SIGUIENTE: Partial<Record<EstadoReunion, { estado: EstadoReunion; texto: string; pregunta: string }>> = {
   abierta: { estado: "prefiltro", texto: "Empezar pre-filtro", pregunta: "Al empezar el pre-filtro ya no se pueden subir productos a esta reunión." },
-  prefiltro: { estado: "comite", texto: "Pasar al comité", pregunta: "Al comité llega solo lo que pasó el pre-filtro. Después de la primera decisión ya no se regresa al pre-filtro." },
-  comite: { estado: "cerrada", texto: "Cerrar reunión", pregunta: "El ciclo queda de solo lectura. Los aceptados quedan listos para el proceso de alta y lo que quedó «En espera» entra a la siguiente reunión." },
+  prefiltro: { estado: "comite", texto: "Pasar al comité", pregunta: "Al comité llega solo lo que pasó el pre-filtro." },
+  comite: { estado: "cerrada", texto: "Cerrar reunión", pregunta: "El ciclo queda de solo lectura. Los aceptados quedan listos para el proceso de alta y lo que quedó «En espera» entra a la siguiente reunión. Se puede reabrir mientras no se abra otra reunión." },
 };
-const ANTERIOR: Partial<Record<EstadoReunion, { estado: EstadoReunion; texto: string }>> = {
-  prefiltro: { estado: "abierta", texto: "Regresar a subir productos" },
+const ANTERIOR: Partial<Record<EstadoReunion, { estado: EstadoReunion; texto: string; pregunta?: string }>> = {
+  prefiltro: { estado: "abierta", texto: "Regresar a subir productos", pregunta: "Se conserva lo que ya se pre-filtró." },
   comite: { estado: "prefiltro", texto: "Regresar al pre-filtro" },
+  cerrada: { estado: "comite", texto: "Reabrir la reunión", pregunta: "Regresa al comité con sus decisiones, para corregirlas o agregar algo. Después la cierras otra vez." },
 };
 
 export default function CicloReunion() {
@@ -50,7 +51,7 @@ export default function CicloReunion() {
   const [prefiltrando, setPrefiltrando] = useState<Item | null>(null);
   const [decidiendo, setDecidiendo] = useState<Item | null>(null);
   const [atendiendo, setAtendiendo] = useState<Peticion | null>(null);
-  const [paso, setPaso] = useState<{ estado: EstadoReunion; texto: string; pregunta?: string } | null>(null);
+  const [paso, setPaso] = useState<{ estado: EstadoReunion; texto: string; pregunta?: string; borrar?: boolean } | null>(null);
   const [moviendo, setMoviendo] = useState(false);
 
   const cargar = useCallback(() => {
@@ -84,7 +85,7 @@ export default function CicloReunion() {
     if (!paso) return;
     setMoviendo(true);
     try {
-      setR(await api<Reunion>(`${RUTA}/reuniones/${r.id}/estado`, { cuerpo: { estado: paso.estado } }));
+      setR(await api<Reunion>(`${RUTA}/reuniones/${r.id}/estado`, { cuerpo: { estado: paso.estado, borrar_decisiones: !!paso.borrar } }));
       setPaso(null);
     } catch (err) {
       avisar(mensajeDe(err), "info");
@@ -133,6 +134,11 @@ export default function CicloReunion() {
                 <Presentation className="h-4 w-4" /> {r.estado === "comite" ? "Presentar" : "Ver presentación"}
               </Link>
             )}
+            {(r.estado === "comite" || r.estado === "cerrada") && (
+              <Boton variante="secundario" onClick={() => descargarActa(r).catch((e) => avisar(mensajeDe(e), "info"))}>
+                <FileDown className="h-4 w-4" /> Acta
+              </Boton>
+            )}
             {organizar && SIGUIENTE[r.estado] && (
               <Boton variante={r.estado === "abierta" ? "secundario" : r.estado === "comite" ? "secundario" : "primario"} onClick={() => setPaso(SIGUIENTE[r.estado]!)}>
                 {SIGUIENTE[r.estado]!.texto} <ArrowRight className="h-4 w-4" />
@@ -142,7 +148,17 @@ export default function CicloReunion() {
         </div>
 
         {organizar && ANTERIOR[r.estado] && (
-          <button type="button" onClick={() => setPaso(ANTERIOR[r.estado]!)} className="mt-3 inline-flex items-center gap-1 text-[13px] text-smn-gris-500 hover:text-tinta">
+          <button
+            type="button"
+            onClick={() => {
+              const atras = ANTERIOR[r.estado]!;
+              const n = r.productos.filter((i) => i.decision).length;
+              setPaso(
+                r.estado === "comite" && n
+                  ? { ...atras, texto: "Borrar decisiones y regresar al pre-filtro", borrar: true, pregunta: `El comité ya decidió sobre ${n} ${n === 1 ? "producto" : "productos"}. Al regresar al pre-filtro se borran esas decisiones (quedan anotadas en la bitácora) y se vuelven a tomar en el comité.` }
+                  : atras,
+              );
+            }} className="mt-3 inline-flex items-center gap-1 text-[13px] text-smn-gris-500 hover:text-tinta">
             <ArrowLeft className="h-3.5 w-3.5" /> {ANTERIOR[r.estado]!.texto}
           </button>
         )}
@@ -445,6 +461,13 @@ function Tarjeta({ i, r, quitar, reevaluar, prefiltrar, decidir, verSemaforo, re
           <p className="text-smn-gris-500">Sin semáforo todavía.</p>
         )}
       </div>
+
+      {r.estado !== "cerrada" && i.prefiltro !== "no_pasa" && !i.decision && e?.estado !== "en_curso" && (
+        <p className={`mt-1.5 flex items-start gap-1.5 text-[13px] ${i.faltantes.length ? "text-aviso-texto" : "text-green-700 dark:text-green-400"}`}>
+          {i.faltantes.length ? <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+          {i.faltantes.length ? `Para presentar le falta: ${i.faltantes.join(", ")}` : "Listo para presentar"}
+        </p>
+      )}
 
       {i.prefiltro && (
         <div className="mt-2 border-t border-smn-gris-100 pt-2 text-[13px]">

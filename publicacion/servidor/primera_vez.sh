@@ -34,8 +34,8 @@ poner_env API_ORIGENES_PERMITIDOS "https://$IP"
 poner_env WEB_URL "https://$IP"
 poner_env NEXT_PUBLIC_API_URL "https://$IP"
 poner_env OLLAMA_URL "http://ollama:11434"
-poner_env SMTP_SERVIDOR correo
-poner_env SMTP_PUERTO 1025
+# Correo: si tu equipo usaba el buzón de prueba (Mailpit), en el servidor también; si es un correo real, se conserva
+case "$(leer_env SMTP_SERVIDOR)" in ""|localhost|127.0.0.1|correo|mailpit) poner_env SMTP_SERVIDOR correo; poner_env SMTP_PUERTO 1025 ;; esac
 poner_env PROGRAMADOR_ACTIVO true
 echo "[env] Listo $BASE/.env"
 
@@ -52,7 +52,8 @@ echo "[base] Restaurando (unos minutos)..."
 sqlsa -Q "RESTORE DATABASE [$(bd)] FROM DISK='/respaldos/inicial_$(date +%Y%m%d).bak' WITH REPLACE, STATS=25"
 
 # Ajustes de pantalla que dependen del equipo: se borran para que mande el .env del servidor
-sqlsa -d "$(bd)" -Q "DELETE FROM nucleo.configuracion WHERE clave IN ('web_url','smtp_servidor','smtp_puerto','smtp_usuario','smtp_contrasena','smtp_tls','ollama_url'); SELECT @@ROWCOUNT AS ajustes_de_tu_equipo_quitados;"
+#   El correo solo se quita si es el buzón de prueba; un correo real que ya funcionaba se conserva.
+sqlsa -d "$(bd)" -Q "DELETE FROM nucleo.configuracion WHERE clave IN ('web_url','ollama_url'); IF EXISTS (SELECT 1 FROM nucleo.configuracion WHERE clave='smtp_servidor' AND LTRIM(RTRIM(ISNULL(valor,''))) IN ('','localhost','127.0.0.1','correo','mailpit')) DELETE FROM nucleo.configuracion WHERE clave LIKE 'smtp%'; SELECT clave, CASE WHEN clave='smtp_contrasena' THEN '(cifrada)' ELSE valor END AS correo_conservado FROM nucleo.configuracion WHERE clave LIKE 'smtp%';"
 
 # 4. Usuarios de la base: smn_app (la plataforma, dueña solo de su base) y smn_lectura (solo lectura)
 CLAVE_APP="Smn-$(openssl rand -hex 16)-A1"

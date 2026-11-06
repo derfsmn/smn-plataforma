@@ -129,6 +129,7 @@ TAREAS_IA = [
     ("compras.productos_explicar", "Radar de productos: explicar en palabras simples el color del semáforo", "compras", "ollama_y_api_respaldo"),
     ("compras.productos_tendencia", "Radar de productos: elegir las señales del radar de tendencias que hablan de un producto nuevo", "compras", "ollama_y_api_respaldo"),
     ("compras.productos_politicas", "Radar de productos: revisar un producto nuevo contra las políticas y reglas de Compras", "compras", "api"),
+    ("compras.comite_asistente", "Comité de producto nuevo: contestar preguntas del comité sobre un producto con su ficha y su semáforo (solo IA local)", "compras", "ollama"),
     ("compras.oportunidades", "Radar de productos: recomendar productos que no tenemos y ya se venden (más vendidos, descontinuados, competencia)", "compras", "api"),
     ("compras.oportunidades_novedades", "Radar de productos: agente que busca en internet los más vendidos en México con su prueba de venta", "compras", "api"),
     ("datos.tiendas_grupos", "Grupos de tiendas: nombrar y explicar cada grupo de tiendas que venden parecido (solo IA local)", None, "ollama"),

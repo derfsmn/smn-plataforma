@@ -2,7 +2,7 @@
 // Cada reunión abre un ciclo: subir productos → semáforo → pre-filtro de Compras → comité (Aceptado, Denegado o En espera).
 
 import { urlApi } from "./api";
-import type { Color } from "./precios";
+import { descargar, type Color } from "./precios";
 
 export const RUTA = "/api/compras/comite";
 
@@ -39,6 +39,18 @@ export type Semaforo = {
   explicacion: string | null;
   motivo_cambio: string | null;
   factores: FactorBreve[];
+  ejecutivo?: Ejecutivo | null;
+};
+
+export type PuntoClave = { factor: string; nombre: string; puntaje: number; texto: string };
+/** El semáforo en una lámina ejecutiva (lo arma la API con los mismos factores, sin IA). */
+export type Ejecutivo = {
+  titular: string;
+  a_favor: PuntoClave[];
+  en_contra: PuntoClave[];
+  para_verde: string | null;
+  faltan_puntos: number | null;
+  margen_minimo: string | null;
 };
 
 export type Criterio = { criterio: string; valor: ValorCriterio; nota: string | null };
@@ -66,6 +78,7 @@ export type Item = {
   foto_externa: string | null;
   estado_sujeto: string;
   falta: string | null;
+  faltantes: string[]; // lo que le falta para presentarse completo
   llego_solo: boolean;
   evaluacion: Semaforo | null;
   prefiltro: "pasa" | "no_pasa" | null;
@@ -163,3 +176,22 @@ export function columna(i: Item, estado: EstadoReunion): 0 | 1 | 2 | 3 {
 }
 
 export const pesos = (n: string | null) => (n == null ? null : Number(n).toLocaleString("es-MX", { style: "currency", currency: "MXN" }));
+
+/** Parecidos que ya vendemos, con su venta real en SMNBI (para la diapositiva del comité). */
+export type Parecido = {
+  producto_id: number;
+  sku: string;
+  descripcion: string | null;
+  marca: string | null;
+  imagen: string | null;
+  precio: string | null;
+  al_mes: number | null;
+  tiendas: number | null;
+  por_tienda_mes: number | null;
+  cambio: number | null;
+};
+export type Parecidos = { ventana: string | null; productos: Parecido[] };
+
+/** Acta en PDF de la reunión (borrador si no está cerrada). */
+export const descargarActa = (r: Pick<Reunion, "id" | "fecha" | "estado">) =>
+  descargar(`${RUTA}/reuniones/${r.id}/acta`, `Acta comite producto nuevo ${r.fecha}${r.estado === "cerrada" ? "" : " borrador"}.pdf`);

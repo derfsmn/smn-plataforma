@@ -66,6 +66,7 @@ def test_ciclo_completo_del_comite(admin: TestClient, sincrono):  # noqa: F811
     reunion = admin.post(f"{R}/reuniones/{rid}/productos", json={"idea_id": idea}).json()
     i_idea = item_de(reunion, tipo="idea", sujeto_id=idea)
     assert i_idea["origen"] == "idea" and not i_idea["proveedor_actual"]
+    assert "foto" in i_idea["faltantes"] and "precio" not in i_idea["faltantes"] and "costo" not in i_idea["faltantes"]
     assert i_idea["evaluacion"]["estado"] == "lista" and i_idea["evaluacion"]["modelo"] == "sin_proveedor"
     assert admin.post(f"{R}/reuniones/{rid}/productos", json={"idea_id": idea}).status_code == 409
 
@@ -146,9 +147,23 @@ def test_ciclo_completo_del_comite(admin: TestClient, sincrono):  # noqa: F811
     reunion = admin.put(f"{R}/productos/{i_cap['id']}/decision", json={"decision": "aceptado", "motivo": "Se alinea al surtido"}).json()
     assert item_de(reunion, id=i_cap["id"])["decision_color"] == i_cap["evaluacion"]["color"]
     assert admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "prefiltro"}).status_code == 409  # ya hay decisiones
+    # Diego (2026-11-05): para pruebas, regresar al pre-filtro borrando las decisiones
+    reunion = admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "prefiltro", "borrar_decisiones": True}).json()
+    assert reunion["estado"] == "prefiltro" and item_de(reunion, id=i_cap["id"])["decision"] is None
+    assert admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "comite"}).json()["estado"] == "comite"
+    admin.put(f"{R}/productos/{i_cap['id']}/decision", json={"decision": "aceptado", "motivo": "Se alinea al surtido"})
     admin.put(f"{R}/productos/{i_idea['id']}/decision", json={"decision": "en_espera", "motivo": "Ver en el siguiente ciclo"})
     reunion = admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "cerrada"}).json()
     assert reunion["estado"] == "cerrada" and reunion["cerrada_por"]
+    # Acta en PDF con las decisiones y su motivo
+    pdf = admin.get(f"{R}/reuniones/{rid}/acta")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf" and pdf.content[:4] == b"%PDF"
+    assert "borrador" not in pdf.headers["content-disposition"]
+    # Se puede reabrir (regresa al comité con sus decisiones) y volver a cerrar
+    reabierta = admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "comite"}).json()
+    assert reabierta["estado"] == "comite" and reabierta["cerrada_por"] is None
+    assert item_de(reabierta, id=i_cap["id"])["decision"] == "aceptado"
+    reunion = admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "cerrada"}).json()
     assert reunion["embudo"] == {"subidos": 3, "evaluados": 3, "pasan": 2, "no_pasan": 1, "aceptados": 1, "denegados": 0,
                                  "en_espera": 1}
 
@@ -175,6 +190,8 @@ def test_ciclo_completo_del_comite(admin: TestClient, sincrono):  # noqa: F811
     llegada = item_de(nueva, tipo="propuesta", sujeto_id=tarde)
     assert llegada["llego_solo"] and llegada["origen"] == "propuesta" and llegada["prefiltro"] is None
     assert len(nueva["productos"]) == 2
+    # Ya hay otra abierta y lo «En espera» ya entró a ella: la anterior no se reabre
+    assert admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "comite"}).status_code == 409
     cerrar_pendientes()
     # Y no se vuelve a llevar
     otra_mas = admin.post(f"{R}/reuniones", json={"fecha": "2026-12-11"}).json()
@@ -212,4 +229,69 @@ def test_captura_rapida_con_proveedor(admin: TestClient, sincrono):  # noqa: F81
     i2 = item_de(reunion, tipo="idea", sujeto_id=e2["sujeto"]["id"])
     assert not i2["proveedor_actual"] and i2["proveedor"] == "Distribuidora Ficticia"
     assert i2["evaluacion"]["modelo"] == "sin_proveedor"
+    cerrar_pendientes()
+
+
+def test_asistente_del_comite_contesta_con_la_ficha(admin: TestClient, sincrono, monkeypatch):  # noqa: F811
+    """Diego (2026-11-05): en la presentación, preguntarle a la IA por qué salió así un producto. Solo IA local y solo
+    con la ficha del producto; cada dato dice de qué sección sale."""
+    from ia import puerta
+    from modulos.compras import asistente_comite as ac
+
+    cerrar_pendientes()
+    depto, _ = catalogo_ficticio()
+    rid = admin.post(f"{R}/reuniones", json={"fecha": "2026-11-22"}).json()["id"]
+    idea = admin.post("/api/compras/productos/ideas", json={
+        "nombre": "Colágeno hidrolizado sabor fresa", "marca": "Marca Ficticia", "departamento": depto,
+        "ingrediente": "Colágeno", "precio_visto": "320", "costo_estimado": "150"}).json()["sujeto"]["id"]
+    reunion = admin.post(f"{R}/reuniones/{rid}/productos", json={"idea_id": idea}).json()
+    item = item_de(reunion, tipo="idea", sujeto_id=idea)
+    url = f"{R}/productos/{item['id']}/preguntar"
+
+    # La lámina ejecutiva: titular, a favor / en contra y qué lo subiría, sin IA
+    x = item["evaluacion"]["ejecutivo"]
+    assert x["titular"] and any(p["factor"] == "rentabilidad" for p in x["a_favor"])
+    barata = admin.post("/api/compras/productos/ideas", json={
+        "nombre": "Bebida de miel en sobre", "departamento": depto, "ingrediente": "Miel",
+        "precio_visto": "52", "costo_estimado": "33"}).json()["sujeto"]["id"]
+    reunion = admin.post(f"{R}/reuniones/{rid}/productos", json={"idea_id": barata}).json()
+    x = item_de(reunion, tipo="idea", sujeto_id=barata)["evaluacion"]["ejecutivo"]
+    assert [p["factor"] for p in x["en_contra"]][:1] == ["rentabilidad"] and "débil en rentabilidad" in x["titular"]
+    assert "vendiéndolo en $" in x["para_verde"] and x["margen_minimo"] is not None
+
+    # Los parecidos de la diapositiva, con su venta (o sin ella si no hay ventas cargadas)
+    par = admin.get(f"{R}/productos/{item['id']}/parecidos")
+    assert par.status_code == 200 and len(par.json()["productos"]) <= 3
+
+    # Sin Ollama encendido lo dice, no inventa
+    monkeypatch.setattr(puerta, "estado_ollama", lambda: {"disponible": False, "modelos": []})
+    r = admin.post(url, json={"pregunta": "¿Por qué salió de este color?"})
+    assert r.status_code == 503 and "Ollama" in r.json()["detail"]
+
+    vistos = {}
+
+    def falsa(bd, tarea, **kw):
+        vistos.update(kw, tarea=tarea)
+        texto = ("Salió así por la rentabilidad [4] y el margen [2]. Dato inventado [99]."
+                 if "color" in kw["mensaje"].split("Pregunta:")[-1] else "NO_ESTA")
+        return puerta.Respuesta(texto, "ollama", "modelo", 1, 1, 0, 1, True, 0)
+    monkeypatch.setattr(puerta, "estado_ollama", lambda: {"disponible": True, "modelos": ["x"]})
+    monkeypatch.setattr(puerta, "ejecutar", falsa)
+    r = admin.post(url, json={"pregunta": "¿Por qué salió de este color?",
+                              "historial": [{"pregunta": "¿Qué es?", "respuesta": "Un colágeno [1]."}]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert vistos["tarea"] == ac.TAREA and vistos["proveedor"] == "ollama"  # solo IA local
+    assert "Colágeno hidrolizado sabor fresa" in vistos["mensaje"] and "Factor Rentabilidad" in vistos["mensaje"]
+    assert "Pregunta anterior: ¿Qué es?" in vistos["mensaje"]
+    assert d["encontrada"] and "[99]" not in d["texto"] and [f["numero"] for f in d["fuentes"]] == [2, 4]
+    assert d["fuentes"][0]["titulo"] == "Precio, costo y margen"
+    # Los parecidos llevan su venta de SMNBI (o dicen que no hay ventas cargadas)
+    if "Productos parecidos" in vistos["mensaje"]:
+        assert "Datos de la venta" in vistos["mensaje"] or "Todavía no hay ventas cargadas" in vistos["mensaje"]
+
+    r = admin.post(url, json={"pregunta": "¿Quién es el dueño del proveedor?"}).json()
+    assert not r["encontrada"] and "no está en la ficha" in r["texto"] and r["fuentes"] == []
+    assert admin.post(url, json={"pregunta": "x"}).status_code == 422
+    assert admin.post(f"{R}/productos/999999/preguntar", json={"pregunta": "¿Por qué?"}).status_code == 404
     cerrar_pendientes()

@@ -72,5 +72,6 @@ for viejo in $(ls -1t "$VERS" | tail -n +4); do
   echo "  se quitó $viejo"
 done
 docker image prune -f >/dev/null
+bash "$VERS/$V/publicacion/servidor/bajar_modelos.sh" || true
 echo
 echo "=== Listo: $V publicada en https://$IP ==="

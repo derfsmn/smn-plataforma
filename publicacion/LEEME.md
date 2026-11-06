@@ -24,7 +24,7 @@ Plan completo: https://claude.ai/artifact/Dgcc8xDXyc3zvHLTAqhgVM
 | 3 | Laptop | Si es importante, pruébalo con datos reales (ver «Copia del servidor a la laptop») |
 | 4 | — | Visto bueno del área, si cambia cómo trabajan |
 | 5 | Laptop | `powershell -ExecutionPolicy Bypass -File publicacion\cerrar_version.ps1 -Version v1.1 -Nota "Compras ya puede ..."`: etiqueta, escribe `CAMBIOS.md` y sube a GitHub |
-| 6 | PC empresa | Fuera del horario de uso: `ssh smnnatural@172.31.104.4` y luego `publicar v1.1` |
+| 6 | PC empresa | Fuera del horario de uso: `ssh smnnatural@172.31.104.4`, luego `tmux new -s smn` (sigue aunque se corte la conexión; para volver: `tmux attach -t smn`) y `publicar v1.1` |
 | 7 | PC empresa | Entra a https://172.31.104.4, revisa lo que cambió y que **Administración → Sistema** diga la versión nueva. Avisa a las áreas con `CAMBIOS.md` |
 
 `publicar` hace respaldo previo, construye, aplica migraciones, revisa que todo responda y, si algo falla, **regresa solo** a la versión anterior. Tarda de 10 a 15 minutos.
@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File publicacion\cerrar_version.ps1 -Version
 Respaldo de tu base. En **SSMS**, conectado a `localhost,1433`:
 
 ```sql
-BACKUP DATABASE smn_td TO DISK = '/var/opt/mssql/data/smn_td.bak' WITH COPY_ONLY, INIT;
+BACKUP DATABASE smn_td TO DISK = '/var/opt/mssql/data/smn_td.bak' WITH COPY_ONLY, INIT, COMPRESSION;
 ```
 
 Luego en PowerShell:
@@ -91,13 +91,17 @@ Pasa `salida\smn_td.bak` y `salida\env_local` a la PC de la empresa por **USB** 
 
 ### 4. PC de la empresa: subir los datos al servidor
 
-En PowerShell, en la carpeta donde dejaste los 2 archivos:
+Una sola vez, para que la VPN no corte la conexión por inactividad:
 
 ```
-scp smn_td.bak env_local smnnatural@172.31.104.4:
+mkdir "$env:USERPROFILE\.ssh" -Force ; Add-Content "$env:USERPROFILE\.ssh\config" "Host 172.31.104.4`n  ServerAliveInterval 30`n  ServerAliveCountMax 10"
 ```
+
+En la carpeta donde dejaste los 2 archivos, sube con `sftp smnnatural@172.31.104.4` y dentro escribe `reput smn_td.bak`, `put env_local` y `exit`. Si se corta, vuelves a entrar y repites `reput smn_td.bak`: sigue donde se quedó.
 
 ### 5. Servidor: preparar y publicar
+
+Primero `tmux new -s smn` (si se corta la conexión, el proceso sigue; para volver: `tmux attach -t smn`). Luego:
 
 ```
 GIT_SSH_COMMAND="ssh -i ~/.ssh/smn_github -o IdentitiesOnly=yes" git --git-dir=/datos/plataforma/repo.git fetch -q --tags origin '+refs/heads/*:refs/heads/*' && git --git-dir=/datos/plataforma/repo.git show v1.0:publicacion/servidor/primera_vez.sh | tr -d '\r' > ~/primera_vez.sh && bash ~/primera_vez.sh v1.0
