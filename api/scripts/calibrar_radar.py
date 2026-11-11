@@ -51,7 +51,7 @@ def calificar(bd: Session, p: Producto, v: rr.Ventana, hoy: date) -> dict:
         "proveedor": rp.f_proveedor(bd, s, parecidos),
     }
     peso, _ = rp.pesos(bd)
-    puntaje, confianza = rp.sumar(factores, peso)
+    puntaje, confianza = rp.sumar(factores, peso, rp.sin_senal(factores))
     return {"sku": p.sku, "descripcion": p.descripcion, "subcategoria": p.subcategoria, "margen_real": s.margen,
             "puntaje": puntaje, "color": rp.color_de(puntaje, confianza), "confianza": confianza,
             **{f: x.puntaje for f, x in factores.items()}, **{f"{f}_dato": x.valor for f, x in factores.items()}}

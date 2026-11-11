@@ -2,13 +2,13 @@
 // Configuración de la plataforma: correo, archivos, IA y generales. Lo que se guarda aquí manda sobre el .env.
 
 import { AnimatePresence, motion } from "motion/react";
-import { Gauge, KeyRound, Mail, Package, Radar, RotateCcw, Save, Send, Settings2, FolderUp, Sparkles, Tags } from "lucide-react";
+import { Gauge, KeyRound, PackageSearch, Mail, Package, Radar, RotateCcw, Save, Send, Settings2, FolderUp, Sparkles, Tags } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, mensajeDe, type AjusteConfig, type GrupoConfig } from "@/lib/api";
 import { useAvisos } from "@/componentes/avisos";
 import { Boton, Encabezado, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 
-const ICONOS: Record<string, typeof Mail> = { general: Settings2, correo: Mail, archivos: FolderUp, ia: Sparkles, radar: Radar, catalogo: Package, precios: Tags, productos: Gauge };
+const ICONOS: Record<string, typeof Mail> = { general: Settings2, correo: Mail, archivos: FolderUp, ia: Sparkles, radar: Radar, catalogo: Package, precios: Tags, productos: Gauge, oportunidades: PackageSearch };
 const ORIGEN: Record<string, { texto: string; clase: string }> = {
   pantalla: { texto: "Guardado aquí", clase: "bg-smn-naranja/15 text-aviso-texto" },
   archivo: { texto: "Desde .env", clase: "bg-smn-gris-100 text-smn-gris-700" },

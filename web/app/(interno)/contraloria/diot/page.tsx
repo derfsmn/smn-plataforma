@@ -308,7 +308,7 @@ function Documentos({ p, cat, opera, poner }: { p: Periodo; cat: Catalogos; oper
             <FileUp className="h-4 w-4" /> {avance ?? "Subir reportes"}
           </Boton>
         )}
-        <input ref={entrada} type="file" multiple accept=".xls,.xlsx,.csv,.txt,.zip" className="hidden" onChange={(e) => subirTodos(e.target.files)} />
+        <input ref={entrada} type="file" multiple accept=".xls,.xlsx,.csv,.txt,.zip,.pdf" className="hidden" onChange={(e) => subirTodos(e.target.files)} />
       </div>
       {resultados.length > 0 && (
         <div className="mt-4 rounded-2xl bg-smn-gris-100/60 p-3 text-sm">

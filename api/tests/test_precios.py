@@ -170,7 +170,41 @@ def test_corrida_completa_sin_intervencion(limpio, monkeypatch):
         # Una sola ronda: código de barras de A y descripción de B y C; luego vendedores de A y C
         # Primero la descripción de los tres; el código de barras solo para el que no quedó resuelto.
         # Vendedores: A, y las dos publicaciones de C (G-C2 es el mismo producto y también cuenta)
-        assert limpio.envios == [("products", 3), ("products", 1), ("sellers", 2)]  # una publicación por producto, como Radar Precios
+        # Con precios_barras_primero la moringa se busca por código y por descripción en el mismo envío (una sola
+        # espera). Una publicación por producto, como Radar Precios
+        assert limpio.envios == [("products", 4), ("sellers", 2)]
+
+
+def test_paquete_de_varios_envases_y_ligas_relativas():
+    from modulos.compras import tiendas as td
+    d = "CREATINA MONOHIDRATADA 450 GR"
+    assert co.paquete(d, "Creatina monohidratada pura 2 botes de 450g 180 serv birdman") == "parece paquete de varios envases"
+    assert co.paquete(d, "Birdman Creatina Monohidratada Micronizada 450g Sin Sabor") is None
+    assert co.paquete(d, "Birdman creatina 1 bote 450 g") is None
+    base = "https://www.farmaciasanpablo.com.mx"
+    assert td._liga("creatina-birdman/p/000000000070005874", base) == base + "/creatina-birdman/p/000000000070005874"
+    assert td._liga("/x/p/1", base) == base + "/x/p/1" and td._liga("sin liga", base) is None
+
+
+def test_codigo_de_barras_y_descripcion_se_juntan(limpio, monkeypatch):
+    """Caso 37355 (Birdman Creatina, 2026-11-06): por código Google trae pocas publicaciones; se junta con la descripción."""
+    monkeypatch.setattr(configuracion(), "precios_max_publicaciones", 5)
+    a = producto("MORINGA EJ 500 MG 100 CAPSULAS", barras="7500000000017")
+    vigilar(a)
+    limpio.resultados["7500000000017"] = [item("Naturej Moringa EJ 500mg 100 cápsulas", "G-A")]
+    limpio.resultados["NATUREJ MORINGA EJ 500 MG 100 CAPSULAS"] = [
+        item("Naturej Moringa EJ 500 mg 100 cápsulas", "G-A2"), item("Moringa EJ Naturej 100 cápsulas 500mg", "G-A3", 2),
+        item("Naturej Moringa EJ 500 mg 60 cápsulas", "G-A4", 3)]  # otra presentación: no cuenta
+    for clave, precio in (("G-A", 100), ("G-A2", 105), ("G-A3", 110), ("G-A4", 80)):
+        limpio.vendedores[clave] = [vendedor(f"Tienda {clave}", precio, f"{clave.lower()}.ej")]
+    corrida = correr()
+    assert corrida.estado == "completa", corrida.error
+    assert limpio.envios[:2] == [("products", 2), ("sellers", 3)]  # código y descripción juntos: una sola espera
+    fa = fila(corrida.corrida_id, a)
+    assert fa.estado == "con_precios" and fa.vendedores == 3, (fa.estado, fa.vendedores, fa.mensaje)
+    with Session(motor()) as bd:
+        m = bd.scalar(select(PrecioCoincidencia).where(PrecioCoincidencia.producto_id == a))
+        assert m.estado == "automatica" and "código de barras" in m.motivo
 
 
 def test_reusa_coincidencia_y_rechazo_de_una_persona(limpio, admin):
@@ -423,6 +457,11 @@ def test_codigo_de_barras_no_acepta_otro_producto_de_la_marca():
     bueno.estrategias.add("codigo_barras")
     assert co.decidir("PROTEINA VEGETAL VAINILLA 510 G", MARCA, [otro, bueno], 85, {"naturej"}, set()).elegido is bueno
     assert [e for e, _ in co.consultas("PROTEINA VEGETAL VAINILLA 510 G", MARCA, "7500000000017")] == ["descripcion", "codigo_barras"]
+    # Con el ajuste precios_barras_primero (caso 37355, 2026-11-06) el código va primero; la consulta de Compras manda
+    assert [e for e, _ in co.consultas("PROTEINA VEGETAL VAINILLA 510 G", MARCA, "7500000000017", barras_primero=True)] == [
+        "codigo_barras", "descripcion"]
+    assert co.consultas("X", MARCA, "7500000000017", "mi consulta", barras_primero=True) == [("consulta", "mi consulta")]
+    assert [e for e, _ in co.consultas("PROTEINA VEGETAL VAINILLA 510 G", MARCA, "abc", barras_primero=True)] == ["descripcion"]
 
 
 def test_ofertas_de_otra_presentacion_no_cuentan():

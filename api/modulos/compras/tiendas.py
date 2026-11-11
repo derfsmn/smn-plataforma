@@ -75,7 +75,10 @@ def _liga(v, base: str) -> str | None:
         return "https:" + u
     if u.startswith("/"):
         return urljoin(base, u)
-    return u if u.startswith("http") else None
+    if u.startswith("http"):
+        return u
+    # Ruta sin «/» al inicio («creatina-birdman/p/0000…»): también es de la tienda
+    return urljoin(base + "/", u) if u and " " not in u and "/" in u else None
 
 
 def _pedir(url: str, encabezados: dict[str, str]) -> str:

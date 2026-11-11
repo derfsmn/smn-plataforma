@@ -19,7 +19,8 @@ from nucleo import configuracion as configuracion_rutas
 from datos import etl, smnbi
 from datos import rutas as datos_rutas
 from datos import proveedores as datos_proveedores
-from datos import grupos_tiendas, rutas_centro, rutas_etl, rutas_grupos_tiendas, rutas_inventario, rutas_proveedores, rutas_tiendas
+from datos import clientes, grupos_tiendas, rutas_centro, rutas_clientes, rutas_etl, rutas_grupos_tiendas, rutas_inventario, rutas_proveedores, rutas_tiendas
+from modulos.compras import rutas_busquedas
 from modulos.compras import (
     oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos,
     rutas_propuestas, rutas_radar,
@@ -55,6 +56,13 @@ def _revisar_precios() -> None:
         revisar_programa(bd)
 
 
+def _revisar_oportunidades() -> None:
+    from core.bd import _fabrica
+
+    with _fabrica()() as bd:
+        oportunidades.revisar_programa(bd)
+
+
 def _revisar_etl() -> None:
     from core.bd import _fabrica
 
@@ -71,10 +79,11 @@ def _revisar_costos() -> None:
 
 
 async def programador() -> None:
-    """Corre solo lo programado (Radar de tendencias, carga del catálogo, Radar de precios, ETL de ventas y costo real de la IA). Revisa cada minuto si ya toca.
+    """Corre solo lo programado (Radar de tendencias, carga del catálogo, Radar de precios, Buscar oportunidades, ETL de ventas y costo real de la IA). Revisa cada minuto si ya toca.
     Vive dentro de la API, así que no depende de nadie: en el servidor corre mientras la API esté arriba."""
     while True:
-        for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_etl, _revisar_costos):
+        for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_oportunidades, _revisar_etl,
+                      _revisar_costos):
             try:
                 await asyncio.to_thread(tarea)
             except Exception:  # noqa: BLE001 - un error no debe detener el programador
@@ -107,6 +116,8 @@ async def arranque(_: FastAPI):
                 log.warning("Se cerraron %s evaluaciones de proveedores que quedaron a medias", n)
             if n := grupos_tiendas.cerrar_huerfanas(bd):
                 log.warning("Se cerraron %s cálculos de grupos de tiendas que quedaron a medias", n)
+            if n := clientes.cerrar_huerfanas(bd):
+                log.warning("Se cerraron %s cálculos de tipos de cliente que quedaron a medias", n)
             if n := diot.cerrar_huerfanas(bd):
                 log.warning("Se cerraron %s corridas de la DIOT que quedaron a medias", n)
     except Exception as e:  # noqa: BLE001
@@ -149,6 +160,7 @@ app.include_router(rutas_centro.router)
 app.include_router(rutas_tiendas.router)
 app.include_router(rutas_inventario.router)
 app.include_router(rutas_grupos_tiendas.router)
+app.include_router(rutas_clientes.router)
 # Módulos (api/modulos/<nombre>)
 app.include_router(rutas_radar.router)
 app.include_router(rutas_precios.router)
@@ -157,6 +169,7 @@ app.include_router(rutas_propuestas.router)
 app.include_router(rutas_productos.router)
 app.include_router(rutas_oportunidades.router)
 app.include_router(rutas_comite.router)
+app.include_router(rutas_busquedas.router)
 app.include_router(kiosco_rutas.router)
 app.include_router(rutas_diot.router)
 app.include_router(rutas_conocimiento_fiscal.router)

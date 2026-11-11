@@ -409,6 +409,9 @@ def cambiar_color(evaluacion_id: int, datos: CambioColor, request: Request, ctx:
     _bitacora(bd, "cambiar_color", ctx, request, "producto_evaluacion", e.evaluacion_id,
               {"radar": e.color, "antes": antes, "despues": e.color_final or e.color, "motivo": motivo})
     bd.commit()
+    from modulos.compras import busquedas
+
+    busquedas.despues_de_evaluar(bd, e)  # si Compras lo pasó a verde y no tiene proveedor, se le busca
     return _detalle(bd, e)
 
 
@@ -503,7 +506,13 @@ def cambiar_estado_idea(idea_id: int, datos: CambioEstadoIdea, request: Request,
     i = bd.get(ProductoIdea, idea_id)
     if not i:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa idea.")
+    from modulos.compras import busquedas
+
     antes, i.estado, i.actualizada_en = i.estado, datos.estado, ahora()
+    if datos.estado == "buscar_proveedor":  # se vuelve una búsqueda de proveedor con seguimiento (2026-11-09)
+        busquedas.abrir(bd, i, rp.vigente(bd, idea_id=i.idea_id), origen="compras", usuario_id=ctx.usuario.usuario_id)
+    elif datos.estado == "descartada":
+        busquedas.al_descartar(bd, i, ctx.usuario.usuario_id)
     _bitacora(bd, "cambiar_estado_idea", ctx, request, "producto_idea", i.idea_id, {"antes": antes, "despues": i.estado})
     bd.commit()
     return SujetoSalida(tipo="idea", id=i.idea_id, nombre=i.nombre, marca=i.marca, departamento=i.departamento,
@@ -522,3 +531,39 @@ def foto_idea(idea_id: int, archivo_id: int, _: Contexto = Depends(requiere(VER)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa foto.")
     return FileResponse(ruta, media_type=archivo.tipo_contenido, filename=archivo.nombre_original,
                         headers={"X-Content-Type-Options": "nosniff"})
+
+
+# ---------------------------------------------------------------- asistente de IA local por producto
+
+@router.post("/evaluaciones/{evaluacion_id}/preguntar")
+def preguntar(evaluacion_id: int, datos: dict, ctx: Contexto = Depends(requiere(VER)),
+              bd: Session = Depends(obtener_bd)) -> dict:
+    """Pregunta sobre un producto evaluado (por qué salió de ese color, qué lo subiría, qué decidió el comité).
+    Solo IA local; contesta con la ficha del producto y dice de dónde sale cada dato (Diego, 2026-11-09)."""
+    from ia import puerta
+    from modulos.compras import asistente_comite as ac
+    from modulos.compras.rutas_comite import PreguntaEntrada, RespuestaAsistente
+
+    try:
+        entrada = PreguntaEntrada.model_validate(datos)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Escribe una pregunta de 3 a 500 letras.") from err
+    pregunta = " ".join(entrada.pregunta.split())
+    if len(pregunta) < 3:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escribe la pregunta.")
+    e = _evaluacion(bd, evaluacion_id)
+    sujeto = _sujetos(bd, [e])[e.evaluacion_id]
+    if e.propuesta_id:
+        s = rp.sujeto_de_propuesta(bd.get(Propuesta, e.propuesta_id))
+    else:
+        s = rp.sujeto_de_idea(bd.get(ProductoIdea, e.idea_id))
+    ficha = {"nombre": sujeto.nombre, "marca": sujeto.marca, "departamento": sujeto.departamento, "tipo": sujeto.tipo,
+             "descripcion": s.descripcion, "presentacion": s.contenido, "proveedor": sujeto.proveedor,
+             "precio": s.precio, "costo": s.costo, "margen": s.margen}
+    try:
+        r = ac.preguntar_evaluacion(bd, ctx.usuario.usuario_id, e, ficha, pregunta,
+                                    [t.model_dump() for t in entrada.historial])
+    except puerta.ErrorIA as err:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(err)) from err
+    return RespuestaAsistente(texto=r.texto, encontrada=r.encontrada, fuentes=[{"numero": f["numero"], "titulo": f["titulo"]}
+                              for f in r.fuentes], aviso=r.aviso).model_dump()

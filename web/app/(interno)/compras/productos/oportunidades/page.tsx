@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto } from "@/componentes/ui";
+import { InsigniaColor } from "@/componentes/semaforo-producto";
 import { api, fechaLocal, mensajeDe, pesos } from "@/lib/api";
 import {
   RUTA_OPORTUNIDADES as R,
@@ -34,12 +35,13 @@ const PASOS = [
 ];
 
 const COMO_BUSCA = [
-  "Parte del radar de tendencias y de los huecos de nuestro surtido.",
-  "Busca en las listas de más vendidos de México: Amazon, Mercado Libre, farmacias y tiendas naturistas. Trae prueba de venta, liga y foto.",
-  "Si lo pides, también revisa lo que venden 2 o más tiendas de la competencia en Google Shopping.",
-  "Cada producto necesita una prueba de venta; la tendencia y los huecos solo lo respaldan.",
-  "Quita lo que ya vendemos, lo que Compras ya rechazó y lo que descontinuamos.",
+  "Por tendencia: una búsqueda por cada tendencia fuerte del radar, de productos que ya se venden con ella.",
+  "De lo más vendido: una búsqueda por cada departamento que más vendemos, aunque no esté en ninguna tendencia. Si lo pides, también lo que venden 2 o más tiendas en Google Shopping.",
+  "Busca en Amazon, Mercado Libre, farmacias y tiendas naturistas de México. Cada producto trae prueba de venta, liga y foto.",
+  "Quita lo que ya vendemos, lo que ya está en el radar y lo que Compras descartó antes.",
+  "Cada una se evalúa sola en el semáforo. Las verdes y amarillas le llegan a Compras como búsqueda de proveedor.",
 ];
+const PUERTA: Record<string, string> = { tendencia: "Por tendencia", mas_vendido: "De lo más vendido", captura: "Capturado por Compras" };
 
 export default function Oportunidades() {
   const router = useRouter();
@@ -129,7 +131,7 @@ export default function Oportunidades() {
         <p className="text-[15px] text-smn-gris-500"><span className="font-mono">TD001</span> · Compras</p>
         <h1 className="text-3xl leading-tight font-semibold tracking-tight sm:text-[34px]">Buscar oportunidades</h1>
         <p className="mt-2 max-w-2xl text-[16px] text-smn-gris-700">
-          Productos que todavía no vendemos y que ya se venden en otros lados. Revisa cada uno y mándalo al semáforo con «Evaluar».
+          Productos que todavía no vendemos y que ya se venden en otros lados, por tendencia o porque son de lo más vendido. Cada uno se evalúa solo; los verdes y amarillos le llegan a Compras para buscarles proveedor.
         </p>
         <details className="group mt-3 max-w-2xl text-[15px]">
           <summary className="inline-flex cursor-pointer list-none items-center gap-1 font-medium text-smn-gris-700 hover:text-tinta">
@@ -153,8 +155,8 @@ export default function Oportunidades() {
               elegida={!competencia || sinCompetencia}
               elegir={() => setCompetencia(false)}
               deshabilitada={enCurso}
-              titulo="Más vendidos en México"
-              texto="Amazon, Mercado Libre, farmacias y tiendas naturistas, guiado por las tendencias."
+              titulo="Por tendencia y lo más vendido"
+              texto="Amazon, Mercado Libre, farmacias y tiendas naturistas: una búsqueda por tendencia fuerte y otra por departamento."
             />
             <Opcion
               elegida={competencia && !sinCompetencia}
@@ -174,6 +176,9 @@ export default function Oportunidades() {
               <Sparkles className="h-4 w-4" /> Buscar oportunidades
             </Boton>
             {enCurso && <span className="text-[14px] text-smn-gris-700">Espera a que termine la búsqueda en curso.</span>}
+            <span className="text-[14px] text-smn-gris-700">
+              {estado?.programa ? `${estado.programa} (Configuración).` : "Solo corre con el botón; se puede programar en Configuración."}
+            </span>
           </div>
         </Entrada>
       )}
@@ -185,6 +190,7 @@ export default function Oportunidades() {
             <p className="mt-0.5 text-[14px] text-smn-gris-700">
               {corrida.oportunidades.length} {corrida.oportunidades.length === 1 ? "producto" : "productos"} · {fechaLocal(corrida.creada_en)}
               {corrida.competencia && " · con competencia"}
+              {corrida.programada && " · programada"}
             </p>
           )}
         </div>
@@ -200,6 +206,7 @@ export default function Oportunidades() {
                 <option key={c.id} value={c.id}>
                   {fechaLocal(c.creada_en)} · {c.estado === "en_curso" ? "en curso" : c.estado === "fallida" ? "no terminó" : `${c.total} ${c.total === 1 ? "producto" : "productos"}`}
                   {c.competencia ? " · con competencia" : ""}
+                  {c.programada ? " · programada" : ""}
                 </option>
               ))}
             </select>
@@ -228,7 +235,9 @@ export default function Oportunidades() {
             )}
             {corrida.con_ia ? "Redactado por la IA con estos datos" : "Sin IA: salen directo de los datos"}
             {corrida.competencia && ` · competencia US$ ${Number(corrida.costo_usd).toFixed(3)}`}
-            {corrida.disparada_por && ` · buscó ${corrida.disparada_por}`}.
+            {corrida.programada
+              ? " · corrida programada"
+              : corrida.disparada_por && ` · buscó ${corrida.disparada_por}`}.
           </p>
 
           {corrida.notas.length > 0 && (
@@ -256,9 +265,19 @@ export default function Oportunidades() {
                         <span className="mr-1.5 text-smn-gris-500">{o.orden}.</span>
                         {o.nombre}
                       </h3>
-                      <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-smn-gris-700">
-                        <span className={`h-2 w-2 rounded-full ${PRIORIDAD[o.prioridad].punto}`} /> {PRIORIDAD[o.prioridad].texto}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] font-medium text-smn-gris-700">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-full ${PRIORIDAD[o.prioridad].punto}`} /> {PRIORIDAD[o.prioridad].texto}
+                        </span>
+                        {o.puertas.map((p) => (
+                          <span key={p} className="rounded-full bg-smn-gris-100 px-2 py-0.5 text-smn-gris-700">{PUERTA[p] ?? p}</span>
+                        ))}
+                        {o.evaluacion_estado === "en_curso" && (
+                          <span className="inline-flex items-center gap-1 text-smn-gris-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Evaluando</span>
+                        )}
+                        {o.color && <InsigniaColor color={o.color} />}
+                        {o.puntaje !== null && <span className="tabular-nums text-smn-gris-500">{o.puntaje} de 100</span>}
+                      </div>
                       <p className="mt-1 text-[14px] text-smn-gris-700">
                         {[o.marca, o.departamento, o.subcategoria, o.forma].filter(Boolean).join(" · ") || "Sin clasificar"}
                         {o.precio_visto && ` · precio visto ${pesos(o.precio_visto)}`}
@@ -268,9 +287,16 @@ export default function Oportunidades() {
                     {evalua && (
                       <div className="flex shrink-0 gap-2">
                         {o.evaluacion_id ? (
-                          <Link href={`/compras/productos/${o.evaluacion_id}`} className="inline-flex min-h-10 items-center gap-1 text-[15px] font-medium text-naranja-tinta hover:underline">
-                            Ver semáforo <ChevronRight className="h-4 w-4" />
-                          </Link>
+                          <div className="flex flex-col items-end gap-1">
+                            <Link href={`/compras/productos/${o.evaluacion_id}`} className="inline-flex min-h-10 items-center gap-1 text-[15px] font-medium text-naranja-tinta hover:underline">
+                              Ver semáforo <ChevronRight className="h-4 w-4" />
+                            </Link>
+                            {o.busqueda_id && (
+                              <Link href={`/compras/propuestas/busquedas/${o.busqueda_id}`} className="inline-flex items-center gap-1 text-[14px] font-medium text-smn-gris-700 hover:text-tinta hover:underline">
+                                Búsqueda de proveedor: {o.busqueda_estado?.toLowerCase()} <ChevronRight className="h-4 w-4" />
+                              </Link>
+                            )}
+                          </div>
                         ) : o.estado === "descartada" ? (
                           <Boton variante="fantasma" onClick={() => cambiar(o, "nueva")} cargando={ocupado === o.id}>
                             <RotateCcw className="h-4 w-4" /> Regresar
@@ -287,6 +313,13 @@ export default function Oportunidades() {
                     )}
                   </div>
                   <p className="mt-3 text-[15px]">{o.por_que}</p>
+                  {o.tipo_cliente && <p className="mt-1 text-[14px] text-smn-gris-700">Para: <b className="font-medium text-tinta">{o.tipo_cliente}</b></p>}
+                  {o.encaje && (
+                    <p className={`mt-1 text-[14px] ${o.encaje === "dudoso" ? "text-aviso-texto" : "text-smn-gris-700"}`}>
+                      <b className="font-medium">{o.encaje === "dudoso" ? "Dudoso para nuestro cliente" : "Encaja con nuestro cliente"}</b>
+                      {o.encaje_motivo && `: ${o.encaje_motivo}`}
+                    </p>
+                  )}
                   <ul className="mt-3 space-y-1 border-t border-smn-gris-100 pt-3 text-[14px] text-smn-gris-700">
                     {o.evidencia.map((x) => (
                       <li key={x.clave} className="flex gap-2">

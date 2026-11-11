@@ -108,6 +108,7 @@ export const QUE_HACER: Record<string, { titulo: string; importa: string; hacer:
   "LAYOUT": { titulo: "Hay un importe que el layout no sabe dónde va", importa: "Puede quedar fuera del TXT.", hacer: "Pregunta a Fiscal en qué campo va y que lo registre en el layout de la base." },
   "TIPO-NO-LEIDO": { titulo: "La lista de tipos de operación trae un nombre que no se reconoce", importa: "A ese proveedor se le puso el tipo por omisión; si es otro, la DIOT lo declara mal.", hacer: "Corrige la lista con la clave (03 servicios profesionales, 06 arrendamiento, 85 otros) y vuelve a subirla, o pide a Fiscal un ajuste." },
   "CATALOGO": { titulo: "Una clave no está en el catálogo del SAT", importa: "El SAT rechaza claves que no existen.", hacer: "Pide a Fiscal que revise el tipo de tercero u operación." },
+  "REGION-8": { titulo: "Un proveedor cobra 8 % y no se sabe la región", importa: "El 8 % va en campos distintos para región norte y sur; si no es zona fronteriza, debería ser 16 %.", hacer: "Revisa de qué es el gasto y elige: región norte, región sur o es 16 %." },
   "SIN-RETENIDO": { titulo: "No se subió el auxiliar de IVA retenido", importa: "El IVA retenido sale en cero.", hacer: "Sube el auxiliar 2500-002-007 o confirma con Fiscal que no hubo retenciones." },
 };
 
@@ -119,6 +120,11 @@ export const RESUELTO: Record<string, string> = {
   "CONCILIACION": "Diferencias entre pólizas que se compensan: el total cuadra.",
   "APL-TC": "Se usó el tipo de cambio del propio reporte.",
   "SIN-TIPOS": "No se subió la lista de tipos de operación; se usó el tipo por omisión.",
+  "REGION-8": "El 8 % va a la región norte o sur según el código postal de los CFDI, o como decidió Fiscal.",
+  "TARJETA": "Pago a la tarjeta de crédito: no se declara porque cada gasto ya entra con su proveedor.",
+  "SIN-RFC-GENERICO": "Sin RFC o sin proveedor en el catálogo: va al RFC genérico.",
+  "RFC-CORREGIDO": "RFC mal capturado que se corrigió con el CFDI del SAT o con la decisión de Fiscal.",
+  "TASA-CORREGIDA": "Tasa que no existe (19 %): se tomó como 16 %.",
 };
 
 export const pesosEnteros = (n: number | string | null | undefined) =>

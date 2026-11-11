@@ -107,12 +107,16 @@ def _sin_publicidad(descripcion: str) -> str:
 
 
 def consultas(descripcion: str | None, marca: str | None, codigo_barras: str | None,
-              consulta_manual: str | None = None, nombre_tienda: str | None = None) -> list[tuple[str, str]]:
-    """[(estrategia, texto)]: a lo más el código de barras y una búsqueda por descripción."""
+              consulta_manual: str | None = None, nombre_tienda: str | None = None,
+              barras_primero: bool = False) -> list[tuple[str, str]]:
+    """[(estrategia, texto)]: a lo más el código de barras y una búsqueda por descripción.
+
+    Sin `barras_primero`: marca y descripción primero, como el flujo de n8n de Diego, y el código de barras solo si con
+    eso no quedó resuelto. Con `barras_primero` (ajuste precios_barras_primero, caso 37355 de Diego, 2026-11-06): el
+    código va primero; lo que regresa por código igual tiene que pasar marca, nombre y presentación, y si no, se sigue
+    con la descripción."""
     if consulta_manual and consulta_manual.strip():
         return [("consulta", consulta_manual.strip())]
-    # Primero marca y descripción, como el flujo de n8n de Diego; el código de barras solo si con eso no
-    # quedó resuelto (buscar el código en Google Shopping suele traer otros productos)
     salida = []
     comercial = marca_comercial(marca)
     texto = _sin_publicidad(descripcion or "")
@@ -130,7 +134,8 @@ def consultas(descripcion: str | None, marca: str | None, codigo_barras: str | N
         if tienda and set(normalizar(tienda).split()) != set(normalizar(texto).split()):
             salida.append(("tienda", tienda[:200]))
     if codigo_barras and re.fullmatch(r"\d{8,14}", codigo_barras.strip()):
-        salida.append(("codigo_barras", codigo_barras.strip()))
+        barras = ("codigo_barras", codigo_barras.strip())
+        salida = [barras] + salida if barras_primero else salida + [barras]
     return salida
 
 
@@ -261,6 +266,10 @@ def paquete(descripcion: str | None, titulo: str | None) -> str | None:
     piezas = [n for n in piezas if n not in cuenta]  # «90 piezas» de nuestras 90 gomitas no es paquete (Belabear, 2026-10-20)
     if any(n > 1 for n in piezas) and "piezas" not in nuestras and "paquetes" not in nuestras:
         return "parece paquete de varias piezas"
+    # «2 botes de 450g» (caso 37355 Birdman Creatina en Bodega Aurrera, 2026-11-06): varios envases juntos
+    envases = re.findall(r"\b(\d+)\s*(botes?|frascos?|envases?|latas?|tarros?|unidades)\b", normalizar(titulo))
+    if any(int(n) > 1 and u not in nuestras for n, u in envases):
+        return "parece paquete de varios envases"
     # Dos tamaños distintos de la unidad que vendemos: «Creatina 450 g + Proteína 510 g»
     esperadas, encontradas = presentaciones(descripcion), presentaciones(titulo)
     unidades = {u for _, u in esperadas}

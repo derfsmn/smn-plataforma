@@ -12,7 +12,8 @@ from modulos.contraloria.diot_motor import Tercero
 CAMPOS_TXT = crit.CAMPOS_LAYOUT
 # campo del TXT (1 = primero) -> qué lleva (el vigente está en la Base de conocimiento fiscal)
 MAPA = dict(crit.MAPA_LAYOUT)
-NOMBRES = {1: "Tipo de tercero", 2: "Tipo de operación", 3: "RFC", 12: "Base 16 %", 22: "IVA 16 %",
+NOMBRES = {1: "Tipo de tercero", 2: "Tipo de operación", 3: "RFC", 8: "Base 8 % norte", 10: "Base 8 % sur",
+           12: "Base 16 %", 18: "IVA 8 % norte", 20: "IVA 8 % sur", 22: "IVA 16 %",
            48: "IVA retenido", 51: "Base 0 %", 52: "Base no objeto", 54: "Campo 54"}
 EFECTOS = crit.VALOR_EFECTOS
 
@@ -25,6 +26,14 @@ def _cfg(cfg: crit.Config | None) -> crit.Config:
     return cfg or crit.inicial()
 
 
+def importe(t: Tercero, clave: str) -> int:
+    """El importe redondeado que va en un campo. El 8 % va al campo de la región fronteriza del tercero."""
+    if clave.startswith(("base8_", "iva8_")):
+        base, region = clave.split("_")
+        return t.redondeados.get(base, 0) if t.region == region else 0
+    return t.redondeados[clave]
+
+
 def renglon(t: Tercero, cfg: crit.Config | None = None) -> str:
     cfg = _cfg(cfg)
     campos = [""] * cfg.campos_layout
@@ -34,7 +43,9 @@ def renglon(t: Tercero, cfg: crit.Config | None = None) -> str:
         elif clave in ("tipo_tercero", "tipo_operacion", "rfc"):
             v = getattr(t, clave)
         else:
-            v = str(t.redondeados[clave])
+            v = str(importe(t, clave))
+            if v == "0" and clave.startswith(("base8_", "iva8_")):
+                v = ""  # el 8 % por región va vacío cuando no hay (como los TXT de ODP, que no lo usan)
         campos[n - 1] = v
     return "|".join(campos)
 
@@ -48,7 +59,7 @@ def generar(terceros: list[Tercero], cfg: crit.Config | None = None) -> str:
 
 TIPOS_TERCERO = tuple(crit.TIPOS_TERCERO)
 TIPOS_OPERACION = tuple(crit.TIPOS_OPERACION)
-IMPORTES = (12, 22, 48, 51, 52)
+IMPORTES = (8, 10, 12, 18, 20, 22, 48, 51, 52)
 
 
 def nombre_campo(cfg: crit.Config, n: int) -> str:
@@ -106,7 +117,8 @@ def validar(txt: str, terceros: list[Tercero], cfg: crit.Config | None = None) -
     chk("Renglones con importe", [r[rf] for r in renglones if not any(r[n - 1] not in ("", "0") for n in importes)],
         "ningún renglón va en ceros", "renglones sin ningún importe")
     malos_iva = []
-    for base, iva, tasa in (("base16", "iva16", 0.16), ("base8", "iva8", 0.08)):
+    for base, iva, tasa in (("base16", "iva16", 0.16), ("base8", "iva8", 0.08), ("base8_norte", "iva8_norte", 0.08),
+                            ("base8_sur", "iva8_sur", 0.08)):
         if base in pos and iva in pos:
             b, i = pos[base] - 1, pos[iva] - 1
             malos_iva += [r[rf] for r in renglones if r[b].isdigit()
@@ -114,7 +126,7 @@ def validar(txt: str, terceros: list[Tercero], cfg: crit.Config | None = None) -
     chk("IVA contra base", malos_iva, "en cada renglón el IVA es la base × la tasa (±1 peso por redondeo)",
         "IVA que no corresponde a su base")
     sumas = {n: sum(int(r[n - 1]) for r in renglones if r[n - 1].isdigit()) for n in importes}
-    esperado = {n: sum(t.redondeados[campo[n]] for t in terceros) for n in importes}
+    esperado = {n: sum(importe(t, campo[n]) for t in terceros) for n in importes}
     chk("Totales", [nombre_campo(cfg, n) for n in importes if sumas[n] != esperado[n]],
         "; ".join(f"{nombre_campo(cfg, n)} {sumas[n]:,}" for n in importes) + " = consolidado",
         "totales del TXT distintos al consolidado")

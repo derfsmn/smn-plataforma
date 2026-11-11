@@ -1,12 +1,12 @@
 """«Buscar oportunidades»: productos que no tenemos y convendría buscar (Diego, 2026-10-27; datos ficticios)."""
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, update
+from sqlalchemy import delete, func, text, update
 from sqlalchemy.orm import Session
 
 from core.bd import motor
@@ -188,11 +188,17 @@ def test_oportunidades_sin_ia_salen_directo_de_las_fuentes(admin: TestClient, si
     assert not any(n.startswith("Más opciones de") or n.startswith(f"Ashwagandha{datos['h']}") for n in nombres)
     assert c["fuentes"]["Competencia"] >= 1 and c["fuentes"]["Hueco del surtido"] >= 1
 
+    # Llegan evaluadas solas (2026-11-09): ya no se descartan aquí sino en el radar, y no regresan en otra corrida
     o = next(x for x in c["oportunidades"] if x["nombre"] == datos["berberina"])
-    r = admin.patch(f"{R}/{o['id']}", json={"estado": "descartada"})
-    assert r.status_code == 200 and r.json()["estado"] == "descartada"
+    assert o["estado"] == "evaluada" and o["evaluacion_id"]
+    assert admin.patch(f"{R}/{o['id']}", json={"estado": "descartada"}).status_code == 400
+    idea = admin.get(f"/api/compras/productos/evaluaciones/{o['evaluacion_id']}").json()["sujeto"]["id"]
+    assert admin.patch(f"/api/compras/productos/ideas/{idea}/estado", json={"estado": "descartada"}).status_code == 200
+    otra = admin.get(f"{R}/corridas/{admin.post(R, json={'competencia': True}).json()['id']}").json()
+    assert datos["berberina"] not in [x["nombre"] for x in otra["oportunidades"]]
+    assert any("ya la descartó" in n for n in otra["notas"])
     estado = admin.get(R).json()
-    assert estado["corridas"][0]["id"] == c["id"] and Decimal(estado["costo_maximo_competencia_usd"]) > 0
+    assert estado["corridas"][0]["id"] == otra["id"] and Decimal(estado["costo_maximo_competencia_usd"]) > 0
 
 
 def test_sin_competencia_no_busca_en_google(admin: TestClient, sincrono, datos, monkeypatch):
@@ -217,6 +223,7 @@ class ConCitas(Respuesta):
 def test_mas_vendidos_del_agente_con_liga_y_prueba_de_venta(admin: TestClient, sincrono, datos, monkeypatch):
     h = datos["h"]
     vendido, inventado, sin_prueba = f"Creatina{h} monohidratada 300 g", f"Colágeno{h} inventado", f"Omega{h} 60 caps"
+    temas: list[str] = []
 
     def ia(bd, tarea, **kw):
         if tarea != op.TAREA_VENDIDOS:
@@ -224,7 +231,8 @@ def test_mas_vendidos_del_agente_con_liga_y_prueba_de_venta(admin: TestClient, s
         assert kw["busqueda_web"] and "más vendidos" in kw["instrucciones"]
         mensaje = json.loads(kw["mensaje"])
         assert datos["unico"] in mensaje["lo_que_mas_vendemos"]
-        assert any(x.startswith(f"Ashwagandha{h}") for x in mensaje["tendencias_del_radar"])  # las tendencias guían
+        # Dos puertas (2026-11-09): una búsqueda por tendencia y otra por departamento
+        temas.append(mensaje.get("tendencia") or ("depto:" + mensaje["departamento"]))
         return ConCitas(json.dumps({"productos": [
             {"nombre": vendido, "marca": "Marca ficticia", "prueba_de_venta": "Lugar 2 en más vendidos (ficticio), +5 mil vendidos",
              "tendencia": "Creatina para mujeres (ficticio)",
@@ -250,7 +258,13 @@ def test_mas_vendidos_del_agente_con_liga_y_prueba_de_venta(admin: TestClient, s
     assert Decimal(o["precio_visto"]) == Decimal("399.00") and o["donde_se_vio"] == "Mercado Libre"
     assert o["imagen"] == "https://ejemplo.mx/foto-creatina.jpg" and o["imagen_de"] == "Página del producto en ejemplo.mx"
     ev = o["evidencia"][0]
-    assert ev["fuente"] == "Más vendido en internet" and "+5 mil vendidos" in ev["texto"] and "Creatina para mujeres" in ev["texto"]
+    assert ev["fuente"] == "Más vendido en internet" and "+5 mil vendidos" in ev["texto"]
+    assert any(x.startswith(f"Ashwagandha{h}") for x in temas) and any(x.startswith("depto:") for x in temas)
+    # Salió por las dos puertas: se junta en uno con las dos
+    assert o["puertas"] == ["tendencia", "mas_vendido"] and "Es de lo más vendido en" in ev["texto"]
+    # Llega evaluada sola; si sale verde o amarilla, abre su búsqueda de proveedor
+    assert o["estado"] == "evaluada" and o["evaluacion_id"] and o["evaluacion_estado"] == "lista"
+    assert (o["busqueda_id"] is not None) == (o["color"] in ("verde", "amarillo"))
 
 
 def test_foto_de_la_pagina_solo_de_sitios_publicos(monkeypatch):
@@ -302,7 +316,7 @@ def test_si_el_agente_contesta_en_texto_se_pasa_a_lista_sin_inventar(admin: Test
 
     monkeypatch.setattr(puerta, "ejecutar", ia)
     c = admin.get(f"{R}/corridas/{admin.post(R, json={'competencia': False}).json()['id']}").json()
-    assert llamadas == [True, False]
+    assert True in llamadas and False in llamadas and llamadas.count(True) == llamadas.count(False)
     assert [o["nombre"] for o in c["oportunidades"]] == [f"Magnesio{h} 120 caps"]
     assert any("contestó en texto" in n for n in c["notas"]) and any("no salió de su búsqueda" in n for n in c["notas"])
 
@@ -315,5 +329,127 @@ def test_instrucciones_de_la_ia_se_pueden_ver(admin: TestClient):
     # El mismo texto que recibe la IA, solo sin los cortes de línea del código
     sin_espacios = lambda t: "".join(t.split())  # noqa: E731
     assert [sin_espacios(x["texto"]) for x in lista] == [sin_espacios(t) for t in
-                                                         (op.INSTRUCCIONES_VENDIDOS, op.INSTRUCCIONES, op.INSTRUCCIONES_A_JSON)]
+                                                         (op.INSTRUCCIONES_TENDENCIA, op.INSTRUCCIONES_DEPARTAMENTO,
+                                                          op.INSTRUCCIONES, op.INSTRUCCIONES_A_JSON)]
     assert all(x["paso"] and x["que_hace"] for x in lista)
+
+
+def test_corrida_programada_desde_configuracion(admin: TestClient, monkeypatch):
+    """Diego, 2026-11-09: «buscar oportunidades sí debería correr, pero cada que yo decida en configuración»."""
+    from modulos.compras.modelos_productos import OportunidadCorrida
+
+    lanzadas: list[int] = []
+    monkeypatch.setattr(op, "en_hilo", lanzadas.append)
+    with Session(motor()) as bd:  # las corridas de otras pruebas quedan como de hace 10 días
+        bd.execute(update(OportunidadCorrida).values(estado="lista",
+                                                     creada_en=func.dateadd(text("day"), -10, OportunidadCorrida.creada_en)))
+        bd.commit()
+        assert op.revisar_programa(bd) is None  # apagado de fábrica
+    assert admin.get(R).json()["programa"] is None
+
+    yo = admin.get("/api/auth/yo").json()["usuario"]["id"]
+    try:
+        r = admin.put("/api/nucleo/configuracion", json={"cambios": {
+            "oportunidades_activo": True, "oportunidades_frecuencia": "dias", "oportunidades_dias_semana": "1,3",
+            "oportunidades_hora": 0}})
+        assert r.status_code == 200, r.text
+        assert admin.get(R).json()["programa"] == "Corre sola los lunes y miércoles a las 0:00"
+        hoy = datetime.now(op.zona()).date()
+        admin.put("/api/nucleo/configuracion", json={"cambios": {
+            "oportunidades_dias_semana": str((hoy + timedelta(days=1)).isoweekday())}})
+        with Session(motor()) as bd:
+            assert op.revisar_programa(bd) is None  # hoy no toca
+        admin.put("/api/nucleo/configuracion", json={"cambios": {"oportunidades_frecuencia": "diario"}})
+        with Session(motor()) as bd:
+            c = op.revisar_programa(bd)
+            assert c and lanzadas == [c.corrida_id] and op.es_programada(c) and not c.competencia
+            assert c.disparada_por == yo  # las ideas quedan a nombre de quien lo encendió
+            assert op.revisar_programa(bd) is None  # en curso
+            c.estado = "lista"
+            bd.commit()
+            assert op.revisar_programa(bd) is None  # ya corrió hoy
+        lista = admin.get(R).json()["corridas"]
+        assert lista[0]["programada"] is True
+
+        # Cada N días se cuenta desde la última que terminó
+        admin.put("/api/nucleo/configuracion", json={"cambios": {"oportunidades_frecuencia": "cada_n",
+                                                                "oportunidades_cada_dias": 7}})
+        assert op.toca(hoy, hoy - timedelta(days=3)) is False and op.toca(hoy, hoy - timedelta(days=7)) is True
+    finally:
+        admin.put("/api/nucleo/configuracion", json={"cambios": {
+            k: None for k in ("oportunidades_activo", "oportunidades_frecuencia", "oportunidades_dias_semana",
+                              "oportunidades_hora", "oportunidades_cada_dias")}})
+    assert configuracion().oportunidades_activo is False
+
+
+def test_se_quita_lo_que_no_paga_nuestro_cliente(admin: TestClient, sincrono, datos, monkeypatch):
+    """Diego, 2026-11-09: «me dicen que el target de público que tenemos difícilmente los compraría». Con los tipos de
+    cliente de Datos → Clientes, lo que cuesta más de lo que paga nuestro cliente en su departamento se quita."""
+    from datos import clientes as cl
+
+    h = datos["h"]
+    caro = f"Creatina{h} importada 1 kg"
+    mensajes: list[dict] = []
+    perfil = {"tipos": [{"nombre": "Tipo ficticio", "descripcion": None, "parte_de_la_venta": 50.0}], "precios": {}}
+    monkeypatch.setattr(cl, "para_oportunidades", lambda bd: perfil)
+    monkeypatch.setattr(cl, "tope_de_precio", lambda p, d, pct: 100.0 if p and d and pct else None)
+
+    def ia(bd, tarea, **kw):
+        if tarea != op.TAREA_VENDIDOS:
+            raise puerta.ErrorIA("sin IA en pruebas")
+        mensajes.append(json.loads(kw["mensaje"]))
+        return ConCitas(json.dumps({"productos": [
+            {"nombre": caro, "marca": "Marca ficticia", "prueba_de_venta": "Lugar 2 en más vendidos (ficticio)",
+             "tienda": "Mercado Libre", "precio": 899, "url": f"https://ejemplo.mx/caro-{h}"}]}),
+            [{"url": f"https://ejemplo.mx/caro-{h}", "titulo": "x"}])
+
+    monkeypatch.setattr(puerta, "ejecutar", ia)
+    r = admin.post(R, json={"competencia": False})
+    c = admin.get(f"{R}/corridas/{r.json()['id']}").json()
+    assert c["estado"] == "lista", c["error"]
+    por_depto = [m for m in mensajes if m.get("departamento")]
+    assert por_depto and por_depto[0]["precio_que_paga_nuestro_cliente"]["a"] == 100.0
+    assert caro not in [o["nombre"] for o in c["oportunidades"]]
+    assert any(f"Se quitó «{caro}»: cuesta $899.00" in n for n in c["notas"])
+
+
+def test_se_quita_lo_que_no_encaja_con_nuestro_cliente(admin: TestClient, sincrono, datos, monkeypatch):
+    """Diego, 2026-11-10: «nuestro sector de clientes lo denominan C-… que el radar de oportunidades también valide eso».
+    La IA marca cada producto contra «Nuestro cliente»: los «no» se quitan con su motivo y los «dudoso» salen marcados."""
+    from datos import clientes as cl
+
+    h = datos["h"]
+    lujo, duda = f"Colageno{h} marino premium 300 g", f"Zarzaparrilla{h} raiz molida 90 g"
+    monkeypatch.setattr(cl, "objetivo", lambda bd: {"nivel": "C-", "descripcion": "Cuida el gasto (ficticio)", "actualizado_en": None})
+    monkeypatch.setattr(cl, "objetivo_para_ia", lambda bd: {"nivel_socioeconomico": "C-"})
+    vistos: dict = {}
+
+    def ia(bd, tarea, **kw):
+        m = json.loads(kw["mensaje"])
+        if tarea == op.TAREA_VENDIDOS:
+            vistos["agente"] = m.get("cliente_objetivo")
+            if not m.get("departamento"):
+                return ConCitas(json.dumps({"productos": []}), [])
+            return ConCitas(json.dumps({"productos": [
+                {"nombre": n, "marca": "Marca ficticia", "prueba_de_venta": "Lugar 2 en más vendidos (ficticio)",
+                 "tienda": "Mercado Libre", "precio": 150, "url": f"https://ejemplo.mx/{i}-{h}"}
+                for i, n in enumerate((lujo, duda))]}),
+                [{"url": f"https://ejemplo.mx/{i}-{h}", "titulo": "x"} for i in range(2)])
+        if tarea == op.TAREA_IA:
+            vistos["comprador"] = m.get("cliente_objetivo")
+            claves = {d["producto"]: d["clave"] for d in m["datos"] if d["clave"].startswith("V")}
+            return ConCitas(json.dumps({"oportunidades": [
+                {"nombre": lujo, "por_que": "Se vende (ficticio)", "evidencia": [claves[lujo]], "encaje": "no",
+                 "encaje_motivo": "Es de lujo para un cliente C- (ficticio)."},
+                {"nombre": duda, "por_que": "Se vende (ficticio)", "evidencia": [claves[duda]], "encaje": "Dudoso",
+                 "encaje_motivo": "No queda claro (ficticio)."}]}), [])
+        raise puerta.ErrorIA("sin IA en pruebas")
+
+    monkeypatch.setattr(puerta, "ejecutar", ia)
+    r = admin.post(R, json={"competencia": False})
+    c = admin.get(f"{R}/corridas/{r.json()['id']}").json()
+    assert c["estado"] == "lista", c["error"]
+    assert vistos["agente"] == {"nivel_socioeconomico": "C-"} == vistos["comprador"]
+    salieron = {o["nombre"]: o for o in c["oportunidades"]}
+    assert lujo not in salieron and salieron[duda]["encaje"] == "dudoso"
+    assert any(f"Se quitó «{lujo}»: no encaja con nuestro cliente (C-). Es de lujo" in n for n in c["notas"])

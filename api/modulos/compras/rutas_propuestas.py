@@ -612,7 +612,7 @@ class ProveedorIntelisisSalida(BaseModel):
 
 def _busca_proveedores(ctx: Contexto = Depends(usuario_actual)) -> Contexto:
     """Buscan proveedores quienes capturan productos: en Propuestas, en el radar (captura corta) o en el comité."""
-    if not any(ctx.puede(p) for p in (REVISAR, "compras.productos.evaluar", "compras.comite.subir")):
+    if not any(ctx.puede(p) for p in (REVISAR, "compras.productos.evaluar", "compras.comite.subir", "compras.busquedas.atender")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No tienes permiso para esta acción.")
     return ctx
 

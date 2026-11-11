@@ -14,6 +14,7 @@ Reglas de la fase 1, aprobadas en el plan:
 """
 import json
 import logging
+import math
 import re
 import threading
 import unicodedata
@@ -53,9 +54,19 @@ MAX_COMPARABLES = 10
 MIN_SIMILITUD = Decimal("0.15")
 DIAS_SENALES = 180
 NIVEL_SENAL = {"ALTA": 100, "MEDIA": 80, "TEMPRANA": 65}
-SIN_SENAL = 60  # nada habla de este producto: no suma ni resta (calibración del 27 oct: con 35 hundía a casi todos)
+# Nada habla de este producto: el factor no cuenta ni baja la confianza (recalibración del 9 nov 2026: con 60 fijo
+# jalaba hacia amarillo a casi todos; antes, con 35, los hundía)
+SIN_SENAL = "Nadie habla de él en internet"
+ESTIRA_DEMANDA = 1.3
+
+
+def _percentil_para(meta: int) -> int:
+    """Lugar en la lista de venta que hace falta para que la demanda (sin ajuste por tendencia) llegue a `meta`."""
+    return min(100, math.ceil(50 + (meta - 50) / ESTIRA_DEMANDA))
+
+
 CALC_TENDENCIA = ("Toma la señal más fuerte del radar de tendencias que habla del producto: alta = 100, media = 80, "
-                  "temprana = 65. Si ninguna habla de él, saca 60: no suma ni resta.")
+                  "temprana = 65. Si ninguna habla de él, no cuenta: ni sube ni baja la calificación.")
 IVA_SUPUESTO = Decimal("16")  # solo para ideas con costo estimado; se dice en el detalle
 PALABRAS_VACIAS = {
     "de", "del", "la", "el", "los", "las", "con", "sin", "para", "por", "en", "y", "o", "un", "una", "al", "a",
@@ -190,7 +201,8 @@ def clasificar(bd: Session, s: Sujeto) -> tuple[str | None, str | None, str | No
     }, ensure_ascii=False)
     try:
         r = puerta.ejecutar(bd, TAREA_CLASIFICAR, usuario_id=None, instrucciones=INSTRUCCIONES_CLASIFICAR,
-                            mensaje=mensaje, max_tokens=300, esfuerzo="low")
+                            mensaje=mensaje, max_tokens=300, esfuerzo="low",
+                            contexto=puerta.ventana(INSTRUCCIONES_CLASIFICAR, mensaje, salida=300))
         datos = json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1])
     except (puerta.ErrorIA, ValueError) as e:
         log.warning("Radar de productos: no se pudo clasificar «%s»: %s", s.nombre, e)
@@ -395,8 +407,9 @@ def f_rentabilidad(bd: Session, s: Sujeto, subcategoria: str | None = None, v: r
                   calculo + (f"{ajuste} Calificación: {final}." if ajuste else ""), mejora)
 
 def _por_precio(ratio: Decimal) -> int:
-    # Igual al mercado vale 70; cada 1 % más caro resta 2 puntos y cada 1 % más barato suma 2
-    return _acotar(70 - float(ratio - 1) * 200)
+    # Igual al mercado vale 75; cada 1 % más caro resta 1 punto y cada 1 % más barato suma 1 (recalibración del
+    # 9 nov 2026: con 70 y 2 puntos por 1 % casi ningún producto salía en verde)
+    return _acotar(75 - float(ratio - 1) * 100)
 
 
 def _precio_valor(ratio: Decimal, contra: str) -> str:
@@ -413,13 +426,13 @@ def _precio_explicado(ratio: Decimal, referencia: Decimal, contra: str) -> tuple
         donde = "Está prácticamente igual"
     else:
         donde = f"Está {abs(pct):.0f} % {'más caro' if pct > 0 else 'más barato'}"
-    calculo = (f"Si cuesta lo mismo que {contra} saca 70. Cada 1 % más caro resta 2 puntos y cada 1 % más barato suma "
-               f"2. {donde}: {_por_precio(ratio)}.")
+    calculo = (f"Si cuesta lo mismo que {contra} saca 75. Cada 1 % más caro resta 1 punto y cada 1 % más barato suma "
+               f"1. {donde}: {_por_precio(ratio)}.")
     mejora = None
     if _por_precio(ratio) <= 80:
         mejora = (f"Para que este factor salga arriba de 80 tendría que venderse en "
-                  f"{_pesos(referencia * Decimal('0.949'))} o menos, es decir, "
-                  f"al menos 5 % abajo de {contra}.")
+                  f"{_pesos(referencia * Decimal('0.94'))} o menos, es decir, "
+                  f"al menos 6 % abajo de {contra}.")
     return calculo, mejora
 
 
@@ -576,7 +589,8 @@ def _senales_ia(bd: Session, s: Sujeto, senales: list[RadarSenal], subcategoria:
                                       for x in candidatas]}, ensure_ascii=False)
     try:
         r = puerta.ejecutar(bd, TAREA_TENDENCIA, usuario_id=None, instrucciones=INSTRUCCIONES_TENDENCIA, mensaje=mensaje,
-                            max_tokens=300, esfuerzo="low")
+                            max_tokens=300, esfuerzo="low",
+                            contexto=puerta.ventana(INSTRUCCIONES_TENDENCIA, mensaje, salida=300))
         ids = {int(x) for x in json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1]).get("senales") or []}
     except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as e:
         log.info("Radar de productos: la IA no eligió señales para «%s»: %s", s.nombre, e)
@@ -596,8 +610,8 @@ def f_tendencia(bd: Session, s: Sujeto, hoy: date, subcategoria: str | None = No
         con = [x for x in senales if clave & palabras(x.titulo, x.descripcion)]
         como = "Sin IA: se tomaron las señales con palabras en común."
     if not con:
-        return Factor(SIN_SENAL, "Nadie habla de él en internet", f"Ninguna de las {len(senales)} señales del radar de tendencias de los "
-                      f"últimos 6 meses habla de este producto o su ingrediente; no suma ni resta. {como}", True,
+        return Factor(None, SIN_SENAL, f"Ninguna de las {len(senales)} señales del radar de tendencias de los "
+                      f"últimos 6 meses habla de este producto o su ingrediente; no cuenta ni baja la confianza. {como}", True,
                       CALC_TENDENCIA, "Subiría si el radar de tendencias detecta que se habla de este producto o de su "
                       "ingrediente (una señal media da 80; una alta, 100).")
     mejor = max(con, key=lambda x: (NIVEL_SENAL.get(x.nivel, 50), x.veces_reportada))
@@ -635,13 +649,14 @@ def f_categoria(bd: Session, s: Sujeto, subcategoria: str | None, parecidos: lis
         r = n / tipica if tipica else 1
         # Contra el tamaño típico de una subcategoría del catálogo (calibración del 27 oct: las reales casi siempre
         # pasan de 15 productos y con la escala fija todo salía en 15-25)
-        puntaje = 90 if r <= 0.25 else 80 if r <= 0.5 else 70 if r <= 1 else 60 if r <= 2 else 45 if r <= 4 else 35
+        # Recalibración del 9 nov 2026: una subcategoría de tamaño típico vale 80 (antes 70)
+        puntaje = 90 if r <= 0.25 else 85 if r <= 0.5 else 80 if r <= 1 else 75 if r <= 2 else 65 if r <= 4 else 55
         detalle = (f"Hay {n} producto(s) activos en la subcategoría «{subcategoria}»; una subcategoría típica del catálogo "
                    f"tiene {tipica:.0f}. Menos productos, más hueco en el surtido (escala provisional hasta que Compras "
                    "defina cuántos caben).")
         calculo = (f"Compara cuántos productos hay en su subcategoría contra una típica ({tipica:.0f}): la cuarta parte o "
-                   "menos = 90, la mitad o menos = 80, lo mismo o menos = 70, hasta el doble = 60, hasta 4 veces = 45, "
-                   f"más = 35. Aquí hay {n}: {puntaje}.")
+                   "menos = 90, la mitad o menos = 85, lo mismo o menos = 80, hasta el doble = 75, hasta 4 veces = 65, "
+                   f"más = 55. Aquí hay {n}: {puntaje}.")
     else:
         n = len([1 for _, sim in parecidos if sim >= Decimal("0.3")])
         puntaje = 90 if n == 0 else 75 if n <= 3 else 65 if n <= 7 else 55
@@ -706,10 +721,12 @@ def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
                f"productos con venta{' del departamento' if depto else ' de toda la cadena'}.")
     # Tendencia de los parecidos: últimas 13 semanas contra las 13 anteriores, ±10 puntos a lo más
     recientes, anteriores = sum(x.recientes for x in suyos.values()), sum(x.anteriores for x in suyos.values())
-    puntaje = percentil
+    # La escala se abre alrededor de 50 (recalibración del 9 nov 2026: los más vendidos casi no se separaban del resto)
+    puntaje = 50 + (percentil - 50) * ESTIRA_DEMANDA
     donde = "del departamento" if depto else "de toda la cadena"
     calculo = (f"La calificación es qué tan arriba quedan en la lista de venta: venden más que {percentil:.0f} de cada "
-               f"100 productos {donde}, así que empieza en {percentil:.0f}.")
+               f"100 productos {donde}. La escala se abre alrededor de la mitad (50 + la distancia a 50 por "
+               f"{_n(ESTIRA_DEMANDA)}), así que empieza en {_acotar(puntaje)}.")
     if anteriores > 0:
         cambio = (recientes / anteriores - 1) * 100
         ajuste = max(-10.0, min(10.0, cambio / 3))
@@ -720,7 +737,7 @@ def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
     final = _acotar(puntaje)
     quienes = "este producto" if propio else "sus parecidos"
     mejora = None if final > 80 else (f"Para que este factor salga arriba de 80, {quienes} tendría"
-                                      f"{'n' if not propio else ''} que vender más que 8 de cada 10 productos {donde}, "
+                                      f"{'n' if not propio else ''} que vender más que {_percentil_para(81)} de cada 100 productos {donde}, "
                                       "o venir creciendo.")
     return Factor(final, f"{'Vende' if propio else 'Sus parecidos venden'} {promedio:,.1f} piezas por tienda al mes; más "
                   f"que {percentil:.0f} de cada 100 productos", detalle, False, f"{calculo} Calificación: {final}.",
@@ -864,6 +881,12 @@ def marcar_oportunidad(factores: dict[str, Factor], por: str = "Es una oportunid
     return fuera
 
 
+def sin_senal(factores: dict[str, Factor]) -> set[str]:
+    """Tendencia sin ninguna señal que hable del producto: no cuenta ni baja la confianza."""
+    x = factores.get("tendencia")
+    return {"tendencia"} if x is not None and x.puntaje is None and x.valor == SIN_SENAL else set()
+
+
 def sumar(factores: dict[str, Factor], peso: dict[str, Decimal], fuera: set[str] | frozenset[str] = frozenset()
           ) -> tuple[int | None, str]:
     con_datos = {f: x for f, x in factores.items() if x.puntaje is not None}
@@ -899,11 +922,14 @@ def explicacion_simple(s: Sujeto, puntaje: int | None, color: str, confianza: st
     partes = [f"**Resultado:** {puntaje} de 100, {color}. Verde es más de 80, amarillo de 60 a 80 y rojo 59 o menos."
               + _faltan(puntaje, color) + f" Confianza {confianza}: se calificó con {len(con)} de "
               f"{len(factores) - len(fuera)} factores."]
-    if fuera:
-        nombres = " y ".join(NOMBRES[f].lower() for f in FACTORES if f in fuera)
+    al_conseguir = [f for f in FACTORES if f in fuera and f in AL_CONSEGUIR_PROVEEDOR]
+    if al_conseguir:
+        nombres = " y ".join(NOMBRES[f].lower() for f in al_conseguir)
         inicio = ("**Es una oportunidad:** la pregunta es si vale la pena buscarle proveedor." if oportunidad else
                   "**Sin proveedor actual:** se califica con el semáforo para productos sin proveedor.")
         partes.insert(0, f"{inicio} {nombres.capitalize()} se califican al conseguirlo y no bajan la confianza.")
+    if "tendencia" in fuera:
+        partes.append("**Tendencia:** nadie habla de él en internet, así que no cuenta: ni lo sube ni lo baja.")
     def lista(items) -> str:
         return "; ".join(f"{NOMBRES[f].lower()} ({x.puntaje})" + (f": {x.valor[0].lower()}{x.valor[1:]}" if x.valor else "")
                          for f, x in items) + "."
@@ -1041,6 +1067,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             fuera = marcar_oportunidad(factores, "Todavía no tiene un proveedor que ya nos surta")
         else:
             fuera = set()
+        fuera |= sin_senal(factores)
         e.puntaje, e.confianza = sumar(factores, peso, fuera)
         e.color = color_de(e.puntaje, e.confianza)
         e.factores = [EvaluacionFactor(factor=f, peso=peso[f], puntaje=x.puntaje, valor=x.valor, detalle=x.detalle[:1000],
@@ -1069,6 +1096,10 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         e.estado, e.avance, e.error = "fallida", None, f"No se pudo evaluar: {str(ex)[:900]}"
     e.terminada_en = ahora()
     bd.commit()
+    if e.estado == "lista":  # una idea sin proveedor que salió bien se vuelve búsqueda de proveedor (2026-11-09)
+        from modulos.compras import busquedas
+
+        busquedas.despues_de_evaluar(bd, e)
     return e
 
 

@@ -165,13 +165,22 @@ export interface Oportunidad {
   forma: string | null;
   por_que: string;
   prioridad: Prioridad;
-  evidencia: { clave: string; fuente: string; texto: string }[];
+  evidencia: { clave: string; fuente: string; texto: string; puertas?: string[] }[];
   precio_visto: string | null;
   donde_se_vio: string | null;
   imagen: string | null;
   imagen_de: string | null;
   estado: EstadoOportunidad;
   evaluacion_id: number | null;
+  evaluacion_estado: "en_curso" | "lista" | "fallida" | null;
+  color: Color | null;
+  puntaje: number | null;
+  puertas: string[]; // tendencia / mas_vendido (2026-11-09)
+  busqueda_id: number | null;
+  busqueda_estado: string | null;
+  tipo_cliente: string | null; // para qué tipo de cliente (Datos → Clientes)
+  encaje: "si" | "dudoso" | null; // contra «Nuestro cliente»; las que no encajan se quitan
+  encaje_motivo: string | null;
 }
 
 export interface CorridaOportunidades {
@@ -183,6 +192,7 @@ export interface CorridaOportunidades {
   costo_usd: string;
   error: string | null;
   disparada_por: string | null;
+  programada: boolean;
   creada_en: string;
   terminada_en: string | null;
   total: number;
@@ -198,6 +208,7 @@ export interface EstadoOportunidades {
   costo_maximo_competencia_usd: string;
   busquedas_competencia: number;
   falta_configurar: string[];
+  programa: string | null; // «Corre sola los lunes a las 8:00»; null = solo con el botón
   corridas: CorridaOportunidades[];
 }
 

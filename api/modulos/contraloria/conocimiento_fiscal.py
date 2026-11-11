@@ -34,6 +34,16 @@ DOCUMENTOS_INICIALES = (
                                           "INFONAVIT se descarta, IMSS no objeto; 4 ISN no se declara, predial y "
                                           "derechos no objeto; 5 agua de tiendas y oficinas 16 % (8 % frontera); 6 global con RFC genérico, tope 10 % del total de "
                                           "pagos; 8 sin 8 %, exento ni importación; 9 layout vigente."),
+    (crit.DOC_LAYOUT_FISCAL, "layout", "Campos 8 y 10: actos pagados al 8 % en región fronteriza norte y sur; 18 y "
+                                       "20: su IVA. 12 y 22: base e IVA del 16 %."),
+    (crit.DOC_TXT_PRESENTADOS, "reglas", "Tipo de operación de cada proveedor por empresa, tomado de los TXT "
+                                         "presentados: ODP agosto y septiembre, SMN febrero y PS septiembre de 2026."),
+    (crit.DOC_JUNTA_NOV, "cuestionario", "Compras con tipo de operación 02; redondeo como el art. 20 CFF; 8 % "
+                                         "frontera en campos por región (SMN norte, PS norte y sur); clientes y pago "
+                                         "de impuestos no van; anticipos a proveedores y acreedores no van; préstamos "
+                                         "sin IVA salvo intereses; sin tasa = tasa 0; sin RFC y comisiones bancarias al "
+                                         "genérico XAXX010101000 como 15 global (tope 10 % de los pagos); proveedor "
+                                         "con «no objeto» se avisa a Fiscal; una empresa no se declara a sí misma."),
 )
 
 
@@ -73,6 +83,10 @@ def sembrar(bd: Session) -> None:
                               nota_aprobacion=NOTA_INICIAL if d.estado == crit.APROBADO else None, creado_en=ahora()))
         historial(bd, d.clave, 1, "creado", None, NOTA_INICIAL + (" Queda pendiente: " + d.contradiccion
                                                                   if d.contradiccion else ""))
+    bd.flush()
+    _resueltos_junta_nov(bd, docs)
+    _campos_8_region(bd, docs)
+    _operacion_aprendida(bd, docs)
     if not bd.scalar(select(FiscalCatalogo.catalogo_id)):
         fiscal = docs[crit.DOC_FISCAL].documento_id
         for clave, desc in crit.TIPOS_TERCERO.items():
@@ -93,6 +107,50 @@ def sembrar(bd: Session) -> None:
             bd.add(FiscalCatalogo(catalogo="layout", clave=str(n), valor=que, descripcion=crit.QUE_LLEVA[que],
                                   vigente_desde=INICIO, documento_id=papel, creado_en=ahora()))
     bd.commit()
+
+
+def _operacion_aprendida(bd: Session, docs: dict) -> None:
+    """Carga una vez el tipo de operación que Fiscal ya declaró para cada proveedor (catálogo «operacion_rfc», clave
+    «3 letras del RFC de la empresa|RFC proveedor», por el largo de la columna). Después Fiscal lo cambia en la Base de conocimiento."""
+    # La tabla solo acepta los catálogos de la migración (CHECK ck_fiscal_catalogo): mientras no haya migración, la
+    # lista vive en `datos/tipos_operacion_aprendidos.csv` y `Config` la toma de ahí.
+    return
+    if bd.scalar(select(FiscalCatalogo.catalogo_id).where(FiscalCatalogo.catalogo == "operacion_rfc")):
+        return
+    doc = docs[crit.DOC_TXT_PRESENTADOS].documento_id
+    for (empresa, rfc), tipo in sorted(crit.operacion_aprendida().items()):
+        # La clave del catálogo es de 20 caracteres: va con las 3 letras de la empresa (ODP, SMN, PSA).
+        bd.add(FiscalCatalogo(catalogo="operacion_rfc", clave=f"{empresa[:3]}|{rfc}", valor=tipo,
+                              descripcion="Declarado así en los TXT presentados", vigente_desde=INICIO,
+                              documento_id=doc, creado_en=ahora()))
+
+
+def _campos_8_region(bd: Session, docs: dict) -> None:
+    """Agrega los campos del 8 % por región a un layout ya cargado, si nadie ha puesto algo en esos números."""
+    layout = {c.clave for c in bd.scalars(select(FiscalCatalogo).where(FiscalCatalogo.catalogo == "layout"))}
+    if not layout:
+        return
+    doc = docs[crit.DOC_LAYOUT_FISCAL].documento_id
+    for n in crit.CAMPOS_8_REGION:
+        if str(n) not in layout:
+            que = crit.MAPA_LAYOUT[n]
+            bd.add(FiscalCatalogo(catalogo="layout", clave=str(n), valor=que, descripcion=crit.QUE_LLEVA[que],
+                                  vigente_desde=INICIO, documento_id=doc, creado_en=ahora()))
+
+
+def _resueltos_junta_nov(bd: Session, docs: dict) -> None:
+    """Fiscal resolvió el 10 de noviembre criterios que la carga inicial dejó pendientes. Se aprueban con lo que dijo
+    solo si siguen como los dejó la carga (versión del sistema, pendiente, sin que nadie la haya cambiado)."""
+    junta = docs[crit.DOC_JUNTA_NOV]
+    for clave in crit.RESUELTOS_JUNTA_NOV:
+        d, c = crit.POR_CLAVE[clave], ultima(bd, clave)
+        if not c or c.estado != crit.PENDIENTE or c.creado_por is not None:
+            continue
+        c.parametros, c.descripcion, c.referencia = _json(d.parametros), d.descripcion, d.referencia
+        c.documento_id, c.contradiccion = junta.documento_id, None
+        c.estado, c.aprobado_en = crit.APROBADO, ahora()
+        c.nota_aprobacion = "Resuelto por Fiscal en la junta del 10 de noviembre de 2026."
+        historial(bd, clave, c.version, "aprobado", None, c.nota_aprobacion, {"parametros": d.parametros})
 
 
 # ---------------------------------------------------------------- lo vigente
@@ -140,6 +198,10 @@ def config(bd: Session, dia: date, empresa_id: int | None = None) -> crit.Config
     tt = {c.clave: c.descripcion for c in cats if c.catalogo == "tipo_tercero"}
     to = {c.clave: c.descripcion for c in cats if c.catalogo == "tipo_operacion"}
     lay = [c for c in cats if c.catalogo == "layout"]
+    ope = {tuple(c.clave.split("|", 1)): c.valor for c in cats if c.catalogo == "operacion_rfc" and "|" in c.clave
+           and c.valor}
+    if ope:
+        cfg.operacion_rfc = ope
     if tt:
         cfg.tipos_tercero = dict(sorted(tt.items()))
     if to:

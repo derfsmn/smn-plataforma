@@ -679,6 +679,8 @@ class NuevoAjuste(BaseModel):
     excluir: bool = False
     tipo_tercero: Literal["04", "05", "15"] | None = None
     tipo_operacion: Literal["02", "03", "06", "07", "08", "85"] | None = None
+    region: Literal["norte", "sur", "16"] | None = None  # 8 % por revisar: región fronteriza o pasarlo a 16 %
+    rfc_correcto: str | None = Field(None, min_length=12, max_length=13)  # RFC inválido: el que va en el TXT
     motivo: str = Field(min_length=5, max_length=1000)
 
 
@@ -688,11 +690,22 @@ def nuevo_ajuste(periodo_id: int, datos: NuevoAjuste, request: Request, ctx: Con
     p = _periodo(bd, periodo_id)
     _abierto(p)
     _sin_corrida(bd, p)
-    if not datos.excluir and not (datos.campo and datos.importe) and not datos.tipo_operacion and not datos.tipo_tercero:
+    if datos.rfc_correcto and not motor.rfc_valido(datos.rfc_correcto.strip().upper()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El RFC correcto no tiene formato válido.")
+    # Sin columnas nuevas: la decisión va en «campo» (region_norte / region_sur / region_16 / rfc_correcto) y el RFC
+    # correcto en «nombre».
+    if datos.region:
+        datos.campo, datos.importe = f"region_{datos.region}", None  # type: ignore[assignment]
+    elif datos.rfc_correcto:
+        datos.campo, datos.importe = "rfc_correcto", None  # type: ignore[assignment]
+        datos.nombre = datos.rfc_correcto.strip().upper()
+    especial = datos.region or datos.rfc_correcto
+    if not especial and not datos.excluir and not (datos.campo and datos.importe) and not datos.tipo_operacion \
+            and not datos.tipo_tercero:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Di qué cambia: un importe en un campo, el tipo de tercero u "
                                                          "operación, o quitar al tercero.")
     a = DiotAjuste(periodo_id=periodo_id, rfc=datos.rfc.strip().upper(), nombre=datos.nombre, campo=datos.campo,
-                   importe=datos.importe if datos.campo else None, excluir=datos.excluir,
+                   importe=datos.importe if datos.campo and not especial else None, excluir=datos.excluir,
                    tipo_tercero=datos.tipo_tercero, tipo_operacion=datos.tipo_operacion,
                    motivo=" ".join(datos.motivo.split()), activo=True, creado_por=ctx.usuario.usuario_id,
                    creado_en=ahora())

@@ -135,6 +135,23 @@ export function Pendientes({ p, alCambiar, irAjustes }: { p: Periodo; alCambiar:
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.id, p.procesado_en]);
+  const [rfcNuevo, setRfcNuevo] = useState<Record<number, string>>({});
+  const [decidiendo, setDecidiendo] = useState<number | null>(null);
+  // 8 % por revisar y RFC inválido: la decisión se guarda como ajuste con motivo y se vuelve a procesar.
+  const decidirAjuste = async (i: Incidencia, cuerpo: { region?: "norte" | "sur" | "16"; rfc_correcto?: string }, motivo: string) => {
+    if (!i.rfc) return;
+    setDecidiendo(i.id);
+    try {
+      await api(`${RUTA}/periodos/${p.id}/ajustes`, { cuerpo: { rfc: i.rfc, ...cuerpo, motivo } });
+      await api<Periodo>(`${RUTA}/periodos/${p.id}/procesar`, { metodo: "POST" });
+      avisar("Decisión guardada. Se está volviendo a procesar el mes.", "exito");
+      alCambiar();
+    } catch (e) {
+      avisar(mensajeDe(e), "info");
+    } finally {
+      setDecidiendo(null);
+    }
+  };
   const guardar = async (ids: number[], estado: "revisada" | "pendiente", texto: string | null) => {
     try {
       if (ids.length === 1) await api<Incidencia>(`${RUTA}/incidencias/${ids[0]}`, { metodo: "PATCH", cuerpo: { estado, nota: texto } });
@@ -250,6 +267,31 @@ export function Pendientes({ p, alCambiar, irAjustes }: { p: Periodo; alCambiar:
                           </span>
                         )}
                       </div>
+                      {opera && i.rfc && g.codigo === "REGION-8" && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(["norte", "sur", "16"] as const).map((r) => (
+                            <Boton key={r} variante="secundario" className="py-1" cargando={decidiendo === i.id} disabled={decidiendo !== null}
+                              onClick={() => decidirAjuste(i, { region: r }, r === "16" ? "Resolver pendientes: el 8 % se declara como 16 %" : `Resolver pendientes: 8 % de región ${r}`)}>
+                              {r === "16" ? "Es 16 %" : `Región ${r}`}
+                            </Boton>
+                          ))}
+                        </div>
+                      )}
+                      {opera && i.rfc && g.codigo === "RFC-INVALIDO" && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <input
+                            value={rfcNuevo[i.id] ?? ""}
+                            onChange={(e) => setRfcNuevo({ ...rfcNuevo, [i.id]: e.target.value.toUpperCase().trim() })}
+                            placeholder="RFC correcto (12 o 13 caracteres)"
+                            maxLength={13}
+                            className={`${ENTRADA} w-60`}
+                          />
+                          <Boton className="py-1" cargando={decidiendo === i.id} disabled={decidiendo !== null || !/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/.test(rfcNuevo[i.id] ?? "")}
+                            onClick={() => decidirAjuste(i, { rfc_correcto: rfcNuevo[i.id] }, `Resolver pendientes: el RFC correcto de ${i.rfc} es ${rfcNuevo[i.id]}`)}>
+                            Usar este RFC
+                          </Boton>
+                        </div>
+                      )}
                       {i.nota_revision && (
                         <p className="mt-1 rounded-lg bg-sky-50 px-2 py-1 text-[13px] text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
                           {i.nota_revision} {i.revisada_por && <>· {i.revisada_por} {i.revisada_en && fechaLocal(i.revisada_en)}</>}

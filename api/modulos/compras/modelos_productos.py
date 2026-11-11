@@ -156,6 +156,9 @@ class Oportunidad(Base):
     donde_se_vio: Mapped[str | None] = mapped_column(Unicode(300))
     imagen: Mapped[str | None] = mapped_column(Unicode(800))  # liga de la foto (página del producto, Google o nuestra)
     imagen_de: Mapped[str | None] = mapped_column(Unicode(300))  # de dónde salió la foto
+    tipo_cliente: Mapped[str | None] = mapped_column(Unicode(120))  # para qué tipo de cliente (Datos → Clientes)
+    encaje: Mapped[str | None] = mapped_column(Unicode(10))  # si / dudoso: ¿encaja con «Nuestro cliente»? (las «no» se quitan)
+    encaje_motivo: Mapped[str | None] = mapped_column(Unicode(400))
     estado: Mapped[str] = mapped_column(Unicode(20), default="nueva")  # nueva / evaluada / descartada
     idea_id: Mapped[int | None] = mapped_column(ForeignKey(f"{ESQUEMA}.producto_idea.idea_id"))
     actualizada_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))

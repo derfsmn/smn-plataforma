@@ -19,7 +19,7 @@ from core.seguridad import Contexto, requiere
 from modulos.compras import dataforseo as dfs
 from modulos.compras import oportunidades as op
 from modulos.compras import radar_productos as rp
-from modulos.compras.modelos_productos import Oportunidad, OportunidadCorrida, ProductoIdea
+from modulos.compras.modelos_productos import Oportunidad, OportunidadCorrida
 from modulos.compras.rutas_productos import EVALUAR, VER, _bitacora
 from nucleo.modelos import Usuario, ahora
 
@@ -30,6 +30,7 @@ class EvidenciaSalida(BaseModel):
     clave: str
     fuente: str
     texto: str
+    puertas: list[str] = []
 
 
 class OportunidadSalida(BaseModel):
@@ -49,6 +50,15 @@ class OportunidadSalida(BaseModel):
     imagen_de: str | None  # de dónde salió la foto
     estado: str
     evaluacion_id: int | None  # la evaluación vigente de la idea que se creó
+    evaluacion_estado: str | None = None  # en_curso / lista / fallida
+    color: str | None = None  # el del semáforo (o el que puso Compras)
+    puntaje: int | None = None
+    puertas: list[str] = []  # tendencia / mas_vendido (2026-11-09)
+    busqueda_id: int | None = None  # su búsqueda de proveedor, si se abrió
+    busqueda_estado: str | None = None
+    tipo_cliente: str | None = None  # para qué tipo de cliente (Datos → Clientes)
+    encaje: str | None = None  # si / dudoso contra «Nuestro cliente»
+    encaje_motivo: str | None = None
 
 
 class CorridaResumen(BaseModel):
@@ -60,6 +70,7 @@ class CorridaResumen(BaseModel):
     costo_usd: Decimal
     error: str | None
     disparada_por: str | None
+    programada: bool = False
     creada_en: datetime
     terminada_en: datetime | None
     total: int
@@ -75,6 +86,7 @@ class Estado(BaseModel):
     costo_maximo_competencia_usd: Decimal
     busquedas_competencia: int
     falta_configurar: list[str]  # lo que falta para buscar en la competencia
+    programa: str | None = None  # «Corre sola cada lunes a las 8:00»; None = solo con el botón
     corridas: list[CorridaResumen]
 
 
@@ -82,17 +94,28 @@ def _resumen(bd: Session, c: OportunidadCorrida) -> CorridaResumen:
     u = bd.get(Usuario, c.disparada_por) if c.disparada_por else None
     return CorridaResumen(id=c.corrida_id, estado=c.estado, paso=c.paso, competencia=c.competencia, con_ia=c.con_ia,
                           costo_usd=c.costo_usd or Decimal("0"), error=c.error, disparada_por=u.nombre if u else None,
+                          programada=op.es_programada(c),
                           creada_en=c.creada_en, terminada_en=c.terminada_en, total=len(c.oportunidades))
 
 
 def _oportunidad(bd: Session, o: Oportunidad) -> OportunidadSalida:
+    from modulos.compras import busquedas as bq
+
     e = rp.vigente(bd, idea_id=o.idea_id) if o.idea_id else None
+    b = bq.de_idea(bd, o.idea_id) if o.idea_id else None
+    evidencia = json.loads(o.evidencia)
     return OportunidadSalida(id=o.oportunidad_id, orden=o.orden, nombre=o.nombre, marca=o.marca,
                              departamento=o.departamento, subcategoria=o.subcategoria, forma=o.forma, por_que=o.por_que,
-                             prioridad=o.prioridad, evidencia=[EvidenciaSalida(**x) for x in json.loads(o.evidencia)],
+                             prioridad=o.prioridad, evidencia=[EvidenciaSalida(**x) for x in evidencia],
                              precio_visto=o.precio_visto, donde_se_vio=o.donde_se_vio, imagen=o.imagen,
                              imagen_de=o.imagen_de, estado=o.estado,
-                             evaluacion_id=e.evaluacion_id if e else None)
+                             evaluacion_id=e.evaluacion_id if e else None,
+                             evaluacion_estado=e.estado if e else None,
+                             color=bq.color_de(e) if e and e.estado == "lista" else None,
+                             puntaje=e.puntaje if e and e.estado == "lista" else None,
+                             puertas=op.puertas(evidencia), busqueda_id=b.busqueda_id if b else None,
+                             busqueda_estado=bq.ESTADOS[b.estado] if b else None, tipo_cliente=o.tipo_cliente, encaje=o.encaje,
+                             encaje_motivo=o.encaje_motivo)
 
 
 def _detalle(bd: Session, c: OportunidadCorrida) -> CorridaDetalle:
@@ -108,7 +131,7 @@ def estado(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_b
     n = configuracion().oportunidades_busquedas
     corridas = bd.scalars(select(OportunidadCorrida).order_by(OportunidadCorrida.corrida_id.desc()).limit(10)).all()
     return Estado(costo_maximo_competencia_usd=dfs.maximo_tarea("productos", configuracion().precios_profundidad) * n,
-                  busquedas_competencia=n, falta_configurar=dfs.configurado(),
+                  busquedas_competencia=n, falta_configurar=dfs.configurado(), programa=op.texto_programa(),
                   corridas=[_resumen(bd, c) for c in corridas])
 
 
@@ -155,14 +178,7 @@ def evaluar(oportunidad_id: int, request: Request, ctx: Contexto = Depends(requi
     o = _de(bd, oportunidad_id)
     if o.idea_id:
         return _oportunidad(bd, o)
-    evidencia = "\n".join(f"- {x['fuente']}: {x['texto']}" for x in json.loads(o.evidencia))
-    i = ProductoIdea(nombre=o.nombre[:300], marca=o.marca, departamento=o.departamento, forma=o.forma,
-                     descripcion=f"Recomendado por «Buscar oportunidades»: {o.por_que}\n{evidencia}"[:2000],
-                     precio_visto=o.precio_visto, donde_se_vio=o.donde_se_vio, estado="nueva",
-                     creada_por=ctx.usuario.usuario_id, creada_en=ahora(), actualizada_en=ahora())
-    bd.add(i)
-    bd.flush()
-    o.idea_id, o.estado, o.actualizada_por, o.actualizada_en = i.idea_id, "evaluada", ctx.usuario.usuario_id, ahora()
+    i = op.a_idea(bd, o, ctx.usuario.usuario_id)
     _bitacora(bd, "evaluar_oportunidad", ctx, request, "oportunidad", o.oportunidad_id, {"idea": i.idea_id})
     bd.commit()
     e = rp.iniciar(bd, idea_id=i.idea_id, usuario_id=ctx.usuario.usuario_id)
@@ -211,10 +227,15 @@ def instrucciones(_: Contexto = Depends(requiere(VER))) -> list[Instruccion]:
     """Las instrucciones que sigue la IA en cada paso, tal cual están en oportunidades.py (Diego, 2026-11-03: «en donde
     puedo ver la descripción del agente?»). Solo lectura: se cambian en el código."""
     return [
-        Instruccion(paso="1. Agente que busca en internet",
-                    que_hace="Busca en las listas de más vendidos de México, guiado por las tendencias del radar. Recibe "
-                             "las tendencias, nuestras subcategorías y lo que más vendemos para no proponerlo.",
-                    texto=_legible(op.INSTRUCCIONES_VENDIDOS)),
+        Instruccion(paso="1a. Agente que busca por tendencia",
+                    que_hace=f"Una búsqueda por cada una de las {configuracion().oportunidades_tendencias} tendencias más "
+                             "fuertes del radar: productos que ya se venden en México con esa tendencia. Recibe la "
+                             "tendencia, nuestras subcategorías y lo que más vendemos para no proponerlo.",
+                    texto=_legible(op.INSTRUCCIONES_TENDENCIA)),
+        Instruccion(paso="1b. Agente que busca lo más vendido",
+                    que_hace=f"Una búsqueda por cada uno de los {configuracion().oportunidades_departamentos} departamentos "
+                             "que más vendemos: lo más vendido en México de ese departamento, esté o no de moda.",
+                    texto=_legible(op.INSTRUCCIONES_DEPARTAMENTO)),
         Instruccion(paso="2. Comprador que arma la lista final",
                     que_hace="Junta lo que trajo el agente, la competencia (si se pidió), las tendencias, los huecos del "
                              "surtido y las reglas y casos que Compras rechazó, y propone hasta 20 productos.",

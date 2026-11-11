@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, Bot, Check, History, Palette, Pencil, Plus, RefreshCw, Search, Tag, Trash2, Loader2 } from "lucide-react";
+import { AlertTriangle, Bot, Check, CircleHelp, Gavel, History, PackageSearch, Palette, Pencil, Plus, RefreshCw, Search, Tag, Trash2, TrendingUp, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { Modal } from "@/componentes/modal";
@@ -13,10 +13,20 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe, pesos } from "@/lib/api";
 import { SEMAFORO } from "@/lib/precios";
+import { RUTA as RUTA_BUSQUEDAS, type BusquedaBreve } from "@/lib/busquedas";
+import { Asistente, type Turno } from "../../propuestas/comite/[id]/presentar/asistente";
 import {
   aportes, colorVigente, CONFIANZA, ESTADOS_IDEA, faltaPara, QUE_MIDE, RUTA, urlFoto,
   type Color, type Comparable, type EstadoIdea, type Evaluacion, type MercadoInternet, type OpcionClasificacion, type RevisionPoliticas, type ProductoCatalogo,
 } from "@/lib/productos";
+
+// Preguntas para el asistente de cada producto (Diego, 2026-11-09: «preguntarle sobre la decisión de cada producto»)
+const SUGERENCIAS_RADAR = [
+  { texto: "¿Por qué salió de este color?", icono: CircleHelp },
+  { texto: "¿Qué lo haría subir de calificación?", icono: TrendingUp },
+  { texto: "¿Cómo está su precio contra internet?", icono: Tag },
+  { texto: "¿Qué decidió el comité y por qué?", icono: Gavel },
+];
 
 const ORIGEN_CLASIFICACION = { ia: "Sugerida por la IA, sin confirmar", compras: "Confirmada por Compras", parecidos: "Tomada de los productos parecidos, sin confirmar", sin_clasificar: "Sin clasificar" } as const;
 
@@ -28,6 +38,18 @@ export default function DetalleEvaluacion() {
   const evalua = puede("compras.productos.evaluar");
   const ajusta = puede("compras.productos.ajustar");
   const [e, setE] = useState<Evaluacion | null>(null);
+  const [ia, setIa] = useState(false);
+  const [turnos, setTurnos] = useState<Turno[]>([]);
+  useEffect(() => {
+    setTurnos([]);
+    setIa(false);
+  }, [id]);
+  useEffect(() => {
+    if (!ia) return;
+    const tecla = (x: KeyboardEvent) => x.key === "Escape" && setIa(false);
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [ia]);
   const [abierto, setAbierto] = useState<"color" | "clasificacion" | "parecidos" | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -35,6 +57,17 @@ export default function DetalleEvaluacion() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+  // La búsqueda de proveedor de la idea, si la tiene (se abre sola si sale verde sin proveedor, o con «Buscar proveedor»)
+  const [busqueda, setBusqueda] = useState<BusquedaBreve | null>(null);
+  const idea = e?.sujeto.tipo === "idea" ? e.sujeto.id : null;
+  const verBusquedas = puede("compras.busquedas.ver");
+  const cargarBusqueda = useCallback(() => {
+    if (!idea || !verBusquedas) return setBusqueda(null);
+    api<BusquedaBreve | null>(`${RUTA_BUSQUEDAS}/idea/${idea}`).then(setBusqueda).catch(() => setBusqueda(null));
+  }, [idea, verBusquedas]);
+  useEffect(() => {
+    cargarBusqueda();
+  }, [cargarBusqueda, e?.estado, e?.color_final]);
   useEffect(() => {
     if (e?.estado !== "en_curso") return;
     const t = setTimeout(cargar, 2500);
@@ -62,7 +95,8 @@ export default function DetalleEvaluacion() {
     try {
       await api(`${RUTA}/ideas/${e.sujeto.id}/estado`, { metodo: "PATCH", cuerpo: { estado } });
       setE({ ...e, sujeto: { ...e.sujeto, estado } });
-      avisar(`Quedó como «${ESTADOS_IDEA[estado]}»`);
+      avisar(estado === "buscar_proveedor" ? "Se abrió la búsqueda de proveedor y se avisó a quienes buscan proveedores" : `Quedó como «${ESTADOS_IDEA[estado]}»`);
+      cargarBusqueda();
     } catch (x) {
       avisar(mensajeDe(x), "info");
     }
@@ -85,6 +119,22 @@ export default function DetalleEvaluacion() {
             {[e.sujeto.marca, e.sujeto.departamento ?? "Sin departamento"].filter(Boolean).join(" · ")} · evaluado el {fechaLocal(e.creada_en)}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+        {busqueda && (
+          <Link
+            href={`/compras/propuestas/busquedas/${busqueda.id}`}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-smn-gris-100 bg-superficie px-3 py-2 text-sm font-medium hover:border-smn-naranja"
+          >
+            <PackageSearch className="h-4 w-4" aria-hidden />
+            Búsqueda de proveedor: {busqueda.estado_texto.toLowerCase()}
+            {busqueda.responsable && ` · ${busqueda.responsable.nombre}`}
+          </Link>
+        )}
+        {lista && (
+          <Boton variante="secundario" onClick={() => setIa(true)}>
+            <Bot className="h-4 w-4" /> Pregúntale a la IA
+          </Boton>
+        )}
         {e.sujeto.tipo === "propuesta" ? (
           <Link href={`/compras/propuestas/${e.sujeto.id}`} className="text-sm font-semibold text-naranja-tinta hover:underline">Ver la propuesta</Link>
         ) : evalua ? (
@@ -101,7 +151,42 @@ export default function DetalleEvaluacion() {
         ) : (
           <Insignia className="bg-smn-gris-100 text-smn-gris-700">{ESTADOS_IDEA[e.sujeto.estado ?? "nueva"]}</Insignia>
         )}
+        </div>
       </Entrada>
+
+      <AnimatePresence>
+        {ia && (
+          <motion.aside
+            key="ia"
+            initial={{ x: 40, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 40, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            role="dialog"
+            aria-label="Pregúntale a la IA"
+            className="fixed inset-0 z-50 flex flex-col bg-superficie shadow-2xl sm:inset-y-3 sm:right-3 sm:left-auto sm:w-[480px] sm:rounded-2xl sm:border sm:border-smn-gris-100"
+          >
+            <div className="flex items-start gap-3 border-b border-smn-gris-100 px-5 py-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-smn-gris-500">Pregúntale a la IA</p>
+                <p className="truncate text-base font-semibold">{e.sujeto.nombre}</p>
+              </div>
+              {e.puntaje !== null && color && <InsigniaColor color={color} />}
+              <button type="button" onClick={() => setIa(false)} aria-label="Cerrar" className="rounded-lg p-1.5 text-smn-gris-500 hover:bg-smn-gris-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <Asistente
+              url={`${RUTA}/evaluaciones/${e.id}/preguntar`}
+              turnos={turnos}
+              guardar={setTurnos}
+              anotar={false}
+              titulo="¿Qué quieres saber de este producto?"
+              sugerencias={SUGERENCIAS_RADAR}
+            />
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
       {yaVendemos && (
         <p className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl bg-aviso-fondo p-3 text-sm text-aviso-texto">

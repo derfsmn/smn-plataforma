@@ -327,8 +327,58 @@ def _cargos_del_banco(t: lectura.Tabla) -> tuple[dict[str, list[Decimal]], list[
             fecha.setdefault(m.group(1), _dia(f.get("Fecha Operación") or f.get("Fecha Valor")))
         else:
             sin_folio.append({"descripcion": lectura.texto(f.get("Transacción")), "importe": float(abs(imp)),
-                              "fecha": lectura.texto(f.get("Fecha Operación") or f.get("Fecha Valor"))})
+                              "fecha": lectura.texto(f.get("Fecha Operación") or f.get("Fecha Valor")),
+                              "referencia": lectura.texto(f.get("Referencia"))})
     return con_folio, sin_folio, descripcion, fecha
+
+
+IVA_COMISION = Decimal("1.16")
+# Movimientos de tesorería que no se buscan en el banco: ISR retenido de las inversiones (ODP8 octubre 2026, 20
+# cargos «BBV INVERSION»): no es pago a proveedor ni lleva IVA.
+SIN_ESTADO_CONCEPTOS = ("ISR RETENIDO",)
+# Comisiones de terminales por tienda («Comisiones Plataformas», «COM BANC (Condesa)»): el banco no las carga
+# aparte; se reportan como «descontadas del depósito» y no como pagos que faltan.
+EN_DEPOSITO_CONCEPTOS = ("COMISIONES PLATAFORMAS",)
+DIAS_BANCO = 3  # sin folio, un cargo se empata con un pago de hasta 3 días antes o después
+
+
+def _por_fecha_e_importe(nombre: str, por_cuenta: dict[str, list[dict]], cargos: list[dict], cubiertas: set) -> dict:
+    """Estado de cuenta sin folio de Intelisis: cada pago se busca por importe exacto, primero el mismo día y luego a
+    ±3 días. La cuenta es la de tesorería con más pagos encontrados así."""
+    from datetime import date
+
+    def dia(x: str) -> date | None:
+        try:
+            return date.fromisoformat(_dia(x))
+        except ValueError:
+            return None
+
+    def empatar(pagos: list[dict]) -> tuple[list[dict], list[dict]]:
+        libres = [(dia(c["fecha"]), Decimal(str(c["importe"])), c) for c in cargos]
+        hallados, faltan = [], []
+        for x in sorted(pagos, key=lambda x: x["movid"]):
+            d = dia(x["fecha"])
+            opciones = [k for k, (dc, imp, _) in enumerate(libres) if abs(imp - x["importe"]) <= TOLERANCIA_BANCO
+                        and d and dc and abs((dc - d).days) <= DIAS_BANCO]
+            if opciones:
+                k = min(opciones, key=lambda k: abs((libres[k][0] - d).days))
+                hallados.append({**x, "importe": float(x["importe"]), "banco": libres.pop(k)[2]})
+            else:
+                faltan.append({**x, "importe": float(x["importe"])})
+        return hallados, faltan
+
+    mejor = max(por_cuenta, key=lambda c: len(empatar(por_cuenta[c])[0]), default=None)
+    hallados, faltan = empatar(por_cuenta[mejor]) if mejor else ([], [])
+    if not hallados:
+        return {"archivo": nombre, "cuenta": None, "pagos": 0, "confirmados": 0, "diferencias": [],
+                "no_encontrados": [], "otro_folio": [], "solo_banco": [], "sin_folio": len(cargos)}
+    cubiertas.add(mejor)
+    usados = {id(h["banco"]) for h in hallados}
+    solo_banco = [{"folio": c.get("referencia", ""), "importe": c["importe"], "descripcion": c["descripcion"]}
+                  for c in cargos if id(c) not in usados]
+    return {"archivo": nombre, "cuenta": mejor, "pagos": len(por_cuenta[mejor]), "confirmados": len(hallados),
+            "diferencias": [], "no_encontrados": faltan, "otro_folio": [], "solo_banco": solo_banco,
+            "sin_folio": 0, "por_fecha": True}
 
 
 def comparar_banco(tesoreria: lectura.Tabla, estados: list[tuple[str, lectura.Tabla]]) -> dict:
@@ -339,12 +389,14 @@ def comparar_banco(tesoreria: lectura.Tabla, estados: list[tuple[str, lectura.Ta
     for f in tesoreria.filas:
         mov = lectura.texto(f.get("Mov"))
         movid = lectura.texto(f.get("MovID")).upper()
-        if not movid or mov.upper().startswith("ABONO"):
+        concepto = lectura.texto(f.get("Concepto")).upper()
+        if not movid or mov.upper().startswith("ABONO") or concepto.startswith(SIN_ESTADO_CONCEPTOS):
             continue
         imp = _num(f.get("Importe"))
         if imp is None:
             continue
         pagos.setdefault(movid, {"movid": movid, "mov": mov, "cuenta": lectura.texto(f.get("CtaDinero")),
+                                 "concepto": concepto,
                                  "beneficiario": lectura.texto(f.get("BeneficiarioNombre")),
                                  "fecha": lectura.texto(f.get("FechaEmision"))[:10], "importe": abs(imp)})
     por_cuenta: dict[str, list[dict]] = defaultdict(list)
@@ -354,7 +406,13 @@ def comparar_banco(tesoreria: lectura.Tabla, estados: list[tuple[str, lectura.Ta
     for nombre, t in estados:
         cargos, sin_folio, descripcion, fecha = _cargos_del_banco(t)
         cuenta = max(por_cuenta, key=lambda c: sum(1 for x in por_cuenta[c] if x["movid"] in cargos), default=None)
-        if cuenta is None or not any(x["movid"] in cargos for x in por_cuenta[cuenta]):
+        con_folio = cuenta is not None and any(x["movid"] in cargos for x in por_cuenta[cuenta])
+        if not con_folio and sin_folio:
+            # Sin folio de Intelisis (PDF de Monex; BBVA de PS, que trae en «Referencia» las facturas del proveedor):
+            # se empata por fecha e importe.
+            cuentas.append(_por_fecha_e_importe(nombre, por_cuenta, sin_folio, cubiertas))
+            continue
+        if not con_folio:
             cuentas.append({"archivo": nombre, "cuenta": None, "pagos": 0, "confirmados": 0, "diferencias": [],
                             "no_encontrados": [], "otro_folio": [], "solo_banco": [], "sin_folio": len(sin_folio)})
             continue
@@ -366,6 +424,9 @@ def comparar_banco(tesoreria: lectura.Tabla, estados: list[tuple[str, lectura.Ta
                 no_encontrados.append({**x, "importe": float(x["importe"])})
             elif abs(sum(en_banco) - x["importe"]) <= TOLERANCIA_BANCO:
                 confirmados += 1
+            elif x["mov"].upper().startswith("CARGO") and abs(sum(en_banco) - x["importe"] * IVA_COMISION) \
+                    <= TOLERANCIA_BANCO:
+                confirmados += 1  # comisión: el banco carga el importe con su IVA (SMN octubre 2026)
             else:
                 diferencias.append({**x, "importe": float(x["importe"]), "banco": float(sum(en_banco)),
                                     "cargos": len(en_banco)})
@@ -384,11 +445,24 @@ def comparar_banco(tesoreria: lectura.Tabla, estados: list[tuple[str, lectura.Ta
                 confirmados += 1
             else:
                 sigue.append(x)
+        # Dos pagos que el banco juntó en el folio de uno (ODP octubre 2026: LAB3646 trae también el cargo de LAB3649):
+        # el sobrante del folio es exactamente el importe de un pago no encontrado.
+        for d in list(diferencias):
+            sobra = Decimal(str(d["banco"])) - Decimal(str(d["importe"]))
+            junto = next((x for x in sigue if abs(Decimal(str(x["importe"])) - sobra) <= TOLERANCIA_BANCO), None)
+            if junto:
+                diferencias.remove(d)
+                sigue.remove(junto)
+                otro_folio.append({**junto, "folio_banco": d["movid"], "descripcion": descripcion.get(d["movid"], "")})
+                confirmados += 2
         solo_banco = [{"folio": k, "importe": float(sum(v)), "descripcion": descripcion.get(k, "")}
                       for k, v in ajenos.items()]
         cuentas.append({"archivo": nombre, "cuenta": cuenta, "pagos": len(por_cuenta[cuenta]),
                         "confirmados": confirmados, "diferencias": diferencias, "no_encontrados": sigue,
                         "otro_folio": otro_folio, "solo_banco": solo_banco, "sin_folio": len(sin_folio)})
+    for x in cuentas:  # comisiones de terminales: no salen como cargo (PS octubre 2026, 166 «COM BANC (tienda)»)
+        x["en_deposito"] = [y for y in x["no_encontrados"] if y.get("concepto", "").startswith(EN_DEPOSITO_CONCEPTOS)]
+        x["no_encontrados"] = [y for y in x["no_encontrados"] if y not in x["en_deposito"]]
     sin_estado = [{"cuenta": c, "pagos": len(v), "importe": float(sum(x["importe"] for x in v))}
                   for c, v in sorted(por_cuenta.items()) if c not in cubiertas]
     return {"cuentas": cuentas, "sin_estado": sin_estado}
@@ -425,6 +499,10 @@ def _banco(bd: Session, p: DiotPeriodo) -> dict:
         return {**c, "estado": REVISAR, "detalle": d,
                 "frase": "Ningún pago de tesorería aparece en los estados de cuenta subidos. Revisa que sean de "
                          "esta empresa y de este mes." + falta}
+    en_dep = sum(len(x.get("en_deposito", [])) for x in leidas)
+    if en_dep:
+        falta = (f" {en_dep} comisiones de terminales (${sum(y['importe'] for x in leidas for y in x['en_deposito']):,.2f})"
+                 " no salen como cargo: el banco las descuenta del depósito.") + falta
     otros = sum(len(x["otro_folio"]) for x in leidas)
     if otros:
         falta = (f" {otros} se encontró con otro folio en el banco (mismo día e importe)." if otros == 1

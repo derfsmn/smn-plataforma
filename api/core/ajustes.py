@@ -41,6 +41,7 @@ GRUPOS = {
     "kiosco": "Kiosco Digital (Tiendas)",
     "etl": "ETL de ventas (SMNBI)",
     "productos": "Radar de productos (Compras)",
+    "oportunidades": "Buscar oportunidades (Compras)",
 }
 
 CATALOGO = [
@@ -154,6 +155,11 @@ CATALOGO = [
     Ajuste("precios_alerta_pct", "precios", "Semáforo: rojo si estamos más caros que el mercado por más de (%)", "decimal",
            "Compara nuestro precio lista con impuestos contra la mediana de la competencia. Verde: igual o más barato. "
            "Amarillo: más caro hasta este %. Rojo: más caro que este %, y se avisa en la campana.", 0, 100),
+    Ajuste("precios_barras_primero", "precios", "Buscar también por código de barras en Google Shopping", "booleano",
+           "Encendido: si el producto tiene código de barras, se busca con el código y también con marca y descripción, y "
+           "se juntan los resultados; cuenta cada publicación que es el mismo producto (misma marca, nombre y presentación). "
+           "Cuesta una búsqueda más por producto. Apagado: primero marca y descripción, y el código solo si con eso no "
+           "quedó claro. No aplica si el producto tiene una consulta escrita por Compras."),
     Ajuste("precios_ia_siempre", "precios", "La IA elige el producto entre los resultados de Google", "booleano",
            "Encendido: la IA revisa siempre lo que regresa Google y elige; las reglas solo quitan otra marca, otra presentación y "
            "paquetes. Apagado: eligen las reglas y la IA solo revisa lo dudoso. Si la IA no contesta, deciden las reglas."),
@@ -191,6 +197,38 @@ CATALOGO = [
     Ajuste("oportunidades_busquedas", "productos", "Subcategorías a buscar en la competencia", "entero",
            "Al «Buscar oportunidades» con la competencia, cuántas de las subcategorías que más venden se buscan en Google "
            "Shopping. Cada una cuesta una búsqueda de DataForSEO y cuenta para el tope del mes.", 1, 300),
+    Ajuste("oportunidades_tendencias", "productos", "Tendencias que busca el agente", "entero",
+           "«Buscar oportunidades», puerta por tendencia: una búsqueda en internet por cada una de las tendencias más "
+           "fuertes del radar. Cada búsqueda usa la IA externa con búsqueda web (cuesta).", 0, 20),
+    Ajuste("oportunidades_departamentos", "productos", "Departamentos que busca el agente", "entero",
+           "«Buscar oportunidades», puerta de lo más vendido: una búsqueda en internet por cada uno de los departamentos "
+           "que más vendemos, aunque sus productos no estén en ninguna tendencia. Cada búsqueda cuesta.", 0, 20),
+    Ajuste("oportunidades_activo", "oportunidades", "Buscar oportunidades automáticamente", "booleano",
+           "Apagado, solo corre con el botón «Buscar oportunidades». Cada corrida cuesta lo mismo que con el botón "
+           "(búsquedas web del agente y la evaluación de cada oportunidad). Las ideas que crea quedan a nombre de quien "
+           "lo encendió."),
+    Ajuste("oportunidades_frecuencia", "oportunidades", "¿Qué días corre?", "opcion",
+           "Cada N días se cuenta desde la última búsqueda que terminó.",
+           opciones=(("diario", "Todos los días"), ("dias", "Días de la semana que elija"), ("cada_n", "Cada N días"))),
+    Ajuste("oportunidades_hora", "oportunidades", "Hora en que corre (0 a 23)", "entero",
+           "Hora local. Si la plataforma estaba apagada a esa hora, corre en cuanto vuelve.", 0, 23),
+    Ajuste("oportunidades_dias_semana", "oportunidades", "Días de la semana", "dias",
+           "Solo aplica si eligió «Días de la semana que elija»."),
+    Ajuste("oportunidades_cada_dias", "oportunidades", "Cada cuántos días", "entero",
+           "Solo aplica si eligió «Cada N días».", 2, 60),
+    Ajuste("oportunidades_zona_horaria", "oportunidades", "Zona horaria", "texto", "Ej. America/Mexico_City"),
+    Ajuste("oportunidades_tope_precio", "oportunidades", "Quitar lo que es más caro que lo que paga nuestro cliente",
+           "opcion", "Con los tipos de cliente de Datos → Clientes: se quita la oportunidad si su precio (con IVA) queda "
+           "arriba de lo que paga por pieza ese porcentaje de nuestros clientes en su departamento.",
+           opciones=(("75", "Arriba del 75 %"), ("90", "Arriba del 90 %"), ("95", "Arriba del 95 %"), ("0", "No quitar"))),
+    Ajuste("oportunidades_competencia_programada", "oportunidades", "Incluir la competencia (Google Shopping)",
+           "booleano", "Igual que la casilla del botón: cuesta búsquedas de DataForSEO y cuenta para el tope del mes."),
+    Ajuste("busquedas_auto_verde", "productos", "Pedir proveedor a lo que sale verde", "booleano",
+           "Una oportunidad o idea sin proveedor que sale verde en el semáforo se vuelve una búsqueda de proveedor y les "
+           "llega a quienes buscan proveedores (permiso «Atender búsquedas de proveedor»)."),
+    Ajuste("busquedas_auto_amarillo", "productos", "Pedir proveedor también a lo que sale amarillo", "booleano",
+           "Igual que el anterior, pero también con amarillo (así lo pidió Diego el 9 nov 2026). Compras siempre puede "
+           "pedirlo a mano desde el producto."),
 ]
 POR_CLAVE = {a.clave: a for a in CATALOGO}
 

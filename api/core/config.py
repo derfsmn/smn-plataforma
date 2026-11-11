@@ -125,6 +125,7 @@ class Configuracion(BaseSettings):
     precios_umbral: int = 85
     precios_buscar_siempre: bool = True  # cada corrida vuelve a buscar y cada resultado de Google que es el mismo producto cuenta como precio (Diego, 2026-10-19)
     precios_comparar_imagenes: bool = True  # variantes dudosas: la IA compara fotos (idea de Diego, 2026-10-20)
+    precios_barras_primero: bool = True  # buscar primero por código de barras (Diego, 2026-11-06: el 37355 sale mejor así)
     precios_ia_siempre: bool = True  # la IA elige entre los resultados de Google (decisión de Diego, 2026-10-19)
     precios_tarifa_usd: float = 0.001  # por bloque de resultados, prioridad normal (DataForSEO, 2026-10-06)
     precios_tope_mensual_usd: float = 0.0  # 0 = no corre
@@ -140,6 +141,20 @@ class Configuracion(BaseSettings):
     radar_productos_buscar_mercado: bool = True
     # «Buscar oportunidades»: cuántas subcategorías se buscan en Google Shopping para ver lo que vende la competencia
     oportunidades_busquedas: int = 60
+    oportunidades_tendencias: int = 5  # búsquedas del agente por tendencia (2026-11-09)
+    oportunidades_departamentos: int = 5  # búsquedas del agente por departamento
+    # «Buscar oportunidades» programada (Diego, 2026-11-09: «cada que yo decida en configuración»). Apagada de fábrica.
+    oportunidades_activo: bool = False
+    oportunidades_frecuencia: str = "dias"  # diario / dias / cada_n
+    oportunidades_hora: int = 8
+    oportunidades_dias_semana: str = "1"  # 1 = lunes … 7 = domingo
+    oportunidades_cada_dias: int = 7
+    oportunidades_zona_horaria: str = "America/Mexico_City"
+    oportunidades_competencia_programada: bool = False
+    oportunidades_tope_precio: str = "90"  # percentil de lo que paga nuestro cliente (Datos → Clientes); "0" = no filtrar
+    # Búsqueda de proveedor (2026-11-09): qué colores del semáforo la abren solos en una idea sin proveedor
+    busquedas_auto_verde: bool = True
+    busquedas_auto_amarillo: bool = True  # Diego, 2026-11-09: verde y amarillo van a Compras
 
     @field_validator("ia_tipo_cambio_mxn", mode="before")
     @classmethod

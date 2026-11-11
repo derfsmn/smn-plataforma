@@ -2,7 +2,7 @@
 // Radar de precios · Página de un producto: los números arriba y el detalle en pestañas (vendedores, historial, coincidencia en Google, ajustes).
 
 import { motion } from "motion/react";
-import { ArrowLeft, Check, CircleSlash, Loader2, Pencil, RefreshCw, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, CircleSlash, Loader2, Pencil, RefreshCw, Search, X } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { api, mensajeDe } from "@/lib/api";
@@ -269,11 +269,16 @@ function Producto() {
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold">
                       {o.liga ? (
-                        <a href={o.liga} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        <a href={o.liga} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-0.5 underline decoration-smn-gris-300 underline-offset-2 hover:decoration-current">
                           {o.vendedor}
+                          <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
                         </a>
                       ) : (
-                        o.vendedor
+                        <>
+                          {o.vendedor}
+                          <span className="ml-2 text-[13px] font-normal text-aviso-texto">Sin liga para revisarlo</span>
+                        </>
                       )}
                       {o.es_propia && <Insignia className="ml-2 bg-smn-naranja/15 text-aviso-texto">Nuestra tienda</Insignia>}
                       {o.tienda_clave && <Insignia className="ml-2 bg-smn-gris-100 text-smn-gris-700">{o.directa ? "Tienda clave · su sitio" : "Tienda clave"}</Insignia>}
@@ -546,8 +551,10 @@ function TarjetaTienda({ tienda, obs, directa, contra, alerta, rechazar, ocupado
           </p>
           <p className="mt-0.5 text-[13px] text-smn-gris-500">
             {obs.liga ? (
-              <a href={obs.liga} target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">
+              <a href={obs.liga} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-semibold underline decoration-smn-gris-300 underline-offset-2 hover:decoration-current">
                 {obs.directa ? "En su sitio" : "En Google"}
+                <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
               </a>
             ) : obs.directa ? "En su sitio" : "En Google"}
             {obs.directa && directa?.titulo && ` · ${directa.titulo}`}

@@ -21,17 +21,20 @@ suya (o la de Google Shopping) y se manda al semáforo como idea de Compras.
 import json
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from itertools import zip_longest
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from statistics import median
 
-from sqlalchemy import select, true
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from core.config import configuracion
+from datos import clientes as cl
 from datos.modelos import Producto
 from ia import puerta
 from modulos.compras import coincidencia as co
@@ -44,14 +47,16 @@ from modulos.compras import realidad_producto as rr
 from modulos.compras.modelos import RadarSenal
 from modulos.compras.modelos_conocimiento import ConocimientoCaso, ConocimientoRegla
 from modulos.compras.modelos_precios import PrecioCorrida
-from modulos.compras.modelos_productos import Oportunidad, OportunidadCorrida
+from modulos.compras.modelos_productos import Oportunidad, OportunidadCorrida, ProductoIdea
 from nucleo.modelos import ahora
 
 log = logging.getLogger("smn.compras.oportunidades")
 
 TAREA_IA = "compras.oportunidades"
 TAREA_VENDIDOS = "compras.oportunidades_novedades"  # mismo código de tarea; ahora busca los más vendidos
-MAX_VENDIDOS = 25
+MAX_VENDIDOS = 8  # por búsqueda (una por tendencia o por departamento)
+AGENTES_A_LA_VEZ = 4
+EVALUACIONES_A_LA_VEZ = 3
 # Con búsqueda web el razonamiento y las búsquedas cuentan dentro del tope de OpenAI; con 12,000 a veces no alcanzaba
 MAX_TOKENS_AGENTE = 32000
 MAX_OPORTUNIDADES = 20
@@ -68,31 +73,41 @@ COBERTURA_TENEMOS = 0.75  # parte de las palabras de nuestro producto que deben 
 PRIORIDADES = ("alta", "media", "baja")
 
 INSTRUCCIONES = """Eres comprador senior de Súper Naturista, cadena de tiendas naturistas en México. Compras te pide
-productos NUEVOS para nosotros que SÍ O SÍ se van a vender: que ya se venden bien en México y, de preferencia, que van
-con una tendencia que está creciendo. Nada de ideas sueltas ni de productos que ya teníamos.
+productos NUEVOS para nosotros que SÍ O SÍ se van a vender: que ya se venden bien en México, vayan o no con una
+tendencia. Nada de ideas sueltas ni de productos que ya teníamos.
 Te doy datos con una clave cada uno:
-- V = productos que están en las listas de más vendidos de tiendas en internet en México, con su prueba de venta (y la
-  tendencia con la que van, si aplica);
+- V = productos que están en las listas de más vendidos de tiendas en internet en México, con su prueba de venta. Cada
+  uno dice por qué puerta llegó: «tendencia» (se buscó con una tendencia del radar) o «mas_vendido» (es de lo más
+  vendido de uno de nuestros departamentos, aunque no esté de moda). Las dos puertas valen igual;
 - C = productos que venden dos o más tiendas de la competencia y nosotros no;
 - T = tendencias del radar. Solo respaldan: una tendencia no es un producto;
 - H = huecos de nuestro surtido: subcategorías que venden mucho por producto con pocas opciones. Solo respaldan.
 R y K son reglas y casos que Compras ya rechazó: NO recomiendes nada que caiga en ellos.
+Si te doy «nuestros_clientes» (tipos de cliente que salieron de cómo compran en nuestras tiendas y el precio por pieza
+sin IVA que paga cada uno por departamento), propón solo lo que le compraría alguno de esos tipos y a un precio cercano al
+que paga; en tipo_cliente pon el nombre del tipo que lo compraría.
+Si te doy «cliente_objetivo» (el nivel socioeconómico al que le vendemos, cómo lo describe Compras y cómo compra según
+nuestras ventas), revisa cada producto contra él y dilo en «encaje»: "si" si ese cliente lo compraría (lo necesita o lo
+quiere, y lo puede pagar), "dudoso" si no queda claro, "no" si es para otro público (muy caro para su bolsillo, de lujo
+o de nicho que ese cliente no busca). En «encaje_motivo» di por qué en una oración, con el dato en que te basas. No
+dejes fuera un producto por esto: inclúyelo con encaje "no" y su motivo, para que Compras vea qué se quitó.
 Somos una tienda naturista física: suplementos, herbolaria, vitaminas, alimentos saludables y cuidado personal natural, y
 algunos abarrotes saludables, a precio accesible. NO propongas lo que no venderíamos: comida chatarra o carnes, dulces
 comerciales, aceites para auto, libros, ropa, aparatos, productos de importación cara, etc., aunque venga en los datos.
-Propón hasta 20 productos concretos que NO tenemos. Cada uno DEBE tener al menos una prueba de venta (V o C). Lo ideal
-es un producto con prueba de venta que además va con una tendencia (T) o cae en un hueco (H): que más o menos la mitad
-de la lista sea así. Ordénalos del más seguro al menos seguro. Para cada uno:
+Propón hasta 20 productos concretos que NO tenemos. Cada uno DEBE tener al menos una prueba de venta (V o C). Incluye
+productos de las dos puertas: no descartes un más vendido por no ir con una tendencia. Ordénalos del más seguro al
+menos seguro. Para cada uno:
 - nombre: el producto como se pide a un proveedor: marca (si viene en el dato), ingrediente, forma y presentación
   (ej. «Magnesio citrato 500 mg 120 cápsulas»), nunca una categoría ni una idea;
 - por_que: una o dos oraciones que citen la prueba de venta con sus números (lugar en la lista, vendidos, reseñas,
   tiendas que lo venden), la tendencia o el hueco si aplica, y por qué lo compraría nuestro cliente;
 - evidencia: las claves que lo respaldan (V o C y, si aplica, T y H);
-- prioridad: alta si tiene prueba de venta fuerte (top 10 de una lista de más vendidos en México, o V y C a la vez) y
-  además va con una tendencia o un hueco; media si tiene una prueba de venta sólida; baja si la prueba es débil.
+- prioridad: alta si tiene prueba de venta fuerte (top 10 de una lista de más vendidos en México) y además llegó por las
+  dos puertas, o también lo vende la competencia (C), o cae en un hueco (H); media si tiene una prueba de venta sólida;
+  baja si la prueba es débil.
 No inventes ventas, precios ni pruebas. No repitas productos.
 Contesta solo JSON: {"oportunidades": [{"nombre": "...", "marca": null, "departamento": "...", "subcategoria": "...",
-"forma": "...", "por_que": "...", "evidencia": ["H2", "T5"], "prioridad": "alta"}]}"""
+"forma": "...", "por_que": "...", "evidencia": ["H2", "T5"], "prioridad": "alta", "tipo_cliente": null, "encaje": "si", "encaje_motivo": "..."}]}"""
 
 
 @dataclass
@@ -312,28 +327,48 @@ def competencia(bd: Session, f: Fuentes, cat: Catalogo, subcategorias: list[str]
                        "tenemos.")
 
 
-INSTRUCCIONES_VENDIDOS = f"""{radar.CONTEXTO_SMN}
-
-Eres comprador senior de una cadena de tiendas naturistas en México. Busca en internet productos que nosotros no
-tenemos y que HOY ya se venden mucho en México. Usa las tendencias que te doy como guía: lo ideal es un producto que va
-con una de esas tendencias Y ya tiene prueba de venta. No quiero noticias, lanzamientos sin venta ni apuestas.
-Dónde buscar: listas de «más vendidos» de Amazon México y Mercado Libre en salud, suplementos, vitaminas, alimentos
-saludables y cuidado personal natural; los más vendidos de farmacias (San Pablo, Farmacias Guadalajara, Benavides,
-del Ahorro) y de tiendas naturistas o de suplementos en México.
-Para cada producto trae la prueba de venta que viste: lugar en la lista de más vendidos, la etiqueta «Más vendido»,
-cuántos vendidos dice la página (ej. «+5 mil vendidos») o cuántas reseñas tiene.
+_REGLAS_AGENTE = f"""Para cada producto trae la prueba de venta que viste: lugar en la lista de más vendidos, la etiqueta «Más
+vendido», cuántos vendidos dice la página (ej. «+5 mil vendidos») o cuántas reseñas tiene.
 Reglas:
 - Producto concreto: marca, ingrediente, forma y presentación. Nada de categorías ni ingredientes sueltos.
 - Solo lo que viste en los resultados de tu búsqueda, con la liga exacta de la página donde está la prueba. No inventes
   ligas, lugares ni cifras.
 - Nada de lo que ya vendemos (te doy nuestras subcategorías y los productos que más vendemos).
-- Al menos la mitad deben ir con una de las tendencias que te doy; el resto, más vendidos sólidos de otras categorías.
 - Nada que no venda una tienda naturista (comida chatarra, aparatos, ropa, medicamentos de patente).
 - No afirmes propiedades médicas.
-- Máximo {MAX_VENDIDOS}, de varias categorías.
-Responde solo JSON: {{"productos": [{{"nombre": "marca + producto + presentación", "marca": "...",
+- Si te doy «precio_que_paga_nuestro_cliente», busca productos en ese rango de precio: nuestro cliente difícilmente
+  compra algo mucho más caro.
+- Si te doy «cliente_objetivo» (nivel socioeconómico al que le vendemos y cómo compra), busca productos para ese
+  cliente: nada de lujo ni de nicho que no sea para él.
+- Máximo {{maximo}}.
+Responde solo JSON: {{{{"productos": [{{{{"nombre": "marca + producto + presentación", "marca": "...",
 "prueba_de_venta": "lo que viste: lugar 3 en más vendidos de suplementos de Amazon México, +10 mil vendidos, 4,500 reseñas",
-"tendencia": "la tendencia con la que va, o null", "tienda": "dónde lo viste", "precio": 0, "url": "https://..."}}]}}"""
+"tienda": "dónde lo viste", "precio": 0, "url": "https://..."}}}}]}}}}"""
+
+_DONDE = """Dónde buscar: listas de «más vendidos» de Amazon México y Mercado Libre, los más vendidos de farmacias (San
+Pablo, Farmacias Guadalajara, Benavides, del Ahorro) y de tiendas naturistas o de suplementos en México."""
+
+# Puerta «por tendencia» (Diego, 2026-11-09): una búsqueda por cada tendencia fuerte del radar
+INSTRUCCIONES_TENDENCIA = f"""{radar.CONTEXTO_SMN}
+
+Eres comprador senior de una cadena de tiendas naturistas en México. Te doy UNA tendencia del radar. Busca en internet
+productos concretos que van con esa tendencia y que HOY ya se venden mucho en México. No quiero noticias, lanzamientos
+sin venta ni apuestas: si no encuentras productos con prueba de venta para esta tendencia, contesta la lista vacía.
+{_DONDE}
+""" + _REGLAS_AGENTE.format(maximo=5)
+
+# Puerta «por lo más vendido» (Diego, 2026-11-09: «pueden ser los productos naturistas más vendidos» aunque no estén
+# en ninguna tendencia): una búsqueda por cada departamento que más vendemos
+INSTRUCCIONES_DEPARTAMENTO = f"""{radar.CONTEXTO_SMN}
+
+Eres comprador senior de una cadena de tiendas naturistas en México. Te doy UNO de nuestros departamentos. Busca en
+internet los productos naturistas de ese departamento que HOY más se venden en México y nosotros no tenemos, estén o no
+de moda. No quiero noticias, lanzamientos sin venta ni apuestas: solo productos con prueba de venta.
+{_DONDE}
+""" + _REGLAS_AGENTE.format(maximo=6)
+
+# Corridas anteriores al 9 nov 2026 usaban una sola búsqueda mezclada; se deja el nombre para la pantalla de instrucciones
+INSTRUCCIONES_VENDIDOS = INSTRUCCIONES_DEPARTAMENTO
 
 
 def _top_nuestros(bd: Session, cat: Catalogo, n: int = 60) -> list[str]:
@@ -378,51 +413,127 @@ def _lista_del_agente(bd: Session, r, f: Fuentes) -> dict | None:
     return datos
 
 
-def mas_vendidos(bd: Session, f: Fuentes, cat: Catalogo) -> None:
-    """El agente busca en internet lo que ya se vende mucho en México. Solo cuenta lo que trae una liga que salió de su
-    búsqueda y una prueba de venta; lo que ya tenemos se quita."""
-    tenemos = sorted({p.subcategoria for p in cat.productos if p.subcategoria})[:200]
-    guia = [d["titulo"] for d in f.de("T")][:20]
-    mensaje = json.dumps({"tendencias_del_radar": guia, "subcategorias_que_ya_vendemos": tenemos,
-                          "lo_que_mas_vendemos": _top_nuestros(bd, cat)}, ensure_ascii=False)
-    try:
-        r = puerta.ejecutar(bd, TAREA_VENDIDOS, usuario_id=None, instrucciones=INSTRUCCIONES_VENDIDOS,
-                            mensaje=mensaje, max_tokens=MAX_TOKENS_AGENTE, esfuerzo="low", busqueda_web=True)
-    except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as e:
-        f.notas.append(f"Más vendidos: el agente no buscó en internet ({str(e)[:200] or e.__class__.__name__}).")
+def departamentos_que_mas_venden(bd: Session, cat: Catalogo, n: int) -> list[str]:
+    """Nuestros departamentos ordenados por venta (SMNBI); sin venta cargada, por cuántos productos activos tienen."""
+    v = rr.ventana(bd)
+    venta = rr.venta_por_sku(bd, v) if v else {}
+    suma: Counter = Counter()
+    for p in cat.productos:
+        if p.departamento:
+            suma[p.departamento] += venta[p.sku].al_mes if p.sku in venta else (0 if venta else 1)
+    return [d for d, x in suma.most_common() if x > 0][:n]
+
+
+def _encargos(bd: Session, f: Fuentes, cat: Catalogo) -> list[dict]:
+    """Una búsqueda del agente por cada tendencia fuerte y por cada departamento que más vendemos."""
+    cfg = configuracion()
+    base = {"subcategorias_que_ya_vendemos": sorted({p.subcategoria for p in cat.productos if p.subcategoria})[:200],
+            "lo_que_mas_vendemos": _top_nuestros(bd, cat)}
+    if (objetivo := cl.objetivo_para_ia(bd)):
+        base["cliente_objetivo"] = objetivo
+    salida = [{"puerta": "tendencia", "tema": d["titulo"], "instrucciones": INSTRUCCIONES_TENDENCIA,
+               "mensaje": {"tendencia": d["titulo"], "de_que_trata": d["descripcion"], **base}}
+              for d in f.de("T")[:cfg.oportunidades_tendencias]]
+    perfil = cl.para_oportunidades(bd)
+    salida += [{"puerta": "mas_vendido", "tema": d, "instrucciones": INSTRUCCIONES_DEPARTAMENTO,
+                "mensaje": {"departamento": d, **base, **_rango(perfil, d)}}
+               for d in departamentos_que_mas_venden(bd, cat, cfg.oportunidades_departamentos)]
+    return salida
+
+
+def _rango(perfil: dict | None, departamento: str) -> dict:
+    """Lo que paga por pieza la mitad de en medio de nuestros clientes en el departamento, con IVA (Datos → Clientes)."""
+    p25 = cl.tope_de_precio(perfil, departamento, 25)
+    p75 = cl.tope_de_precio(perfil, departamento, 75)
+    return {"precio_que_paga_nuestro_cliente": {"de": p25, "a": p75, "moneda": "MXN con IVA"}} if p25 and p75 else {}
+
+
+def _preguntar(encargo: dict):
+    """Cada búsqueda con su propia conexión, para correr varias a la vez."""
+    with _sesion() as bd:
+        r = puerta.ejecutar(bd, TAREA_VENDIDOS, usuario_id=None, instrucciones=encargo["instrucciones"],
+                            mensaje=json.dumps(encargo["mensaje"], ensure_ascii=False), max_tokens=MAX_TOKENS_AGENTE,
+                            esfuerzo="low", busqueda_web=True)
+        datos = _lista_del_agente(bd, r, encargo["notas"])
+        return r, datos
+
+
+def mas_vendidos(bd: Session, f: Fuentes, cat: Catalogo, avance=None) -> None:
+    """El agente busca en internet por dos puertas: productos que ya se venden con cada tendencia fuerte, y los más
+    vendidos de cada departamento nuestro aunque no estén en ninguna tendencia. Solo cuenta lo que trae una liga que
+    salió de su búsqueda y una prueba de venta; lo que ya tenemos se quita. Si un producto sale por las dos puertas, se
+    junta en uno solo con las dos."""
+    encargos = _encargos(bd, f, cat)
+    if not encargos:
+        f.notas.append("Internet: no hay tendencias fuertes ni departamentos con venta para buscar.")
         return
-    datos = _lista_del_agente(bd, r, f)
-    if datos is None:
-        return
-    vistas = {radar._clave_url(c["url"]) for c in r.citas if c.get("url")}
+    for e in encargos:
+        e["notas"] = Fuentes()  # cada hilo junta sus avisos aparte
+    hechos = 0
+    resultados: list[tuple[dict, object, dict | None, Exception | None]] = []
+    with ThreadPoolExecutor(max_workers=AGENTES_A_LA_VEZ) as ex:
+        futuros = {ex.submit(_preguntar, e): e for e in encargos}
+        for fut in as_completed(futuros):
+            e = futuros[fut]
+            try:
+                r, datos = fut.result()
+                resultados.append((e, r, datos, None))
+            except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as x:
+                resultados.append((e, None, None, x))
+            hechos += 1
+            if avance:
+                avance(hechos, len(encargos))
     sin_liga = sin_prueba = repetidos = 0
-    for x in (datos.get("productos") or [])[:MAX_VENDIDOS]:
-        if not isinstance(x, dict):
+    por_nombre: dict[str, str] = {}
+    for e, r, datos, error in sorted(resultados, key=lambda x: encargos.index(x[0])):
+        cual = f"«{e['tema']}»"
+        f.notas.extend(n.replace("Más vendidos:", f"Internet {cual}:") for n in e["notas"].notas)
+        if error:
+            f.notas.append(f"Internet {cual}: el agente no buscó ({str(error)[:200] or error.__class__.__name__}).")
             continue
-        nombre, url = _texto(x.get("nombre"), 300), str(x.get("url") or "").strip()
-        prueba = _texto(x.get("prueba_de_venta"), 400)
-        if not nombre or not url.startswith(("http://", "https://")) or radar._clave_url(url) not in vistas:
-            sin_liga += 1  # la liga no salió de la búsqueda: no se puede comprobar
+        if datos is None:
             continue
-        if not prueba:
-            sin_prueba += 1
-            continue
-        if cat.lo_tenemos(f"{x.get('marca') or ''} {nombre}"):
-            repetidos += 1
-            continue
-        precio = pc._decimal(x.get("precio"))
-        f.agregar("V", {"producto": nombre, "marca": _texto(x.get("marca"), 120), "prueba_de_venta": prueba,
-                        "tendencia": _texto(x.get("tendencia"), 200),
-                        "tienda": _texto(x.get("tienda"), 120), "precio": float(precio) if precio and precio > 0 else None,
-                        "url": url[:500], "sitio": radar.sitio_de(url)[:120]})
+        vistas = {radar._clave_url(c["url"]) for c in r.citas if c.get("url")}
+        for x in (datos.get("productos") or [])[:MAX_VENDIDOS]:
+            if not isinstance(x, dict):
+                continue
+            nombre, url = _texto(x.get("nombre"), 300), str(x.get("url") or "").strip()
+            prueba = _texto(x.get("prueba_de_venta"), 400)
+            if not nombre or not url.startswith(("http://", "https://")) or radar._clave_url(url) not in vistas:
+                sin_liga += 1  # la liga no salió de la búsqueda: no se puede comprobar
+                continue
+            if not prueba:
+                sin_prueba += 1
+                continue
+            if cat.lo_tenemos(f"{x.get('marca') or ''} {nombre}"):
+                repetidos += 1
+                continue
+            clave_nombre = co.normalizar(nombre)
+            if (ya := por_nombre.get(clave_nombre)):  # el mismo producto por otra puerta: se le suma
+                d = f.datos[ya]
+                if e["puerta"] not in d["puertas"]:
+                    d["puertas"].append(e["puerta"])
+                if e["puerta"] == "tendencia" and not d.get("tendencia"):
+                    d["tendencia"] = e["tema"]
+                if e["puerta"] == "mas_vendido" and not d.get("departamento_buscado"):
+                    d["departamento_buscado"] = e["tema"]
+                continue
+            precio = pc._decimal(x.get("precio"))
+            por_nombre[clave_nombre] = f.agregar("V", {
+                "producto": nombre, "marca": _texto(x.get("marca"), 120), "prueba_de_venta": prueba,
+                "puertas": [e["puerta"]],
+                "tendencia": e["tema"] if e["puerta"] == "tendencia" else None,
+                "departamento_buscado": e["tema"] if e["puerta"] == "mas_vendido" else None,
+                "tienda": _texto(x.get("tienda"), 120), "precio": float(precio) if precio and precio > 0 else None,
+                "url": url[:500], "sitio": radar.sitio_de(url)[:120]})
     if sin_liga:
-        f.notas.append(f"Más vendidos: se quitaron {sin_liga} producto(s) del agente cuya liga no salió de su búsqueda.")
+        f.notas.append(f"Internet: se quitaron {sin_liga} producto(s) del agente cuya liga no salió de su búsqueda.")
     if sin_prueba:
-        f.notas.append(f"Más vendidos: se quitaron {sin_prueba} producto(s) sin prueba de venta.")
+        f.notas.append(f"Internet: se quitaron {sin_prueba} producto(s) sin prueba de venta.")
     if repetidos:
-        f.notas.append(f"Más vendidos: se quitaron {repetidos} producto(s) que ya vendemos.")
+        f.notas.append(f"Internet: se quitaron {repetidos} producto(s) que ya vendemos.")
     if not f.de("V"):
-        f.notas.append("Más vendidos: el agente no encontró productos con prueba de venta que se puedan comprobar.")
+        f.notas.append("Internet: el agente no encontró productos con prueba de venta que se puedan comprobar.")
 
 
 def juntar(bd: Session, corrida: OportunidadCorrida) -> Fuentes:
@@ -438,8 +549,10 @@ def juntar(bd: Session, corrida: OportunidadCorrida) -> Fuentes:
     else:
         f.notas.append("Huecos: todavía no hay ventas cargadas de SMNBI.")
     rechazos(bd, f)
-    _paso(bd, corrida, "El agente busca en internet los más vendidos en México que van con las tendencias")
-    mas_vendidos(bd, f, cat)
+    _paso(bd, corrida, "El agente busca en internet por tendencia y lo más vendido por departamento")
+    mas_vendidos(bd, f, cat, avance=lambda n, total: _paso(
+        bd, corrida, f"El agente busca en internet por tendencia y lo más vendido por departamento ({n} de {total} "
+                     "búsquedas listas)"))
     if corrida.competencia:
         n = min(len(subcategorias), configuracion().oportunidades_busquedas)
         _paso(bd, corrida, f"Buscando lo que vende la competencia en Google Shopping ({n} subcategorías)")
@@ -459,6 +572,12 @@ class Propuesta:
     departamento: str | None = None
     subcategoria: str | None = None
     forma: str | None = None
+    tipo_cliente: str | None = None
+    encaje: str | None = None  # si / dudoso / no contra «Nuestro cliente»
+    encaje_motivo: str | None = None
+
+
+ENCAJES = {"si": "si", "sí": "si", "dudoso": "dudoso", "no": "no"}
 
 
 def _texto(v, largo: int) -> str | None:
@@ -468,10 +587,19 @@ def _texto(v, largo: int) -> str | None:
 
 def con_ia(bd: Session, f: Fuentes) -> list[Propuesta] | str:
     """Las propuestas, o el motivo por el que la IA no contestó."""
-    mensaje = json.dumps({"datos": list(f.datos.values())}, ensure_ascii=False, default=str)
+    perfil = cl.para_oportunidades(bd)
+    cuerpo = {"datos": list(f.datos.values())}
+    if perfil:
+        cuerpo["nuestros_clientes"] = perfil["tipos"]
+    objetivo = cl.objetivo_para_ia(bd)
+    if objetivo:
+        cuerpo["cliente_objetivo"] = objetivo
+    mensaje = json.dumps(cuerpo, ensure_ascii=False, default=str)
+    tipos = {co.normalizar(t["nombre"]): t["nombre"] for t in perfil["tipos"]} if perfil else {}
     try:
         r = puerta.ejecutar(bd, TAREA_IA, usuario_id=None, instrucciones=INSTRUCCIONES, mensaje=mensaje,
-                            max_tokens=8000, esfuerzo="medium")
+                            max_tokens=8000, esfuerzo="medium",
+                            contexto=puerta.ventana(INSTRUCCIONES, mensaje, salida=8000))
         respuesta = json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1])
     except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as e:
         log.info("Oportunidades: la IA no propuso: %s", e)
@@ -488,14 +616,17 @@ def con_ia(bd: Session, f: Fuentes) -> list[Propuesta] | str:
         salida.append(Propuesta(nombre=nombre, por_que=por_que, evidencia=evidencia,
                                 prioridad=o.get("prioridad") if o.get("prioridad") in PRIORIDADES else "media",
                                 marca=_texto(o.get("marca"), 120), departamento=_texto(o.get("departamento"), 300),
-                                subcategoria=_texto(o.get("subcategoria"), 300), forma=_texto(o.get("forma"), 60)))
+                                subcategoria=_texto(o.get("subcategoria"), 300), forma=_texto(o.get("forma"), 60),
+                                tipo_cliente=tipos.get(co.normalizar(str(o.get("tipo_cliente") or ""))),
+                                encaje=ENCAJES.get(str(o.get("encaje") or "").strip().lower()) if objetivo else None,
+                                encaje_motivo=_texto(o.get("encaje_motivo"), 400) if objetivo else None))
     return salida
 
 
 def sin_ia(f: Fuentes) -> list[Propuesta]:
     """Lista directa de las pruebas de venta, sin redactar: primero los más vendidos que van con una tendencia, luego
     intercala los demás más vendidos y la competencia."""
-    vendidos = sorted(f.de("V"), key=lambda v: not v.get("tendencia"))
+    vendidos = sorted(f.de("V"), key=lambda v: -len(v.get("puertas") or []))
     vendidos_ = [Propuesta(nombre=v["producto"], marca=v["marca"], evidencia=[v["clave"]],
                            por_que=f"{v['prueba_de_venta']} ({v.get('tienda') or v['sitio']})."
                                    + (f" Va con la tendencia «{v['tendencia']}»." if v.get("tendencia") else ""))
@@ -526,6 +657,75 @@ def _ya_lo_tenemos(bd: Session, p: Propuesta) -> Producto | None:
     return rp.mismo_de(s, rp.buscar_parecidos(bd, s, p.subcategoria))
 
 
+def _firma(nombre: str) -> set[str]:
+    """Palabras y números del nombre («Magnesio citrato 500 mg 120 cápsulas»), para comparar presentaciones."""
+    return set(co.normalizar(nombre).split())
+
+
+def _vistos_antes(bd: Session) -> list[tuple[set[str], str]]:
+    """Lo que ya está en el radar como idea y lo que Compras descartó antes, para que no regrese en cada corrida."""
+    salida = [(_firma(i.nombre), "Compras ya la descartó antes" if i.estado == "descartada" else
+               "ya está en el radar de productos")
+              for i in bd.scalars(select(ProductoIdea))]
+    salida += [(_firma(o.nombre), "Compras ya la descartó antes")
+               for o in bd.scalars(select(Oportunidad).where(Oportunidad.estado == "descartada"))]
+    # Primero lo descartado: si está en las dos, el motivo que importa es ese
+    return sorted(((ps, m) for ps, m in salida if len(ps) >= 2), key=lambda x: "descart" not in x[1])
+
+
+def _ya_visto(vistos: list[tuple[set[str], str]], nombre: str) -> str | None:
+    ps = _firma(nombre)
+    if len(ps) < 2:
+        return None
+    for suyas, motivo in vistos:
+        if len(ps & suyas) / max(len(ps), len(suyas)) >= 0.8:
+            return motivo
+    return None
+
+
+def a_idea(bd: Session, o: Oportunidad, usuario_id: int) -> ProductoIdea:
+    """La oportunidad pasa al radar de productos como idea, con la evidencia en la descripción."""
+    evidencia = "\n".join(f"- {x['fuente']}: {x['texto']}" for x in json.loads(o.evidencia))
+    i = ProductoIdea(nombre=o.nombre[:300], marca=o.marca, departamento=o.departamento, forma=o.forma,
+                     descripcion=f"Recomendado por «Buscar oportunidades»: {o.por_que}\n{evidencia}"[:2000],
+                     precio_visto=o.precio_visto, donde_se_vio=o.donde_se_vio, estado="nueva",
+                     creada_por=usuario_id, creada_en=ahora(), actualizada_en=ahora())
+    bd.add(i)
+    bd.flush()
+    o.idea_id, o.estado, o.actualizada_por, o.actualizada_en = i.idea_id, "evaluada", usuario_id, ahora()
+    return i
+
+
+def _evaluar_una(evaluacion_id: int) -> None:
+    with _sesion() as bd:
+        rp.evaluar(bd, evaluacion_id)
+
+
+def evaluar_todas(bd: Session, c: OportunidadCorrida) -> int:
+    """Cada oportunidad nueva se evalúa sola en el semáforo (Diego, 2026-11-09: «cuando llegue algo así debe estar
+    evaluado»). Las que salen verdes o amarillas abren solas su búsqueda de proveedor (busquedas.al_evaluar)."""
+    usuario = c.disparada_por
+    nuevas = [o for o in c.oportunidades if o.estado == "nueva" and not o.idea_id]
+    if not nuevas or not usuario:
+        return 0
+    evaluaciones = []
+    for o in nuevas:
+        i = a_idea(bd, o, usuario)
+        bd.commit()
+        evaluaciones.append(rp.iniciar(bd, idea_id=i.idea_id, usuario_id=usuario).evaluacion_id)
+    hechas = 0
+    _paso(bd, c, f"Evaluando cada oportunidad en el semáforo (0 de {len(evaluaciones)})")
+    with ThreadPoolExecutor(max_workers=EVALUACIONES_A_LA_VEZ) as ex:
+        for fut in as_completed([ex.submit(_evaluar_una, e) for e in evaluaciones]):
+            try:
+                fut.result()
+            except Exception:  # noqa: BLE001  la evaluación ya queda «fallida» con su error
+                log.exception("Oportunidades: falló una evaluación de la corrida %s", c.corrida_id)
+            hechas += 1
+            _paso(bd, c, f"Evaluando cada oportunidad en el semáforo ({hechas} de {len(evaluaciones)})")
+    return hechas
+
+
 # ---------------------------------------------------------------- corrida
 
 def _paso(bd: Session, corrida: OportunidadCorrida, texto: str) -> None:
@@ -533,12 +733,13 @@ def _paso(bd: Session, corrida: OportunidadCorrida, texto: str) -> None:
     bd.commit()
 
 
-def iniciar(bd: Session, usuario_id: int | None, competencia_: bool) -> OportunidadCorrida | None:
+def iniciar(bd: Session, usuario_id: int | None, competencia_: bool, programada: bool = False) -> OportunidadCorrida | None:
     """None si ya hay una corriendo."""
     if bd.scalar(select(OportunidadCorrida).where(OportunidadCorrida.estado == "en_curso")):
         return None
     c = OportunidadCorrida(estado="en_curso", competencia=competencia_, disparada_por=usuario_id, creada_en=ahora(),
-                           paso="Empezando", costo_usd=Decimal("0"))
+                           paso="Empezando", costo_usd=Decimal("0"),
+                           notas=json.dumps([NOTA_PROGRAMADA], ensure_ascii=False) if programada else None)
     bd.add(c)
     bd.commit()
     return c
@@ -565,14 +766,33 @@ def correr(bd: Session, corrida_id: int) -> OportunidadCorrida:
                            "se buscó a la competencia (marca la casilla para incluirla).")
         _paso(bd, c, "Revisando que no los vendamos ya y buscando la foto de cada uno")
         vistos = set()
+        antes = _vistos_antes(bd)
+        perfil = cl.para_oportunidades(bd)
+        percentil = int(configuracion().oportunidades_tope_precio or 0)
+        if not perfil and propuestas:
+            f.notas.append("Todavía no hay tipos de cliente (Datos → Clientes): no se revisó si el precio le queda a "
+                           "nuestro cliente.")
+        objetivo = cl.objetivo(bd)
+        if objetivo and c.con_ia and propuestas:
+            f.notas.append(f"Cada producto se revisó contra nuestro cliente (nivel {objetivo['nivel']}, Datos → Clientes); "
+                           "los que no encajan se quitaron.")
+        elif objetivo and propuestas:
+            f.notas.append("No se revisó si encajan con nuestro cliente: esa revisión la hace la IA y no contestó.")
         orden = 0
         for p in propuestas:
             clave = co.normalizar(p.nombre)
             if clave in vistos:
                 continue
             vistos.add(clave)
+            if p.encaje == "no":
+                f.notas.append(f"Se quitó «{p.nombre}»: no encaja con nuestro cliente ({objetivo['nivel']}). "
+                               f"{p.encaje_motivo or 'La IA no dio el motivo.'}")
+                continue
             if (mismo := _ya_lo_tenemos(bd, p)):
                 f.notas.append(f"Se quitó «{p.nombre}»: ya lo vendemos ({mismo.sku} {mismo.descripcion}).")
+                continue
+            if (motivo := _ya_visto(antes, p.nombre)):
+                f.notas.append(f"Se quitó «{p.nombre}»: {motivo}.")
                 continue
             orden += 1
             competencia_ = [f.datos[k] for k in p.evidencia if k[0] == "C"]
@@ -580,16 +800,28 @@ def correr(bd: Session, corrida_id: int) -> OportunidadCorrida:
             precios = [Decimal(str(x["precio_mediana"])) for x in competencia_ if x.get("precio_mediana")]
             precios += [Decimal(str(x["precio"])) for x in vendidos if x.get("precio")]
             tiendas = sorted({t for x in competencia_ for t in x["tiendas"]} | {x.get("tienda") or x["sitio"] for x in vendidos})
+            precio = Decimal(str(median(precios))).quantize(Decimal("0.01")) if precios else None
+            depto = p.departamento or next((x.get("departamento_buscado") for x in vendidos if x.get("departamento_buscado")), None)
+            tope = cl.tope_de_precio(perfil, depto, percentil)
+            if precio and tope and float(precio) > tope:
+                f.notas.append(f"Se quitó «{p.nombre}»: cuesta ${precio:,.2f} y el {percentil} % de lo que compran "
+                               f"nuestros clientes en {depto} cuesta hasta ${tope:,.2f} la pieza (con IVA).")
+                orden -= 1
+                continue
             imagen, imagen_de = foto(f, p.evidencia)
             c.oportunidades.append(Oportunidad(
                 orden=orden, nombre=p.nombre, marca=p.marca, departamento=p.departamento, subcategoria=p.subcategoria,
-                forma=p.forma, por_que=p.por_que, prioridad=p.prioridad, estado="nueva",
+                forma=p.forma, por_que=p.por_que, prioridad=p.prioridad, estado="nueva", tipo_cliente=p.tipo_cliente,
+                encaje=p.encaje, encaje_motivo=p.encaje_motivo,
                 evidencia=json.dumps([_evidencia(f.datos[k]) for k in p.evidencia], ensure_ascii=False, default=str),
-                precio_visto=Decimal(str(median(precios))).quantize(Decimal("0.01")) if precios else None,
+                precio_visto=precio,
                 donde_se_vio=", ".join(tiendas)[:300] or None, imagen=imagen, imagen_de=imagen_de))
             if orden >= MAX_OPORTUNIDADES:
                 break
-        c.notas = json.dumps(f.notas, ensure_ascii=False)
+        c.notas = json.dumps((json.loads(c.notas) if c.notas else []) + f.notas, ensure_ascii=False)
+        bd.commit()
+        if c.oportunidades:
+            evaluar_todas(bd, c)
         c.estado, c.paso = "lista", None
     except Exception as ex:  # noqa: BLE001
         log.exception("Oportunidades: falló la corrida %s", corrida_id)
@@ -620,6 +852,8 @@ def _evidencia(d: dict) -> dict:
     elif k[0] == "V":
         precio = f", ${d['precio']:,.2f}" if d.get("precio") else ""
         tendencia = f" Va con la tendencia «{d['tendencia']}»." if d.get("tendencia") else ""
+        if d.get("departamento_buscado"):
+            tendencia += f" Es de lo más vendido en {d['departamento_buscado']}."
         texto = f"{d['producto']}: {d['prueba_de_venta']} ({d.get('tienda') or d['sitio']}{precio}, {d['url']}).{tendencia}"
     elif k[0] == "H":
         inv = f"; inventario para {d['dias_de_inventario']} días" if d.get("dias_de_inventario") is not None else ""
@@ -631,7 +865,27 @@ def _evidencia(d: dict) -> dict:
     else:
         precio = f", mediana ${d['precio_mediana']:,.2f}" if d.get("precio_mediana") else ""
         texto = f"«{d['titulo']}»: lo venden {d['tiendas_que_lo_venden']} tienda(s) ({', '.join(d['tiendas'])}){precio}."
-    return {"clave": k, "fuente": FUENTE[k[0]], "texto": texto}
+    if k[0] == "V":
+        puertas_ = d.get("puertas") or (["tendencia"] if d.get("tendencia") else ["mas_vendido"])
+    else:
+        puertas_ = {"T": ["tendencia"], "C": ["mas_vendido"]}.get(k[0], [])
+    return {"clave": k, "fuente": FUENTE[k[0]], "texto": texto, "puertas": puertas_}
+
+
+# Las tres puertas por las que llega una oportunidad (Diego, 2026-11-09: «quiero que sea por tendencia, porque alguien
+# lo capturó o porque es lo que más se vende»)
+PUERTAS = {"tendencia": "Por tendencia", "mas_vendido": "De lo más vendido", "captura": "Capturado por Compras"}
+
+
+def puertas(evidencia: list[dict] | None) -> list[str]:
+    """Las puertas de una oportunidad según su evidencia; sin oportunidad (idea capturada a mano), «captura»."""
+    if evidencia is None:
+        return ["captura"]
+    vistas = {p for x in evidencia for p in (x.get("puertas") or [])}
+    if not vistas:  # corridas anteriores al 9 nov 2026: se deduce de la fuente
+        vistas = {"tendencia" if x.get("clave", " ")[0] == "T" else "mas_vendido"
+                  for x in evidencia if x.get("clave", " ")[0] in "TVC"}
+    return [p for p in PUERTAS if p in vistas]
 
 
 def _sesion() -> Session:
@@ -646,6 +900,98 @@ def en_hilo(corrida_id: int) -> None:
             correr(bd, corrida_id)
 
     threading.Thread(target=trabajo, daemon=True, name=f"oportunidades-{corrida_id}").start()
+
+
+# ---------------------------------------------------------------- corrida programada
+
+NOTA_PROGRAMADA = "Corrida programada desde Administración > Configuración."
+
+
+def es_programada(c: OportunidadCorrida) -> bool:
+    return bool(c.notas) and NOTA_PROGRAMADA in c.notas
+
+
+def zona() -> ZoneInfo:
+    try:
+        return ZoneInfo(configuracion().oportunidades_zona_horaria or "America/Mexico_City")
+    except Exception:  # noqa: BLE001  zona mal escrita: la de México
+        return ZoneInfo("America/Mexico_City")
+
+
+def _local(d: datetime) -> date:
+    """Las fechas de la base están en UTC sin zona."""
+    from datetime import timezone
+
+    return d.replace(tzinfo=timezone.utc).astimezone(zona()).date()
+
+
+def _dias_semana() -> set[int]:
+    return {int(d) for d in (configuracion().oportunidades_dias_semana or "").split(",") if d.strip().isdigit()} \
+        or set(range(1, 8))
+
+
+def toca(fecha: date, ultima: date | None) -> bool:
+    cfg = configuracion()
+    if cfg.oportunidades_frecuencia == "dias":
+        return fecha.isoweekday() in _dias_semana()
+    if cfg.oportunidades_frecuencia == "cada_n":
+        return ultima is None or (fecha - ultima).days >= max(cfg.oportunidades_cada_dias, 1)
+    return True
+
+
+DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábados", "domingos")
+
+
+def texto_programa() -> str | None:
+    cfg = configuracion()
+    if not cfg.oportunidades_activo:
+        return None
+    if cfg.oportunidades_frecuencia == "cada_n":
+        cuando = f"cada {cfg.oportunidades_cada_dias} días"
+    elif cfg.oportunidades_frecuencia == "dias" and len(_dias_semana()) < 7:
+        dias = [DIAS[d - 1] for d in sorted(_dias_semana())]
+        cuando = "los " + (", ".join(dias[:-1]) + " y " + dias[-1] if len(dias) > 1 else dias[0])
+    else:
+        cuando = "todos los días"
+    return f"Corre sola {cuando} a las {cfg.oportunidades_hora}:00"
+
+
+def responsable_programa(bd: Session) -> int | None:
+    """Las ideas necesitan a nombre de quién quedan: el último que guardó «Buscar oportunidades automáticamente»."""
+    from nucleo.modelos import ConfiguracionAjuste, Usuario
+
+    fila = bd.get(ConfiguracionAjuste, "oportunidades_activo")
+    u = bd.get(Usuario, fila.actualizado_por) if fila and fila.actualizado_por else None
+    return u.usuario_id if u and u.estatus == "activo" else None
+
+
+def revisar_programa(bd: Session) -> OportunidadCorrida | None:
+    """Lo llama el programador cada minuto. Corre una vez el día que toca, a la hora o en cuanto vuelva la plataforma.
+    No corre si ya hubo una búsqueda ese día (con el botón o programada) o si hay una en curso."""
+    cfg = configuracion()
+    if not cfg.oportunidades_activo:
+        return None
+    ahora_local = datetime.now(zona())
+    if ahora_local.hour < cfg.oportunidades_hora:
+        return None
+    hoy = ahora_local.date()
+    recientes = bd.scalars(select(OportunidadCorrida).order_by(OportunidadCorrida.corrida_id.desc()).limit(20)).all()
+    if any(_local(c.creada_en) == hoy for c in recientes):
+        return None
+    terminadas = [_local(c.creada_en) for c in recientes if c.estado == "lista"]
+    if not toca(hoy, max(terminadas) if terminadas else None):
+        return None
+    usuario = responsable_programa(bd)
+    if not usuario:
+        log.warning("Buscar oportunidades programada: no se sabe a nombre de quién crear las ideas; enciéndalo de nuevo "
+                    "en Configuración")
+        return None
+    c = iniciar(bd, usuario, cfg.oportunidades_competencia_programada, programada=True)
+    if not c:
+        return None
+    log.info("Buscar oportunidades: corrida programada %s", c.corrida_id)
+    en_hilo(c.corrida_id)
+    return c
 
 
 def cerrar_huerfanas(bd: Session) -> int:

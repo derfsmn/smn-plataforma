@@ -89,6 +89,14 @@ def _huella(i: motor.Incidencia) -> str:
 def leer_documentos(bd: Session, periodo: DiotPeriodo, b: motor.Bitacora | None = None) -> dict[str, lectura.Tabla]:
     docs = {}
     for d in vigentes(bd, periodo.periodo_id):
+        if d.tipo == "cfdi_sat":  # los CFDI dan el CP de expedición (región fronteriza del 8 %); se juntan en uno
+            t = lectura.leer(d.nombre_archivo, d.contenido, d.tipo)
+            if "cfdi_sat" in docs:
+                docs["cfdi_sat"].filas.extend(t.filas)
+            else:
+                t.tipo = d.tipo
+                docs["cfdi_sat"] = t
+            continue
         if lectura.TIPOS[d.tipo].comprobar:  # el banco no entra al cálculo; lo lee su comprobación
             continue
         if b:

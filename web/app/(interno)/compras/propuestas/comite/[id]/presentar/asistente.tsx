@@ -180,13 +180,17 @@ export function AFondo({ evaluacionId }: { evaluacionId: number }) {
 }
 
 /** Conversación con la IA local sobre un producto. La plática se conserva mientras dure la presentación. */
-export function Asistente({ i, r, turnos, guardar, anotar, listo }: {
-  i: Item;
-  r: Reunion;
+/** En el comité (con `i` y `r`) o en el radar de productos (con `url`: la ruta de su evaluación). */
+export function Asistente({ i, r, url, turnos, guardar, anotar, listo, titulo, sugerencias = SUGERENCIAS }: {
+  i?: Item;
+  r?: Reunion;
+  url?: string;
   turnos: Turno[];
   guardar: (t: Turno[]) => void;
   anotar: boolean;
-  listo: (r: Reunion) => void;
+  listo?: (r: Reunion) => void;
+  titulo?: string;
+  sugerencias?: { texto: string; icono: typeof Bot }[];
 }) {
   const avisar = useAvisos();
   const [pregunta, setPregunta] = useState("");
@@ -206,7 +210,7 @@ export function Asistente({ i, r, turnos, guardar, anotar, listo }: {
     setPensando(q);
     setPregunta("");
     try {
-      const x = await api<Omit<Turno, "pregunta" | "respuesta"> & { texto: string }>(`${RUTA}/productos/${i.id}/preguntar`, {
+      const x = await api<Omit<Turno, "pregunta" | "respuesta"> & { texto: string }>(url ?? `${RUTA}/productos/${i?.id}/preguntar`, {
         cuerpo: { pregunta: q, historial: turnos.filter((t) => t.encontrada).slice(-4).map((t) => ({ pregunta: t.pregunta, respuesta: t.respuesta })) },
       });
       guardar([...turnos, { pregunta: q, respuesta: x.texto, encontrada: x.encontrada, fuentes: x.fuentes, aviso: x.aviso }]);
@@ -219,6 +223,7 @@ export function Asistente({ i, r, turnos, guardar, anotar, listo }: {
   };
 
   const comoPeticion = async (k: number, q: string) => {
+    if (!r || !i || !listo) return;
     try {
       listo(await api<Reunion>(`${RUTA}/reuniones/${r.id}/peticiones`, { cuerpo: { texto: q, item_id: i.id, asistente_id: null } }));
       setAnotadas(new Set(anotadas).add(k));
@@ -236,12 +241,12 @@ export function Asistente({ i, r, turnos, guardar, anotar, listo }: {
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-smn-naranja/15 text-smn-naranja">
               <Bot className="h-6 w-6" />
             </div>
-            <h3 className="mt-3 text-xl font-semibold">¿Qué quieren saber de este producto?</h3>
+            <h3 className="mt-3 text-xl font-semibold">{titulo ?? "¿Qué quieren saber de este producto?"}</h3>
             <p className="mt-1 text-[15px] leading-relaxed text-smn-gris-700">
               Contesta con sus datos, el semáforo, los precios en internet y los parecidos que ya vendemos, y dice de dónde sale cada dato.
             </p>
             <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
-              {SUGERENCIAS.map(({ texto, icono: Icono }) => (
+              {sugerencias.map(({ texto, icono: Icono }) => (
                 <button
                   key={texto}
                   type="button"
@@ -272,7 +277,7 @@ export function Asistente({ i, r, turnos, guardar, anotar, listo }: {
                     </div>
                   )}
                   {t.aviso && <p className="mt-2 text-[13px] text-aviso-texto">{t.aviso}</p>}
-                  {!t.encontrada && anotar && (
+                  {!t.encontrada && anotar && r && (
                     <Boton variante="secundario" className="mt-2.5" disabled={anotadas.has(k)} onClick={() => comoPeticion(k, t.pregunta)}>
                       <NotebookPen className="h-4 w-4" /> {anotadas.has(k) ? "Anotada como petición" : "Anotar como petición"}
                     </Boton>

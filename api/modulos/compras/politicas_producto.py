@@ -119,7 +119,8 @@ def revisar(bd: Session, departamento: str | None, texto: set[str], datos: dict)
     r = None
     try:
         r = puerta.ejecutar(bd, TAREA_IA, usuario_id=None, instrucciones=INSTRUCCIONES, mensaje=mensaje,
-                            max_tokens=MAX_TOKENS, esfuerzo="medium")
+                            max_tokens=MAX_TOKENS, esfuerzo="medium",
+                            contexto=puerta.ventana(INSTRUCCIONES, mensaje, salida=MAX_TOKENS))
         respuesta = json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1])
         for h in respuesta.get("hallazgos") or []:
             ident = str(h.get("id") or "").strip().upper()

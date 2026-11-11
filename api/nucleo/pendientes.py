@@ -65,7 +65,7 @@ def _fecha(d: date | datetime | None) -> str | None:
     return f"{d.day} {meses[d.month - 1]}"
 
 
-def pendientes(bd: Session, permisos: set[str]) -> list[Pendiente]:
+def pendientes(bd: Session, permisos: set[str], usuario_id: int | None = None) -> list[Pendiente]:
     salida: list[Pendiente] = []
 
     def agregar(permiso: str, clave: str, fn, **datos):
@@ -127,6 +127,17 @@ def pendientes(bd: Session, permisos: set[str]) -> list[Pendiente]:
                 ComiteRevision.resultado == "pendiente", ComiteProducto.decision == "aceptado")),
             modulo="compras", area="Compras", texto="Productos aceptados con revisión pendiente (inventario o regulación)",
             accion="Ver", href="/compras/propuestas/comite?vista=revisiones")
+    from modulos.compras.modelos_busquedas import BusquedaProveedor
+    agregar("compras.busquedas.atender", "busquedas_sin_tomar",
+            lambda: _contar(bd, select(func.count()).select_from(BusquedaProveedor).where(
+                BusquedaProveedor.estado == "sin_tomar")),
+            modulo="compras", area="Compras", texto="Productos bien evaluados que esperan quién les busque proveedor",
+            accion="Tomar", href="/compras/propuestas/busquedas", urgente=True)
+    agregar("compras.busquedas.atender", "busquedas_mias",
+            lambda: _contar(bd, select(func.count()).select_from(BusquedaProveedor).where(
+                BusquedaProveedor.estado == "buscando", BusquedaProveedor.responsable_id == usuario_id)),
+            modulo="compras", area="Compras", texto="Tus búsquedas de proveedor abiertas", accion="Ver",
+            href="/compras/propuestas/busquedas?vista=mias")
     agregar("compras.radar.ver", "senales",
             lambda: _contar(bd, select(func.count()).select_from(RadarSenal).where(RadarSenal.estado == "nueva")),
             modulo="compras", area="Compras", texto="Señales nuevas del radar de mercado", accion="Ver", href="/compras/radar")
@@ -194,4 +205,4 @@ def pulso(bd: Session, permisos: set[str]) -> list[Pulso]:
 @router.get("/inicio", response_model=Inicio)
 def inicio(ctx: Contexto = Depends(usuario_actual), bd: Session = Depends(obtener_bd)) -> Inicio:
     permisos = set(ctx.permisos)
-    return Inicio(pendientes=pendientes(bd, permisos), pulso=pulso(bd, permisos))
+    return Inicio(pendientes=pendientes(bd, permisos, ctx.usuario.usuario_id), pulso=pulso(bd, permisos))

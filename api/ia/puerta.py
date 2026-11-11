@@ -59,6 +59,11 @@ class Respuesta:
 
 # ---------------------------------------------------------------- proveedores
 
+def ventana(*textos: str, salida: int, minimo: int = 8192, maximo: int = 32768) -> int:
+    """Ventana de Ollama (num_ctx) que alcance para lo que se manda y lo que se espera de vuelta (~3 letras por token)."""
+    return max(minimo, min(maximo, sum(len(t) for t in textos) // 3 + salida + 512))
+
+
 def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: int,
                    imagenes: list[str] | None = None, con_think: bool = True, contexto: int | None = None) -> dict:
     cfg = configuracion()

@@ -200,10 +200,216 @@ def _sin_repetir(columnas: list[str]) -> list[str]:
     return salida
 
 
-def _tabla(filas: list[list], hoja: str | None) -> Tabla:
+# Los reportes del portal en .xlsx cierran con un renglón de totales (solo Debe y Haber, sin póliza): no es un
+# movimiento. Un renglón cuenta solo si trae la columna que lo identifica.
+IDENTIFICA = {"auxiliar_iva": "Movimiento", "tesoreria": "Mov", "aplicaciones": "Movimiento"}
+CARGOS_BANCARIOS = "REPORTE CARGOS BANCARIOS"
+
+
+def _titulo(filas: list[list], i: int) -> str:
+    return " ".join(_clave(x) for f in filas[:i] for x in f if isinstance(x, str))
+
+
+CUENTA_IVA_ACREDITABLE = "1300-001-000"
+# Auxiliar de Intelisis («Auxiliares - Contabilidad»): columnas fijas, varias sin nombre en el encabezado.
+COLUMNAS_AUXILIAR_INTELISIS = {2: "Movimiento", 3: "Concepto", 4: "OrigenTipo", 5: "Origen", 6: "OrigenID",
+                               7: "OrigenMoneda", 8: "OrigenTipoCambio", 9: "FechaContable", 10: "Debe", 11: "Haber"}
+
+
+def _auxiliar_contable(filas: list[list]) -> Tabla | None:
+    """El auxiliar contable de la cuenta de IVA acreditable como sale de Intelisis (PS septiembre 2026 lo entregó así
+    en vez del reporte del portal). Trae lo mismo que el del portal: póliza, origen, tipo de cambio, debe y haber."""
+    titulo = " ".join(_clave(x) for f in filas[:3] for x in f if isinstance(x, str))
+    if "AUXILIARES - CONTABILIDAD" not in titulo:
+        return None
+    i = next((k for k, f in enumerate(filas[:15]) if [_clave(x) for x in f[:3]] == ["SUCURSAL", "CENTRO COSTOS",
+                                                                                   "MOVIMIENTO"]), None)
+    if i is None or not any(isinstance(x, str) and CUENTA_IVA_ACREDITABLE in x for f in filas[i:i + 3] for x in f):
+        return None
+    datos = []
+    for f in filas[i + 1:]:
+        mov = _norm(f[2]) if len(f) > 2 else ""
+        if not mov or _clave(mov) in ("MOVIMIENTO", "IVA ACREDITABLE") or not str(mov)[:1].isalpha():
+            continue
+        fila = {c: (f[k] if k < len(f) else None) for k, c in COLUMNAS_AUXILIAR_INTELISIS.items()}
+        fila["Referencia"] = f"{_norm(fila['Origen'])} {_norm(fila['OrigenID'])}".strip() or _norm(fila["Concepto"])
+        datos.append(fila)
+    columnas = list(COLUMNAS_AUXILIAR_INTELISIS.values()) + ["Referencia"]
+    return Tabla(tipo="auxiliar_iva", columnas=columnas, filas=datos,
+                 avisos=["Auxiliar contable de Intelisis (cuenta 1300-001-000), leído como el reporte del portal."])
+
+
+def _cfdi_descarga(filas: list[list]) -> Tabla | None:
+    """CFDI recibidos de la descarga masiva que usa Fiscal en PS («Reporte octubre 2026 recibidos / EGRESOS / Pagos»,
+    columnas «RFC emisor», «CP Expedicion», «Estado»): se pasan a las columnas del Visor de CFDI para que todo lo demás
+    funcione igual. En el de Pagos cada renglón es un documento relacionado y el total del pago se repite: se toma
+    una vez por UUID."""
+    if not filas:
+        return None
+    h = [_norm(x) for x in filas[0]]
+    k = {_clave(x).replace(" ", ""): i for i, x in enumerate(h) if x}
+    if not {"UUID", "RFCEMISOR", "CPEXPEDICION", "ESTADO"} <= set(k):
+        return None
+    pagos = "FECHAPAGO" in k
+
+    def v(f, col):
+        i = k.get(_clave(col).replace(" ", ""))
+        return f[i] if i is not None and i < len(f) else None
+
+    def anio_mes(x):
+        t = texto(x)
+        return (t[:4], str(int(t[5:7]))) if len(t) >= 7 and t[:4].isdigit() and t[5:7].isdigit() else (None, None)
+
+    def num(x):
+        try:
+            return decimal(x) or Decimal(0)
+        except ValueError:
+            return Decimal(0)
+
+    emisores = {texto(v(f, "RFC emisor")).upper() for f in filas[1:] if texto(v(f, "UUID"))}
+    receptores = {texto(v(f, "RFC receptor")).upper() for f in filas[1:] if texto(v(f, "UUID"))}
+    if len(emisores) == 1 and (len(receptores) > 1 or receptores <= {"XAXX010101000"}):
+        # «Reporte … EGRESOS» de PS octubre 2026: notas de crédito que emite la propia empresa a público general.
+        return Tabla(None, h, [], avisos=["Son CFDI que emitió la empresa (no recibidos): no van en la DIOT. Sube "
+                                          "los recibidos y los complementos de pago."])
+    datos, vistos = [], set()
+    for f in filas[1:]:
+        uuid = texto(v(f, "UUID")).upper()
+        if not uuid or (pagos and uuid in vistos):
+            continue
+        vistos.add(uuid)
+        if pagos:
+            tc = num(v(f, "TipoCambioP")) if "->" not in texto(v(f, "MonedaP")) and texto(v(f, "MonedaP")) not in ("", "MXN") else Decimal(1)
+            iva16, iva8 = num(v(f, "TrasladosImpuestoIVA16 - pago")) * (tc or 1), num(v(f, "TrasladosImpuestoIVA8 - pago")) * (tc or 1)
+            base8 = num(v(f, "TrasladosBaseIVA8 - pago")) * (tc or 1)
+            tipo, metodo = "P", ""
+        else:
+            iva16, iva8 = num(v(f, "IVA Trasladado 16%")), num(v(f, "IVA Trasladado 8%"))
+            base8 = (iva8 / Decimal("0.08")).quantize(Decimal("0.01")) if iva8 else Decimal(0)
+            tipo, metodo = texto(v(f, "Tipo"))[:1].upper(), texto(v(f, "Metodo pago"))[:3].upper()
+        ej, per = anio_mes(v(f, "Fecha emision"))
+        ejp, perp = anio_mes(v(f, "Fecha pago")) if pagos else (None, None)
+        datos.append({"UUID": uuid, "TipoDeComprobante": tipo, "EmisorRFC": texto(v(f, "RFC emisor")).upper(),
+                      "EmisorNombre": texto(v(f, "Razon emisor")), "EstadoComprobante": texto(v(f, "Estado")).upper(),
+                      "MetodoDePago": metodo, "EjercicioCFDI": ej, "PeriodoCFDI": per, "EjercicioPago": ejp,
+                      "PeriodoPago": perp, "LugarExpedicion": texto(v(f, "CP Expedicion")),
+                      "TotalTrasladosImpuestoIVA16": iva16, "TotalTrasladosImpuestoIVA8": iva8,
+                      "TotalTrasladosBaseIVA8": base8, "Total": num(v(f, "Total"))})
+    columnas = list(datos[0]) if datos else ["UUID", "TipoDeComprobante", "EmisorRFC", "EstadoComprobante"]
+    return Tabla("cfdi_sat", columnas, datos, avisos=["CFDI de la descarga masiva; se leyeron como el Visor de CFDI."])
+
+
+def _estado_monex(filas: list[list]) -> Tabla | None:
+    """Estado de cuenta de Monex («Movimientos del Contrato…»): importe con signo y, después de la columna «Mov», el
+    folio de Intelisis que le pone Fiscal («Cheque Electronico LAB759»). Se lee como el de BBVA: cargo o abono, importe
+    y folio (ODP octubre 2026, cuenta en dólares)."""
+    if not any(isinstance(x, str) and "MOVIMIENTOS DEL CONTRATO" in _clave(x) for f in filas[:8] for x in f):
+        return None
+    i = next((k for k, f in enumerate(filas[:15]) if [_clave(x) for x in f[:2]] == ["TIPO DE MOV", "DIVISA"]), None)
+    if i is None:
+        return None
+    pos = {_clave(x): k for k, x in enumerate(filas[i]) if isinstance(x, str)}
+    if "IMPORTE" not in pos or "MOV" not in pos:
+        return None
+    datos = []
+    for f in filas[i + 1:]:
+        imp = f[pos["IMPORTE"]] if pos["IMPORTE"] < len(f) else None
+        if not isinstance(imp, (int, float, Decimal)) or isinstance(imp, bool) or not imp:
+            continue
+        cel = lambda c: f[pos[c]] if c in pos and pos[c] < len(f) else None  # noqa: E731
+        folio = " ".join(_norm(x) for x in f[pos["MOV"] + 1:] if x not in (None, ""))
+        datos.append({"Tipo de Movimiento": "Cargo" if imp < 0 else "Abono", "Importe": abs(imp),
+                      "Folio Aceptación": folio, "Transacción": _norm(cel("DESCRIPCIÓN") or cel("DESCRIPCION")),
+                      "Referencia": _norm(cel("REFERENCIA")), "Moneda": _norm(cel("DIVISA")),
+                      "Fecha Operación": cel("FECHA OPERACIÓN") or cel("FECHA OPERACION")})
+    columnas = ["Tipo de Movimiento", "Importe", "Folio Aceptación", "Transacción", "Referencia", "Moneda",
+                "Fecha Operación"]
+    return Tabla(tipo="estado_cuenta", columnas=columnas, filas=datos,
+                 avisos=["Estado de cuenta de Monex, leído como el de BBVA (cargo o abono, importe y folio)."])
+
+
+MESES_CORTOS = {"ENE": 1, "FEB": 2, "MAR": 3, "ABR": 4, "MAY": 5, "JUN": 6, "JUL": 7, "AGO": 8, "SEP": 9, "OCT": 10,
+                "NOV": 11, "DIC": 12}
+_MONEX_FECHA = re.compile(r"^\s*(\d{2})/([A-Za-z]{3})\b")
+_MONEX_IMPORTES = re.compile(r"(\d{5,})\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})(?:\s+-?[\d,]+\.\d{2}){4}\s*$")
+_MONEX_BENEFICIARIO = re.compile(r"Nombre Beneficiario:\s*(.+?)\s*(?:Clave de|Referencia Num|Concepto del|$)")
+
+
+def _texto_pdf(contenido: bytes) -> str:
+    from pypdf import PdfReader  # solo se carga si llega un PDF
+
+    try:
+        paginas = PdfReader(io.BytesIO(contenido)).pages
+        # Un PDF que es imagen («Imprimir como PDF») no trae texto en ninguna página: se ve en las primeras sin recorrer
+        # las cientos de páginas de un estado de cuenta de BBVA.
+        if not any((p.extract_text() or "").strip() for p in paginas[:3]):
+            return ""
+        return "\n".join(p.extract_text() or "" for p in paginas)
+    except Exception as e:  # noqa: BLE001 (PDF dañado o cifrado)
+        raise ErrorLectura(f"No se pudo abrir el PDF: {e}") from e
+
+
+def _estado_monex_pdf(texto: str) -> Tabla | None:
+    """Estado de cuenta de Monex en PDF (como lo descarga Fiscal): cada movimiento empieza con «dd/Mmm» y termina en
+    el renglón «referencia abonos cargos … saldo». No trae el folio de Intelisis: se empata por fecha e importe."""
+    if "Estado de Cuenta" not in texto or "CONTRATO" not in texto.upper() or "MONEX" not in texto.upper():
+        return None
+    m = re.search(r"PERIODO:\s*Del\s+\d+\s+\w+\s+(\d{4})", texto)
+    anio = int(m.group(1)) if m else None
+    moneda, datos, bloque, fecha = "", [], [], None
+    for linea in texto.splitlines():
+        u = linea.strip().upper()
+        if u.startswith("ANEXO INVERSIONES") or u.startswith("RESUMEN DE INVERSIONES"):
+            break
+        if re.match(r"^PESO MEXICANO AL \d", u):
+            moneda = "MXN"
+        elif re.match(r"^D[ÓO]LAR AMERICANO AL \d", u) or u.endswith("EN DÓLAR AMERICANO"):
+            moneda = "USD"
+        f = _MONEX_FECHA.match(linea)
+        if f and f.group(2).upper()[:3] in MESES_CORTOS:
+            bloque, fecha = [], f"{anio or 0:04d}-{MESES_CORTOS[f.group(2).upper()[:3]]:02d}-{f.group(1)}"
+            linea = linea[f.end():]
+        if fecha is None:
+            continue
+        i = _MONEX_IMPORTES.search(linea)
+        if not i:
+            bloque.append(linea)
+            continue
+        bloque.append(linea[:i.start()])
+        desc = _norm(" ".join(bloque))
+        abono, cargo = (Decimal(x.replace(",", "")) for x in (i.group(2), i.group(3)))
+        if abono or cargo:
+            b = _MONEX_BENEFICIARIO.search(desc)
+            datos.append({"Tipo de Movimiento": "Cargo" if cargo else "Abono", "Importe": cargo or abono,
+                          "Folio Aceptación": "", "Transacción": desc[:300], "Referencia": i.group(1),
+                          "Moneda": moneda, "Fecha Operación": fecha, "Beneficiario": b.group(1) if b else ""})
+        bloque, fecha = [], None
+    if not datos:
+        return None
+    columnas = ["Tipo de Movimiento", "Importe", "Folio Aceptación", "Transacción", "Referencia", "Moneda",
+                "Fecha Operación", "Beneficiario"]
+    return Tabla(tipo="estado_cuenta", columnas=columnas, filas=datos,
+                 avisos=["Estado de cuenta de Monex en PDF: sin folio de Intelisis, se empata por fecha e importe."])
+
+
+def _tabla(filas: list[list], hoja: str | None, nombre: str = "") -> Tabla:
+    contable = _auxiliar_contable(filas) or _estado_monex(filas) or _cfdi_descarga(filas)
+    if contable:
+        contable.hoja = hoja
+        return contable
     i, tipo = _encabezado(filas)
+    avisos = []
     if tipo == "iva_retenido" and not _es_iva_retenido(filas, i):
-        tipo = None
+        # Un auxiliar sin movimientos no trae el renglón de la cuenta: se acepta si el archivo se llama «…retenido…».
+        vacio = not any(isinstance(x, (int, float, Decimal)) and not isinstance(x, bool) and x != 0
+                        for f in filas[i + 1:] for x in f)
+        if vacio and "RETENID" in _clave(nombre):
+            avisos.append("El auxiliar de IVA retenido viene sin movimientos: el IVA retenido del mes es cero.")
+            filas = filas[: i + 1]
+        else:
+            tipo = None
+    if tipo == "auxiliar_iva" and CARGOS_BANCARIOS in _titulo(filas, i):
+        tipo = None  # mismas columnas que el auxiliar de IVA, pero es otro reporte del portal
     columnas = _sin_repetir([_norm(x) for x in (filas[i] if filas else [])])
     # Con tipo reconocido, un renglón cuenta solo si trae algo en las columnas del tipo: las hojas de trabajo arrastran
     # fórmulas hacia abajo (#N/A, ceros) en renglones que no tienen datos.
@@ -213,8 +419,11 @@ def _tabla(filas: list[list], hoja: str | None) -> Tabla:
         if not any(x not in (None, "") and (clave is None or _clave(columnas[k] if k < len(columnas) else "") in clave)
                    for k, x in enumerate(f) if not (isinstance(x, str) and not x.strip())):
             continue
-        datos.append({c: (f[k] if k < len(f) else None) for k, c in enumerate(columnas) if c})
-    return Tabla(tipo=tipo, columnas=[c for c in columnas if c], filas=datos, hoja=hoja)
+        fila = {c: (f[k] if k < len(f) else None) for k, c in enumerate(columnas) if c}
+        if tipo in IDENTIFICA and not _norm(fila.get(IDENTIFICA[tipo])):
+            continue
+        datos.append(fila)
+    return Tabla(tipo=tipo, columnas=[c for c in columnas if c], filas=datos, hoja=hoja, avisos=avisos)
 
 
 def leer(nombre: str, contenido: bytes, tipo: str | None = None) -> Tabla:
@@ -228,7 +437,7 @@ def leer(nombre: str, contenido: bytes, tipo: str | None = None) -> Tabla:
     n = nombre.lower()
     if inicio.startswith(b"pk"):
         hojas = _de_excel(contenido)
-        tablas = [_tabla(f, h) for h, f in hojas if f]
+        tablas = [_tabla(f, h, nombre) for h, f in hojas if f]
         reconocidas = [t for t in tablas if t.tipo]
         if not tablas:
             raise ErrorLectura("El Excel no trae datos.")
@@ -244,6 +453,15 @@ def leer(nombre: str, contenido: bytes, tipo: str | None = None) -> Tabla:
         return _tabla(_de_html(contenido), None)
     if n.endswith((".csv", ".txt")):
         return _tabla(_de_csv(contenido), None)
+    if inicio.startswith(b"%pdf"):
+        texto = _texto_pdf(contenido)
+        if not texto.strip():
+            raise ErrorLectura("El PDF no trae texto (es una imagen, por ejemplo de «Imprimir como PDF»). Descárgalo "
+                               "directo del portal del banco.")
+        t = _estado_monex_pdf(texto)
+        if t:
+            return t
+        raise ErrorLectura("Este PDF no es un estado de cuenta que se sepa leer (por ahora, Monex).")
     if contenido[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         raise ErrorLectura("Es un Excel 97-2003 (.xls binario). Ábrelo y guárdalo como .xlsx.")
     raise ErrorLectura("No se reconoce el formato. Sube el reporte como lo descargas (Excel, CSV o el .xls del portal).")
@@ -371,6 +589,9 @@ def _conocido(contenido: bytes) -> str | None:
     except ErrorLectura:
         return None
     textos = " ".join(str(x) for _, filas in hojas for f in filas[:10] for x in f if isinstance(x, str)).upper()
+    if CARGOS_BANCARIOS in textos:
+        return ("Reporte de cargos bancarios del portal (comisiones de bancos y plataformas): todavía no entra al "
+                "cálculo de la DIOT. Falta que Fiscal diga cómo se declaran; no es el auxiliar de IVA acreditable.")
     if "MONEX" in textos:
         return ("Estado de cuenta de MONEX: este formato todavía no se lee. No cambia el cálculo de la DIOT; "
                 "los pagos a proveedores salen del reporte de tesorería.")

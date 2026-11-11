@@ -544,15 +544,18 @@ class Corrida:
         self.de_busqueda[producto_id] = [{**c.datos, "_publicacion": c.titulo} for c in ([principal] if principal else []) + list(otras)]
         return m
 
-    def _buscar(self, ronda: dict[int, tuple[str, str]], candidatos: dict[int, dict[str, co.Candidato]]) -> dict[int, str]:
-        """Manda una búsqueda por producto. Junta candidatos; regresa {producto_id: error} de las que fallaron."""
+    def _buscar(self, ronda: dict[int, list[tuple[str, str]]], candidatos: dict[int, dict[str, co.Candidato]]) -> dict[int, str]:
+        """Manda las búsquedas de cada producto (una o varias a la vez, p. ej. código de barras y descripción juntas).
+        Junta candidatos; regresa {producto_id: error} de los productos a los que les fallaron todas."""
         if not ronda:
             return {}
-        tareas = [{"keyword": texto, "depth": self.cfg.precios_profundidad, "tag": f"{pid}"} for pid, (_, texto) in ronda.items()]
+        tareas = [{"keyword": texto, "depth": self.cfg.precios_profundidad, "tag": f"{pid}:{n}"}
+                  for pid, consultas in ronda.items() for n, (_, texto) in enumerate(consultas)]
         self.revisar()
         ids = dfs.enviar(self.bd, self.c, "productos", tareas)
-        errores = {pid: "DataForSEO no aceptó la búsqueda" for pid in ronda if str(pid) not in ids}
-        nombres = {tag: self.nombre(int(tag)) for tag in ids}
+        aceptados = {int(tag.split(":")[0]) for tag in ids}
+        errores = {pid: "DataForSEO no aceptó la búsqueda" for pid in ronda if pid not in aceptados}
+        nombres = {tag: self.nombre(int(tag.split(":")[0])) for tag in ids}
 
         def esperando(faltan: set[str]) -> None:
             listas = len(ids) - len(faltan)
@@ -562,17 +565,21 @@ class Corrida:
         esperando(set(ids))
         recogidas = dfs.recoger("productos", ids, self.detenida, esperando)
         self.revisar()
+        fallas: dict[int, list[str]] = {}
         for tag, items in recogidas.items():
-            pid = int(tag)
+            pid, n = (int(x) for x in tag.split(":"))
             if isinstance(items, str):
-                errores[pid] = items
+                fallas.setdefault(pid, []).append(items)
                 continue
-            estrategia = ronda[pid][0]
+            estrategia = ronda[pid][n][0]
             for item in items:
                 cand = co.candidato_de(item)
                 if cand:
                     previo = candidatos[pid].setdefault(cand.clave, cand)
                     previo.estrategias.add(estrategia)
+        for pid, mensajes in fallas.items():
+            if len(mensajes) == sum(1 for t in ids if t.startswith(f"{pid}:")):  # fallaron todas las de ese producto
+                errores[pid] = mensajes[0]
         return errores
 
     def fase(self, texto: str, hechos: int | None = None, total: int | None = None, conserva: bool = False) -> None:
@@ -671,7 +678,8 @@ class Corrida:
     def coincidencias(self, pendientes: list[tuple[PrecioVigilado, Producto]], filas: dict[int, PrecioCorridaProducto]) -> None:
         tiendas = {p.producto_id: nombre_tienda(self.bd, p.producto_id) for _, p in pendientes}
         busquedas = {p.producto_id: (v.consulta or "").strip() or None for v, p in pendientes}
-        planes = {p.producto_id: co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta, tiendas[p.producto_id])
+        planes = {p.producto_id: co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta, tiendas[p.producto_id],
+                                            barras_primero=self.cfg.precios_barras_primero)
                   for v, p in pendientes}
         productos = {p.producto_id: p for _, p in pendientes}
         candidatos: dict[int, dict[str, co.Candidato]] = {pid: {} for pid in planes}
@@ -679,6 +687,13 @@ class Corrida:
         sin_resolver = {pid for pid, plan in planes.items() if plan}
         for pid in set(planes) - sin_resolver:
             filas[pid].estado, filas[pid].mensaje = "sin_coincidencia", "El producto no tiene descripción ni código de barras para buscarlo"
+        # Código de barras y descripción van juntos en la misma ronda (una sola espera en DataForSEO, Diego 2026-11-09:
+        # «más de 12 minutos en un solo producto»); lo demás, en rondas para los que no quedaron resueltos
+        grupos: dict[int, list[list[tuple[str, str]]]] = {}
+        for pid, plan in planes.items():
+            n = 2 if self.cfg.precios_barras_primero and len(plan) > 1 and plan[0][0] == "codigo_barras" else 1
+            grupos[pid] = [plan[:n]] + [[x] for x in plan[n:]]
+        planes = grupos
         rondas = max((len(pl) for pl in planes.values()), default=0)
         for ronda_n in range(rondas):
             ronda = {pid: planes[pid][ronda_n] for pid in sin_resolver if len(planes[pid]) > ronda_n}
@@ -686,7 +701,7 @@ class Corrida:
                 break
             if rondas > 1:
                 self.paso(1, f" · intento {ronda_n + 1} de {rondas}" + (
-                    " (otra forma de buscar los que no se encontraron)" if ronda_n else ""))
+                    " (otra forma de buscar)" if ronda_n else ""))
             try:
                 errores = self._buscar(ronda, candidatos)
             except dfs.SinPresupuesto as e:

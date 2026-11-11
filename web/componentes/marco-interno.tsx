@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { Home, LayoutGrid, Shield, UserRound, LogOut, Users, KeyRound, Boxes, Activity, ChevronDown, ChevronRight, CornerDownRight, ScrollText, Sparkles, Settings, Network, Package, DatabaseZap, Truck, MapPin, Warehouse, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { Home, LayoutGrid, Shield, UserRound, LogOut, Users, KeyRound, Boxes, Activity, ChevronDown, ChevronRight, CornerDownRight, ScrollText, Sparkles, Settings, Network, Package, DatabaseZap, Truck, MapPin, Warehouse, PanelLeftClose, PanelLeftOpen, Search, UsersRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { IconoModulo } from "./icono-modulo";
 import { FranjaEntorno, ProveedorAvisos } from "./avisos";
@@ -88,6 +88,7 @@ const SUBPANTALLAS: { permiso: string; texto: string; grupo: string; href: strin
   { permiso: "compras.productos.ver", texto: "Radar de productos", grupo: "Compras", href: "/compras/productos", palabras: "semaforo ideas evaluar" },
   { permiso: "compras.productos.ver", texto: "Buscar oportunidades", grupo: "Compras", href: "/compras/productos/oportunidades" },
   { permiso: "compras.propuestas.ver", texto: "Propuestas de proveedores", grupo: "Compras", href: "/compras/propuestas" },
+  { permiso: "compras.busquedas.ver", texto: "Búsqueda de proveedores", grupo: "Compras", href: "/compras/propuestas/busquedas", palabras: "proveedor oportunidades stakeholders" },
   { permiso: "compras.radar.ver", texto: "Radar de mercado", grupo: "Compras", href: "/compras/radar", palabras: "tendencias señales noticias" },
   { permiso: "compras.conocimiento.ver", texto: "Base de conocimiento de Compras", grupo: "Compras", href: "/compras/conocimiento", palabras: "politicas pesos" },
   { permiso: "contraloria.diot.ver", texto: "DIOT", grupo: "Contraloría", href: "/contraloria/diot", palabras: "fiscal txt sat" },
@@ -163,6 +164,7 @@ function Marco({ children }: { children: React.ReactNode }) {
     puede("datos.productos.ver") && { href: "/datos/productos", texto: "Catálogo de productos", icono: Package },
     puede("datos.proveedores.ver") && { href: "/datos/proveedores", texto: "Proveedores", icono: Truck },
     puede("datos.tiendas.ver") && { href: "/datos/tiendas", texto: "Mapa de tiendas", icono: MapPin },
+    puede("datos.clientes.ver") && { href: "/datos/clientes", texto: "Clientes", icono: UsersRound },
     puede("datos.inventario.ver") && { href: "/datos/inventario", texto: "Salud de inventario", icono: Warehouse },
     puede("datos.etl.ver") && { href: "/datos/etl", texto: "ETL de ventas", icono: DatabaseZap },
     puede("nucleo.modulos.administrar") && { href: "/datos", texto: "Centro de datos y modelos", icono: Network },

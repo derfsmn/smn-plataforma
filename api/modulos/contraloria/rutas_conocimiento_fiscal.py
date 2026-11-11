@@ -279,8 +279,10 @@ def _base(bd: Session) -> Base_:
                "contradicciones": sum(1 for c in criterios if c.contradiccion and c.ultima.estado != crit.APROBADO)}
     return Base_(
         criterios=criterios,
-        catalogos=[_catalogo(c) for c in bd.scalars(select(FiscalCatalogo).order_by(FiscalCatalogo.catalogo,
-                                                                                      FiscalCatalogo.catalogo_id))],
+        # «operacion_rfc» (tipo de operación ya declarado de cada proveedor, ~1,700 renglones) no se lista aquí
+        catalogos=[_catalogo(c) for c in bd.scalars(select(FiscalCatalogo)
+                                                    .where(FiscalCatalogo.catalogo != "operacion_rfc")
+                                                    .order_by(FiscalCatalogo.catalogo, FiscalCatalogo.catalogo_id))],
         documentos=[_documento(bd, d) for d in bd.scalars(select(FiscalDocumento).order_by(
             FiscalDocumento.documento_id))],
         opciones=Opciones(categorias=crit.CATEGORIAS, fuentes=crit.FUENTES_PROPIAS,

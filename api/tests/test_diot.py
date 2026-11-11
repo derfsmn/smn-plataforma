@@ -13,6 +13,7 @@ from pathlib import Path
 
 import openpyxl
 import pytest
+from modulos.contraloria import diot_criterios as crit
 
 from modulos.contraloria import diot_layout as layout
 from modulos.contraloria import diot_lectura as lectura
@@ -146,6 +147,9 @@ def test_estado_de_cuenta_contra_tesoreria():
              ("Cheque Electronico", "LAB3", "BCO1", "Proveedor C", "2099-01-07", 300, 16, 41, 259),
              ("Cheque Electronico", "LAB4", "BCO1", "Proveedor D", "2099-01-08", 200, 16, 28, 172),
              ("Cheque Electronico", "LAB5", "BCO1", "Proveedor E", "2099-01-05", 700, 16, 97, 603),
+             ("Cheque Electronico", "LAB6", "BCO1", "Proveedor F", "2099-01-05", 400, 16, 55, 345),
+             ("Cheque Electronico", "LAB8", "BCO1", "Proveedor G", "2099-01-05", 250, 16, 34, 216),
+             ("Cargo Bancario", "LAB10", "BCO1", "Banco", "2099-01-09", 100, 0, 0, 100),
              ("Abono Bancario", "LAB9", "BCO1", "Banco", "2099-01-09", 50, 0, 0, 50),
              ("Cargo Bancario", "LAB7", "BCO2", "Banco", "2099-01-09", 10, 0, 0, 10)]
     tes = lectura.leer("tes.xls", _html(col, [f + (k, "", "", "", 1, "") for k, f in enumerate(filas)]))
@@ -153,17 +157,128 @@ def test_estado_de_cuenta_contra_tesoreria():
     banco = _estado_cuenta([("Cargo", 1000, "LAB1"), ("Cargo", "$160.00", "TR LAB1"),  # un pago en 2 cargos
                             ("Cargo", 500, "LAB2"), ("Cargo", 299, "LAB3"),  # LAB3 con otro importe; LAB4 no está
                             ("Cargo", 7000, "TR LAB50"), ("Abono", 50, "LAB9"),
-                            ("Cargo", 700, "LAB500")])  # LAB5 con el folio mal escrito, mismo día e importe
+                            ("Cargo", 700, "LAB500"),  # LAB5 con el folio mal escrito, mismo día e importe
+                            ("Cargo", 400, "LAB6"), ("Cargo", 250, "LAB6"),  # el banco juntó LAB8 en el folio LAB6
+                            ("Cargo", 116, "LAB10")])  # comisión: el banco la carga con IVA
     archivo = lectura.separar("04.- BANCO 31.xlsx", banco)
     assert [(a.clase, a.tipo) for a in archivo] == [("documento", "estado_cuenta")]
     r = validacion.comparar_banco(tes, [("04.- BANCO 31.xlsx", lectura.leer("b.xlsx", banco))])
     c = r["cuentas"][0]
-    assert c["cuenta"] == "BCO1" and c["pagos"] == 5 and c["confirmados"] == 3
-    assert [(x["movid"], x["folio_banco"]) for x in c["otro_folio"]] == [("LAB5", "LAB500")]
+    assert c["cuenta"] == "BCO1" and c["pagos"] == 8 and c["confirmados"] == 6
+    assert [(x["movid"], x["folio_banco"]) for x in c["otro_folio"]] == [("LAB5", "LAB500"), ("LAB8", "LAB6")]
     assert [x["movid"] for x in c["diferencias"]] == ["LAB3"] and c["diferencias"][0]["banco"] == 299
     assert [x["movid"] for x in c["no_encontrados"]] == ["LAB4"]
     assert [x["folio"] for x in c["solo_banco"]] == ["LAB50"]
     assert r["sin_estado"] == [{"cuenta": "BCO2", "pagos": 1, "importe": 10.0}]
+
+
+def test_estado_de_cuenta_de_monex():
+    """Monex («Movimientos del Contrato»): importe con signo y el folio de Intelisis después de la columna «Mov»."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["EMPRESA FICTICIA"])
+    ws.append([])
+    ws.append(["Movimientos del Contrato del 01/01/2099 al 31/01/2099"])
+    ws.append(["Tipo de mov", "Divisa", "Fecha Operación", "Fecha de Liquidación", "Descripción", "Emisora Serie",
+               "Referencia", "Cantidad", "Plazo", "Tasa Rend Prima Unitaria", "Precio Strike", "Importe", "Mov"])
+    ws.append(["A", "USD", "2099-01-05", "2099-01-05", "RETIRO por transferencia SPID", None, "1347", None, None, None,
+               None, -9465.6, "CHE E", "Cheque Electronico LAB759"])
+    ws.append(["5", "MXP", "2099-01-05", "2099-01-05", "Depósito SPEI", None, "1348", 100, None, None, None, 100,
+               "TR", "1218"])
+    b = io.BytesIO()
+    wb.save(b)
+    t = lectura.leer("1026 EDO CTA MONEX.xlsx", b.getvalue())
+    assert t.tipo == "estado_cuenta" and len(t.filas) == 2
+    assert t.filas[0]["Tipo de Movimiento"] == "Cargo" and t.filas[0]["Importe"] == 9465.6
+    assert "LAB759" in t.filas[0]["Folio Aceptación"] and t.filas[1]["Tipo de Movimiento"] == "Abono"
+
+
+def _pdf(lineas: list[str]) -> bytes:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    b = io.BytesIO()
+    c = canvas.Canvas(b, pagesize=letter)
+    y = 750
+    for x in lineas:
+        c.drawString(20, y, x)
+        y -= 14
+    c.save()
+    return b.getvalue()
+
+
+def test_estado_de_cuenta_de_monex_en_pdf_se_empata_por_fecha_e_importe():
+    """Monex en PDF (como lo tiene Fiscal): sin folio de Intelisis; cada pago se busca por importe a ±3 días."""
+    from modulos.contraloria import diot_validacion as validacion
+
+    pdf = _pdf(["Estado de Cuenta", "CONTRATO: 123 MONEX", "PERIODO: Del 1 Enero 2099 al 31 enero 2099",
+                "dolar americano al 31 Enero 2099", " Movimientos de enero en dolar americano",
+                " 05/Ene", "Retiro Nombre Receptor: BANAMEX", "Nombre Beneficiario: PROVEEDOR A SA",
+                "Clave de Rastreo: 999", "134841284 0.00 139.20 0.00 0.00 100.00 100.00",
+                " 07/Ene Retiro Por Inversion 2908402 0.00 500.00 0.00 0.00 50.00 50.00",
+                "Anexo Inversiones"])
+    t = lectura.leer("Monex Ene.pdf", pdf)
+    assert t.tipo == "estado_cuenta" and len(t.filas) == 2
+    assert t.filas[0]["Importe"] == Decimal("139.20") and t.filas[0]["Fecha Operación"] == "2099-01-05"
+    assert t.filas[0]["Beneficiario"] == "PROVEEDOR A SA"
+    col = ("Mov", "MovID", "CtaDinero", "BeneficiarioNombre", "FechaEmision", "Importe")
+    tes = lectura.leer("tes.xls", _html(col, [("Cheque Electronico", "LAB1", "USD1", "Proveedor A", "2099-01-06", 139.2),
+                                              ("Cheque Electronico", "LAB2", "USD1", "Proveedor B", "2099-01-20", 80)]))
+    c = validacion.comparar_banco(tes, [("Monex Ene.pdf", t)])["cuentas"][0]
+    assert c["cuenta"] == "USD1" and c["confirmados"] == 1 and [x["movid"] for x in c["no_encontrados"]] == ["LAB2"]
+    with pytest.raises(lectura.ErrorLectura, match="no trae texto"):
+        lectura.leer("bbva.pdf", _pdf([]))
+
+
+
+def test_bbva_sin_folio_isr_de_inversion_y_comisiones_de_terminal():
+    """BBVA de PS (octubre 2026): algún cargo trae texto en «Folio Aceptación» que no es de ningún pago, y el resto
+    sin folio: se empata por fecha e importe. El ISR retenido de inversiones no se busca en el banco y las comisiones
+    de terminales se reportan como descontadas del depósito."""
+    from modulos.contraloria import diot_validacion as validacion
+
+    banco = lectura.Tabla("estado_cuenta", [], [
+        {"Tipo de Movimiento": "Cargo", "Importe": 500, "Folio Aceptación": "TR PS999", "Fecha Operación": "2099-01-05"},
+        {"Tipo de Movimiento": "Cargo", "Importe": 139.2, "Folio Aceptación": None, "Fecha Operación": "2099-01-05",
+         "Referencia": "0000001 2690 PSA"}])
+    col = ("Mov", "MovID", "CtaDinero", "BeneficiarioNombre", "FechaEmision", "Importe", "Concepto")
+    tes = lectura.leer("tes.xls", _html(col, [
+        ("Cheque Electronico", "PS1", "PS1", "Proveedor A", "2099-01-05", 139.2, ""),
+        ("Cargo Bancario", "PS2", "PS1", "", "2099-01-05", 36.41, "Comisiones Plataformas"),
+        ("Cargo Bancario", "LAB518", "ODP8", "", "2099-01-05", 133.15, "ISR Retenido")]))
+    d = validacion.comparar_banco(tes, [("BBVA PSA.xlsx", banco)])
+    c = d["cuentas"][0]
+    assert c["cuenta"] == "PS1" and c["confirmados"] == 1 and c["no_encontrados"] == []
+    assert [x["movid"] for x in c["en_deposito"]] == ["PS2"]
+    assert d["sin_estado"] == []  # ODP8 solo tenía ISR retenido
+
+
+
+def test_cfdi_de_la_descarga_masiva_de_ps():
+    """PS octubre 2026: los CFDI vienen de otra descarga («RFC emisor», «CP Expedicion»): se leen como el Visor. En
+    Pagos el total del pago se repite por documento relacionado; el de EGRESOS son CFDI que emitió la empresa."""
+    from modulos.contraloria import diot_validacion as validacion
+
+    rec = _xlsx(("Periodo", "UUID", "CP Expedicion", "Tipo", "Fecha emision", "RFC emisor", "Razon emisor",
+                 "RFC receptor", "Estado", "Metodo pago", "IVA Trasladado 16%", "IVA Trasladado 8%", "Total"),
+                [(1, "U1", "22226", "I - Ingreso", "2099-01-03 00:00:00", "AAA010101AAA", "Prov A", "PSA210630AJ7",
+                  "VIGENTE", "PUE - Pago en Una sola Exhibición", 16, 8, 224),
+                 (1, "U2", "01000", "I - Ingreso", "2099-01-04 00:00:00", "BBB010101BBB", "Prov B", "PSA210630AJ7",
+                  "VIGENTE", "PPD - Pago en Parcialidades o Diferido", 32, 0, 232)])
+    pag = _xlsx(("UUID", "CP Expedicion", "RFC emisor", "Razon emisor", "RFC receptor", "Estado", "Fecha emision",
+                 "MonedaP", "TipoCambioP", "Fecha pago", "TrasladosImpuestoIVA16 - pago", "TrasladosImpuestoIVA16"),
+                [("P1", "01000", "BBB010101BBB", "Prov B", "PSA210630AJ7", "VIGENTE", "2099-02-01 00:00:00", "MXN", 1,
+                  "2099-01-30 00:00:00", 32, 20),
+                 ("P1", "01000", "BBB010101BBB", "Prov B", "PSA210630AJ7", "VIGENTE", "2099-02-01 00:00:00", "MXN", 1,
+                  "2099-01-30 00:00:00", 32, 12)])
+    egr = _xlsx(("UUID", "CP Expedicion", "Tipo", "RFC emisor", "RFC receptor", "Estado"),
+                [("E1", "01000", "E - Egreso", "PSA210630AJ7", "XAXX010101000", "VIGENTE")])
+    t_rec, t_pag = lectura.leer("recibidos.xlsx", rec, "cfdi_sat"), lectura.leer("Pagos.xlsx", pag, "cfdi_sat")
+    assert t_rec.tipo == t_pag.tipo == "cfdi_sat" and len(t_pag.filas) == 1
+    assert t_rec.filas[0]["LugarExpedicion"] == "22226" and t_rec.filas[0]["TotalTrasladosBaseIVA8"] == 100
+    assert lectura.leer("EGRESOS.xlsx", egr, "cfdi_sat").tipo is None
+    sat = validacion.iva_del_sat([t_rec, t_pag], 2099, 1)
+    assert sat["iva"] == {"AAA010101AAA": 24, "BBB010101BBB": 32} and sat["ppd"] == {"BBB010101BBB": 32}
 
 
 COL_VISOR = ("UUID", "FechaCFDI", "EjercicioCFDI", "PeriodoCFDI", "MetodoDePago", "TipoDeComprobante", "EmisorRFC",
@@ -214,6 +329,74 @@ def test_iva_de_cada_proveedor_contra_las_facturas_del_sat():
     assert [(x["rfc"], x["diferencia"]) for x in r["chicas"]] == [("FFF990101FF1", 10.0)] and r["grandes"] == []
     assert [(x["rfc"], x["ppd"]) for x in r["sin_factura"]] == [("DDD990101DD1", 320.0)]
     assert [(x["rfc"], x["sat"]) for x in r["solo_sat"]] == [("HHH990101HH1", 48.0)]
+
+
+def test_auxiliar_de_iva_retenido_sin_movimientos():
+    """ODP octubre 2026: el auxiliar vino vacío (sin el renglón de la cuenta). Se acepta por su nombre y vale cero."""
+    def vacio():
+        wb = openpyxl.load_workbook(io.BytesIO(_auxiliar_intelisis("x", "x", [])))
+        wb.active.delete_rows(5)  # sin movimientos, Intelisis no pone el renglón de la cuenta
+        wb.active.append(["Lunes, 5 de Enero de 2099", "Pesos", "Página 1"])
+        wb.active["K5"] = 0  # el total del auxiliar, en cero
+        b = io.BytesIO()
+        wb.save(b)
+        return b.getvalue()
+
+    t = lectura.leer("0199 AUXILIAR IVA RETENIDO.xlsx", vacio())
+    assert t.tipo == "iva_retenido" and t.filas == [] and "sin movimientos" in t.avisos[0]
+    a = lectura.separar("0199 AUXILIAR IVA RETENIDO.xlsx", vacio())
+    assert a[0].clase == "documento" and a[0].tipo == "iva_retenido"
+    assert lectura.leer("auxiliar.xlsx", vacio()).tipo is None  # sin la cuenta ni el nombre, no se adivina
+    docs = tablas()
+    docs["iva_retenido"] = t
+    r = motor.procesar(docs, RFC_EMPRESA)
+    assert not any(i.codigo == "SIN-RETENIDO" for i in r.incidencias)
+
+
+def _del_portal(titulo: str, filas) -> bytes:
+    """Reporte del portal en .xlsx: título, liga, encabezados y, al final, un renglón de totales."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append([titulo, "Fecha: 2099-02-09 12:00"])
+    ws.append(["http://portal.ejemplo/", "Usuario: PRUEBA"])
+    ws.append(["ID", "Movimiento", "Concepto", "Referencia", "FechaContable", "Debe", "Haber", "OrigenTipo", "Origen",
+               "OrigenID", "OrigenMoneda", "OrigenTipoCambio"])
+    for f in filas:
+        ws.append(list(f))
+    ws.append([None, None, None, None, None, sum(f[5] for f in filas), sum(f[6] for f in filas)])
+    b = io.BytesIO()
+    wb.save(b)
+    return b.getvalue()
+
+
+def test_el_renglon_de_totales_del_portal_no_es_un_movimiento():
+    """SMN octubre 2026: el auxiliar de IVA en .xlsx cierra con la suma de Debe y Haber, sin póliza."""
+    filas = [(1, "Diario P1", "IVA", "Pago 1", "2099-01-05", 160, 0, "DIN", "Pago", "1", "Pesos", 1),
+             (2, "Diario P2", "IVA", "Pago 2", "2099-01-06", 80, 0, "DIN", "Pago", "2", "Pesos", 1)]
+    t = lectura.leer("reporte_reporte-auxiliar-iva-acreditable.xlsx", _del_portal("REPORTE AUXILIAR IVA ACREDITABLE", filas))
+    assert t.tipo == "auxiliar_iva" and len(t.filas) == 2
+    assert sum(f["Debe"] for f in t.filas) == 240
+
+
+def test_cargos_bancarios_no_se_confunde_con_el_auxiliar_de_iva():
+    """SMN y PS octubre 2026: el «Reporte cargos bancarios» del portal trae las mismas columnas que el auxiliar."""
+    cargos = _del_portal("REPORTE CARGOS BANCARIOS",
+                         [(1, "Diario P9", "Comisiones Bancarias", "Cargo Bancario 9", "2099-01-05", 16, 0, "DIN",
+                           "Cargo Bancario", "9", "Pesos", 1)])
+    assert lectura.leer("cargos.xlsx", cargos).tipo is None
+    a = lectura.separar("Reporte CARGOS BANCARIOS.xlsx", cargos)
+    assert a[0].clase == "no_se_usa" and "cargos bancarios" in a[0].mensaje
+
+
+def test_auxiliar_contable_de_iva_acreditable_como_sale_de_intelisis():
+    """PS septiembre 2026 entregó el auxiliar contable de la 1300-001-000 en vez del reporte del portal: se lee igual."""
+    t = lectura.leer("03.- Reporte auxiliar IVA Acreditable.xlsx",
+                     _auxiliar_intelisis("1300-001-000", "IVA ACREDITABLE", [("Diario 5", 16, None), ("Diario 6", None, 4)]))
+    assert t.tipo == "auxiliar_iva" and [f["Movimiento"] for f in t.filas] == ["Diario 5", "Diario 6"]
+    assert t.filas[0]["Origen"] == "Gasto" and t.filas[0]["OrigenID"] == "LAB1" and t.filas[0]["Debe"] == 16
+    assert t.filas[1]["Haber"] == 4  # el renglón de la cuenta y el de totales no son movimientos
+    otra = lectura.leer("aux.xlsx", _auxiliar_intelisis("1190-001-001", "OTRA CUENTA", [("Diario 5", 16, None)]))
+    assert otra.tipo is None
 
 
 def test_archivos_del_mes_que_no_se_usan_dicen_que_son():
@@ -426,6 +609,154 @@ def test_tasa_8_bloquea_el_txt_hasta_confirmar_el_layout():
         layout.generar(r.terceros)
 
 
+def test_reglas_de_fiscal_del_10_de_noviembre():
+    """Clientes, impuestos, anticipos y préstamos sin tasa no van; sin tasa es tasa 0; sin RFC y comisiones bancarias
+    van al genérico; un proveedor con «no objeto» se avisa a Fiscal."""
+    docs = tablas()
+    col = COL_TES + ("ContactoTipo",)
+    extra = [(20, "Pago", "20", "PAGO", "ECOMMER", "Cliente Ficticio", "", 1, "HHH010101HHH", 16, 16, 100, "Cliente"),
+             (21, "Pago", "21", "PAGO IMPUESTOS", "", "TESORERIA DE LA FEDERACION", "", 1, "", "", "", 9000, ""),
+             (22, "Pago", "22", "ANTICIPO PROVEEDOR", "", "Proveedor J", "", 1, "JJJ010101JJJ", "", "", 700, ""),
+             (23, "Pago", "23", "PRESTAMO SOCIO", "", "Socio", "", 1, "KKK010101KKK", "", "", 5000, ""),
+             (24, "Pago", "24", "PAGO PROVEEDOR", "F24", "Sin Tasa", "", 1, "LLL010101LLL", "", "", 250, ""),
+             (25, "Pago", "25", "PAGO PROVEEDOR", "F25", "Sin RFC", "", 1, "", 16, 32, 200, "")]
+    docs["tesoreria"] = lectura.leer("t.xls", _html(col, [f + ("",) for f in TESORERIA] + extra))
+    docs["auxiliar_iva"] = lectura.leer("a.xlsx", _xlsx(COL_AUX, AUXILIAR + [("Cargo 1", 4.8, 0, "Cargo Bancario",
+                                                                              "1", 1)]))
+    docs["proveedores"] = lectura.leer("p.xlsx", _xlsx(COL_PROV + ("Tipo",), [p + ("Proveedor",) for p in PROVEEDORES]))
+    docs["comprobantes"] = lectura.leer("e.xlsx", _xlsx(COL_COM, COMPROBANTES + [
+        ("Gasto 5", "A001", "SERVICIO", 1, 40, 1, None, "Gasto", "5", "CONCLUIDO")]))
+    r = motor.procesar(docs, RFC_EMPRESA)
+    reglas = {o.referencia: o.regla for o in r.operaciones if o.fuente == "tesoreria"}
+    assert reglas["Pago 20"] == "TES-CLIENTE" and reglas["Pago 21"] == "TES-IMPUESTOS"
+    assert reglas["Pago 22"] == "TES-ANTICIPO-SF" and reglas["Pago 23"] == "TES-PRESTAMO"
+    assert reglas["Pago 24"] == "TES-SIN-TASA" and reglas["Pago 25"] == "TES-TASA"
+    t = _por_rfc(r)
+    assert not {"HHH010101HHH", "JJJ010101JJJ", "KKK010101KKK"} & set(t)
+    assert t["LLL010101LLL"].redondeados["base0"] == 250
+    generico = t["XAXX010101000"]
+    assert generico.redondeados["base16"] == 230 and generico.redondeados["iva16"] == 37  # 200 + comisión de 30
+    codigos = {i.codigo for i in r.incidencias}
+    assert {"SIN-TASA-0", "SIN-RFC-GENERICO", "AVISO-FISCAL"} <= codigos
+
+
+def test_respuestas_de_diego_del_10_de_noviembre_tarjeta_tasa_rfc_y_pares():
+    """Pago a la tarjeta no va (sus gastos entran con su proveedor); tasa 19 es 16; gasto sin proveedor al genérico;
+    RFC mal capturado se corrige con el CFDI; dos movimientos con diferencias opuestas se compensan; el genérico de
+    SMN va a región norte."""
+    docs = tablas()
+    extra = [(30, "Pago", "30", "PAGO TARJETA", "", "AMERICAN EXPRESS", "A009", 1, "", 16, 48, 300),
+             (31, "Pago", "31", "CONSIGNACION", "", "Equipos", "", 1, "MMM010101MMM", 19, 19, 100),
+             (40, "Pago", "40", "PAGO PROVEEDOR", "", "Prov N", "", 1, "NNN010101NNN", 16, 16, 100),
+             (41, "Pago", "41", "PAGO PROVEEDOR", "", "Prov O", "", 1, "OOO010101OOO", 0, 0, 100),
+             (42, "Pago", "42", "PAGO PROVEEDOR", "", "Sin RFC al 8", "", 1, "", 8, 8, 100)]
+    docs["tesoreria"] = lectura.leer("t.xls", _html(COL_TES, TESORERIA + extra))
+    docs["auxiliar_iva"] = lectura.leer("a.xlsx", _xlsx(COL_AUX, AUXILIAR + [("Egresos 1", 16, 0, "Pago", "41", 1)]))
+    docs["proveedores"] = lectura.leer("p.xlsx", _xlsx(COL_PROV, PROVEEDORES + [("A003", "Pinturas", "PV1230615EX2"),
+                                                                              ("A009", "Amex", "AEC810901298")]))
+    col = COL_COM + ("Movimiento (2)", "Acreedor/Responsable")
+    docs["comprobantes"] = lectura.leer("e.xlsx", _xlsx(col, [f + ("Gasto", f[1]) for f in COMPROBANTES] + [
+        ("Gasto T/Credito 1", "A001", "LUZ", 1, 10, 1, 16, "Gasto", "5", "CONCLUIDO", "Gasto T/Credito", "A009"),
+        ("Caja Chica 2", "A777", "MANTTO", 1, 10, 1, 16, "Gasto", "5", "CONCLUIDO", "Caja Chica", "A1"),
+        ("Caja Chica 3", "A003", "PINTURA", 1, 10, 1, 16, "Gasto", "5", "CONCLUIDO", "Caja Chica", "A1")]))
+    docs["cfdi_sat"] = lectura.leer("CFDI.xlsx", _xlsx(("UUID", "TipoDeComprobante", "EmisorRFC", "EstadoComprobante",
+                                                        "TotalTrasladosImpuestoIVA16"),
+                                                       [("u1", "I", "PVI230615EX2", "Vigente", 1.6)]))
+    r = motor.procesar(docs, "SMN890629150")
+    reglas = {o.referencia: o.regla for o in r.operaciones if o.fuente == "tesoreria"}
+    assert reglas["Pago 30"] == "TES-TARJETA"
+    t = _por_rfc(r)
+    assert "AEC810901298" not in t and t["MMM010101MMM"].redondeados["iva16"] == 19
+    assert "PVI230615EX2" in t and "PV1230615EX2" not in t
+    assert t["XAXX010101000"].region == "norte"
+    codigos = {i.codigo for i in r.incidencias}
+    assert {"TARJETA", "TASA-CORREGIDA", "RFC-CORREGIDO", "SIN-RFC-GENERICO"} <= codigos
+    assert "SIN-RFC" not in codigos
+    par = [i for i in r.incidencias if i.codigo == "CONCILIACION" and "Pago 40" in i.mensaje]
+    assert par and par[0].impacto == motor.CONTROLADO and "Pago 41" in par[0].mensaje
+
+
+def test_redondeo_del_articulo_20():
+    assert motor.redondear(Decimal("2.5"), "art20") == 2
+    assert motor.redondear(Decimal("2.51"), "art20") == 3
+    assert crit.inicial().p("TER-REDONDEO", "metodo") == "art20"
+    assert crit.inicial().p("TER-TIPO-OPERACION", "omision") == "02"
+    assert all(d.estado == crit.APROBADO for d in crit.SISTEMA if d.clave in crit.RESUELTOS_JUNTA_NOV)
+
+
+def test_8_por_ciento_va_al_campo_de_su_region_por_el_cp_del_cfdi():
+    """Fiscal (10 nov): el CP de expedición del CFDI dice si es región fronteriza norte (campos 8 y 18) o sur (10 y
+    20), con el catálogo de códigos postales del SAT."""
+    assert motor.cp_region_fronteriza()["22000"] == "norte" and motor.cp_region_fronteriza()["30700"] == "sur"
+    docs = tablas()
+    for i, rfc in enumerate(("GGG010101GGG", "HHH010101HHH", "JJJ010101JJJ", "KKK010101KKK"), 8):
+        docs["tesoreria"].filas.append(dict(zip(COL_TES, (i, "Pago", str(i), "PAGO", f"F{i}", "Frontera", "", 1, rfc,
+                                                          8, 8, 100))))
+    col = ("UUID", "TipoDeComprobante", "EmisorRFC", "EstadoComprobante", "TotalTrasladosImpuestoIVA16",
+           "LugarExpedicion", "TotalTrasladosBaseIVA8")
+    docs["cfdi_sat"] = lectura.leer("CFDI INGRESOS.xlsx", _xlsx(col, [
+        ("u1", "I", "GGG010101GGG", "Vigente", 0, 22000, 100),  # Tijuana: norte
+        ("u2", "I", "HHH010101HHH", "Vigente", 0, "30700", 100),  # Tapachula: sur
+        ("u3", "I", "JJJ010101JJJ", "Vigente", 0, "64000", 100)]))  # Monterrey: sin estímulo
+    assert docs["cfdi_sat"].tipo == "cfdi_sat"
+    r = motor.procesar(docs, RFC_EMPRESA)
+    t = _por_rfc(r)
+    assert t["GGG010101GGG"].region == "norte" and t["HHH010101HHH"].region == "sur"
+    assert t["JJJ010101JJJ"].estado == t["KKK010101KKK"].estado == "revisar"  # CP fuera de región y sin CFDI
+    assert sum(1 for i in r.incidencias if i.codigo == "REGION-8" and i.impacto == motor.POSIBLE) == 2
+    ok = [x for x in r.terceros if x.estado == "ok"]
+    renglones = {x.split("|")[2]: x.split("|") for x in layout.generar(ok).split("\r\n") if x}
+    norte, sur = renglones["GGG010101GGG"], renglones["HHH010101HHH"]
+    assert (norte[7], norte[17], norte[9], norte[19]) == ("100", "8", "", "")
+    assert (sur[7], sur[17], sur[9], sur[19]) == ("", "", "100", "8")
+    assert renglones["CCC010101CCC"][7] == ""  # sin 8 %, el campo va vacío
+    assert all(v["ok"] for v in layout.validar(layout.generar(ok), ok))
+
+
+def test_decisiones_de_fiscal_en_pendientes_region_y_rfc():
+    """En «Resolver pendientes», Fiscal decide el 8 % por revisar (norte, sur o 16 %) y corrige un RFC inválido; se
+    guardan como ajustes y el TXT sale."""
+    docs = tablas()
+    for i, rfc in enumerate(("JJJ010101JJJ", "KKK010101KKK", "PV1230615EX2"), 8):
+        docs["tesoreria"].filas.append(dict(zip(COL_TES, (i, "Pago", str(i), "PAGO", f"F{i}", "Prov", "", 1, rfc,
+                                                          8 if i < 10 else 16, 8 if i < 10 else 16, 100))))
+    docs["cfdi_sat"] = lectura.leer("CFDI.xlsx", _xlsx(("UUID", "TipoDeComprobante", "EmisorRFC", "EstadoComprobante",
+                                                        "TotalTrasladosImpuestoIVA16", "LugarExpedicion",
+                                                        "TotalTrasladosBaseIVA8"),
+                                                       [("u3", "I", "JJJ010101JJJ", "Vigente", 0, "64000", 100)]))
+    sin = motor.procesar(docs, RFC_EMPRESA)
+    assert {"JJJ010101JJJ", "KKK010101KKK", "PV1230615EX2"} <= {t.rfc for t in sin.terceros if t.estado == "revisar"}
+    ajustes = [{"rfc": "JJJ010101JJJ", "campo": "region_16", "motivo": "Fiscal: es 16 %"},
+               {"rfc": "KKK010101KKK", "campo": "region_sur", "motivo": "Fiscal: tienda de Tapachula"},
+               {"rfc": "PV1230615EX2", "campo": "rfc_correcto", "nombre": "PVI230615EX2", "motivo": "Viene en su CFDI"}]
+    r = motor.procesar(docs, RFC_EMPRESA, ajustes=ajustes)
+    t = _por_rfc(r)
+    assert t["JJJ010101JJJ"].redondeados["base16"] == 100 and t["JJJ010101JJJ"].redondeados["iva16"] == 8
+    assert t["JJJ010101JJJ"].redondeados["base8"] == 0 and t["KKK010101KKK"].region == "sur"
+    assert "PVI230615EX2" in t and "PV1230615EX2" not in t
+    assert all(x.estado == "ok" for x in r.terceros if x.rfc in ("JJJ010101JJJ", "KKK010101KKK", "PVI230615EX2"))
+
+
+def test_tipo_de_operacion_sin_la_hoja_de_fiscal():
+    """Sin la hoja RETENCIONES: el tipo ya declarado para ese proveedor en esa empresa y, si es nuevo, sus gastos
+    (arrendamiento 06, honorarios o persona física con 10 % de ISR retenido 03). Las compras siguen en 02."""
+    docs = tablas()
+    cfg = crit.inicial()
+    cfg.operacion_rfc = {(RFC_EMPRESA, "CCC010101CCC"): "06", (RFC_EMPRESA, "DDD010101DDD"): "omision"}
+    extra = [("Gasto 5", "A003", "ARRENDAMIENTO PERSONAS MORALES", 1, 100, 1, 16, "Gasto", "5", "CONCLUIDO"),
+             ("Gasto 5", "A004", "HONORARIOS CONTABLES", 1, 100, 1, 16, "Gasto", "5", "CONCLUIDO")]
+    docs["comprobantes"] = lectura.leer("e.xlsx", _xlsx(COL_COM, COMPROBANTES + extra))
+    docs["proveedores"] = lectura.leer("p.xlsx", _xlsx(COL_PROV, PROVEEDORES + [
+        ("A003", "Inmobiliaria", "III010101III"), ("A004", "Contador", "MMMM010101MM1")]))
+    r = motor.procesar(docs, RFC_EMPRESA, cfg=cfg)
+    t = _por_rfc(r)
+    assert t["CCC010101CCC"].tipo_operacion == "06" and t["DDD010101DDD"].tipo_operacion == "02"
+    assert t["III010101III"].tipo_operacion == "06" and t["MMMM010101MM1"].tipo_operacion == "03"
+    assert t["AAA010101AAA"].tipo_operacion == "02"
+    assert sum(1 for i in r.incidencias if i.codigo == "TIPO-POR-REGLA") == 2
+    assert crit.operacion_aprendida()[("ODP160830242", "AES460723JQ5")] == "omision"
+
+
 # ---------------------------------------------------------------- layout
 
 def test_txt_de_54_campos_con_crlf_y_comparacion():
@@ -615,7 +946,11 @@ def test_validacion_con_los_archivos_de_fiscal(mes, renglones, iguales_minimo):
     assert any(a.clase == "no_se_usa" and "LAYOUT" in a.nombre.upper() for a in partes)
     assert set(docs) == {k for k, t in lectura.TIPOS.items() if not t.comprobar} and referencia
     b = motor.Bitacora()
-    r = motor.procesar(docs, RFC_EMPRESA, bitacora=b)
+    # Agosto y septiembre se presentaron subiendo los 50 centavos; desde el 10 de noviembre Fiscal redondea con el
+    # art. 20 del CFF. Para comparar con lo presentado se procesa como entonces.
+    cfg = crit.inicial()
+    cfg.criterios["TER-REDONDEO"].parametros = {"metodo": "mitad_arriba"}
+    r = motor.procesar(docs, RFC_EMPRESA, bitacora=b, cfg=cfg)
     estados = [b.pasos[n]["estado"] for n in range(1, 8)]
     assert estados[:2] == ["ok", "ok"] and estados[2] in ("ok", "aviso") and estados[3:] == ["ok"] * 4, estados
     assert b.pasos[4]["resumen"].startswith("Conciliación correcta")

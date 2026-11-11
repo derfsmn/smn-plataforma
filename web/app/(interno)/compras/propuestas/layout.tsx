@@ -9,6 +9,7 @@ import { useSesion } from "@/componentes/sesion";
 
 const PESTANAS = [
   { href: "/compras/propuestas", texto: "Propuestas", permiso: "compras.propuestas.ver" },
+  { href: "/compras/propuestas/busquedas", texto: "Búsqueda de proveedores", permiso: "compras.busquedas.ver" },
   { href: "/compras/propuestas/comite", texto: "Comité", permiso: "compras.comite.ver" },
   { href: "/compras/propuestas/proveedores", texto: "Proveedores invitados", permiso: "compras.propuestas.ver" },
 ];
@@ -16,20 +17,21 @@ const PESTANAS = [
 export default function LayoutPropuestas({ children }: { children: React.ReactNode }) {
   const ruta = usePathname();
   const { puede } = useSesion();
-  if (!puede("compras.propuestas.ver") && !puede("compras.comite.ver"))
+  if (!puede("compras.propuestas.ver") && !puede("compras.comite.ver") && !puede("compras.busquedas.ver"))
     return <p className="text-smn-gris-500">No tienes acceso a Productos nuevos.</p>;
   const enComite = /^\/compras\/propuestas\/comite\/\d+/.test(ruta);
-  const enDetalle = enComite || /^\/compras\/propuestas\/(captura\/)?\d+/.test(ruta);
+  const enBusqueda = /^\/compras\/propuestas\/busquedas\/\d+/.test(ruta);
+  const enDetalle = enComite || enBusqueda || /^\/compras\/propuestas\/(captura\/)?\d+/.test(ruta);
   if (/\/presentar$/.test(ruta)) return <>{children}</>; // el modo presentación ocupa toda la pantalla
   const activa = (href: string) => (href === "/compras/propuestas" ? ruta === href : ruta.startsWith(href));
 
   return (
     <>
       <Link
-        href={enComite ? "/compras/propuestas/comite" : enDetalle ? "/compras/propuestas" : "/modulos/compras"}
+        href={enComite ? "/compras/propuestas/comite" : enBusqueda ? "/compras/propuestas/busquedas" : enDetalle ? "/compras/propuestas" : "/modulos/compras"}
         className="mb-5 inline-flex items-center gap-1 text-[15px] text-smn-gris-500 hover:text-tinta"
       >
-        <ArrowLeft className="h-4 w-4" /> {enComite ? "Comité" : enDetalle ? "Propuestas" : "Inteligencia de Compras"}
+        <ArrowLeft className="h-4 w-4" /> {enComite ? "Comité" : enBusqueda ? "Búsqueda de proveedores" : enDetalle ? "Propuestas" : "Inteligencia de Compras"}
       </Link>
       {!enDetalle && (
         <>

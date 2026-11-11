@@ -35,9 +35,9 @@ def _cfg(**cambios) -> crit.Config:
 def test_carga_inicial_es_como_trabaja_fiscal_hoy():
     c = crit.inicial()
     pendientes = {k for k, x in c.criterios.items() if x.estado != crit.APROBADO}
-    # Las dos contradicciones que siguen abiertas: 50 centavos exactos y 02 contra 85
-    assert pendientes == {"TER-REDONDEO", "TER-TIPO-OPERACION"}
-    assert c.p("TER-REDONDEO", "metodo") == "mitad_arriba" and c.p("TER-TIPO-OPERACION", "omision") == "02"
+    # Las dos contradicciones (50 centavos exactos y 02 contra 85) las resolvió Fiscal en la junta del 10 nov 2026
+    assert pendientes == set()
+    assert c.p("TER-REDONDEO", "metodo") == "art20" and c.p("TER-TIPO-OPERACION", "omision") == "02"
     assert c.p("TES-IMSS", "tratamiento") == "no_objeto"
     assert set(c.tipos_tercero) == {"04", "05", "15"} and "85" in c.tipos_operacion
     assert all(d.contradiccion for d in crit.SISTEMA if d.estado == crit.PENDIENTE)
@@ -53,18 +53,17 @@ def test_redondeo_segun_el_criterio():
     # base 16 % = 16.08 / 0.16 = 100.50 exactos
     r = motor.procesar(docs, RFC_EMPRESA, cfg=_cfg(**{"TER-REDONDEO": {"metodo": "art20"}}))
     assert _por_rfc(r)["MMM010101MMM"].redondeados["base16"] == 100
-    r = motor.procesar(docs, RFC_EMPRESA)  # carga inicial: 50 centavos suben y el criterio está pendiente
-    assert _por_rfc(r)["MMM010101MMM"].redondeados["base16"] == 101
-    pend = [i for i in r.incidencias if i.codigo == "CRITERIO-PENDIENTE" and "TER-REDONDEO" in i.mensaje]
-    assert len(pend) == 1 and pend[0].impacto == motor.POSIBLE and "MMM010101MMM" in pend[0].mensaje
-    # sin importes de 50 centavos exactos, el criterio pendiente no estorba
-    assert not any("TER-REDONDEO" in i.mensaje for i in motor.procesar(tablas(), RFC_EMPRESA).incidencias)
+    r = motor.procesar(docs, RFC_EMPRESA, cfg=_cfg(**{"TER-REDONDEO": {"metodo": "mitad_arriba"}}))
+    assert _por_rfc(r)["MMM010101MMM"].redondeados["base16"] == 101  # como se presentaba antes
+    r = motor.procesar(docs, RFC_EMPRESA)  # carga inicial: art. 20 (Fiscal, 10 nov), ya sin criterio pendiente
+    assert _por_rfc(r)["MMM010101MMM"].redondeados["base16"] == 100
+    assert not any(i.codigo == "CRITERIO-PENDIENTE" and "TER-REDONDEO" in i.mensaje for i in r.incidencias)
 
 
 def test_tipo_de_operacion_por_omision_y_su_contradiccion():
     r = motor.procesar(tablas(), RFC_EMPRESA)
-    assert all(t.tipo_operacion == "02" for t in r.terceros)
-    assert any("TER-TIPO-OPERACION" in i.mensaje for i in r.incidencias if i.codigo == "CRITERIO-PENDIENTE")
+    assert all(t.tipo_operacion == "02" for t in r.terceros)  # Fiscal, 10 nov: compras son 02
+    assert not any("TER-TIPO-OPERACION" in i.mensaje for i in r.incidencias if i.codigo == "CRITERIO-PENDIENTE")
     r = motor.procesar(tablas(), RFC_EMPRESA, cfg=_cfg(**{"TER-TIPO-OPERACION": {"omision": "85"}}))
     assert all(t.tipo_operacion == "85" for t in r.terceros)
     assert not any(i.codigo == "CRITERIO-PENDIENTE" for i in r.incidencias)
@@ -134,10 +133,12 @@ def test_layout_configurable():
     docs = tablas()
     _pago(docs, 26, "PAGO", "Frontera", "GGG010101GGG", 8, 8, 100)
     r = motor.procesar(docs, RFC_EMPRESA, cfg=crit.todo_aprobado())
-    assert _por_rfc(r)["GGG010101GGG"].estado == "revisar" and r.txt is None  # el 8 % no tiene campo
+    assert _por_rfc(r)["GGG010101GGG"].estado == "revisar" and r.txt is None  # sin CFDI no se sabe la región
     cfg = crit.todo_aprobado()
-    cfg.mapa.update({13: "base8", 23: "iva8"})
-    r = motor.procesar(docs, RFC_EMPRESA, cfg=cfg)
+    cfg.mapa = {k: v for k, v in cfg.mapa.items() if v not in ("base8_norte", "iva8_norte")}
+    cfg.mapa.update({13: "base8_norte", 23: "iva8_norte"})  # el 8 % norte movido a otros campos
+    norte = [{"rfc": "GGG010101GGG", "campo": "region_norte", "motivo": "Fiscal: tienda de la frontera"}]
+    r = motor.procesar(docs, RFC_EMPRESA, ajustes=norte, cfg=cfg)
     assert r.txt and all(v["ok"] for v in r.validaciones)
     g = next(x for x in r.txt.split("\r\n") if "|GGG010101GGG|" in x).split("|")
     assert g[12] == "100" and g[22] == "8" and len(g) == 54
@@ -155,10 +156,10 @@ def _criterio(base, clave):
 def test_base_de_conocimiento_por_la_api(admin):
     b = admin.get(BASE).json()
     assert len([c for c in b["criterios"] if c["tipo"] == "sistema"]) == len(crit.SISTEMA)
-    assert b["resumen"]["pendientes"] >= 2 and b["resumen"]["contradicciones"] >= 2
+    assert b["resumen"]["pendientes"] == 0  # las contradicciones las resolvió Fiscal el 10 nov 2026
     red = _criterio(b, "TER-REDONDEO")
-    assert red["ultima"]["estado"] == "pendiente" and red["contradiccion"] and red["campos"][0]["tipo"] == "opcion"
-    assert red["documento"] == crit.DOC_SAT
+    assert red["ultima"]["estado"] == "aprobado" and red["campos"][0]["tipo"] == "opcion"
+    assert red["documento"] == crit.DOC_JUNTA_NOV
     assert {c["clave"] for c in b["catalogos"] if c["catalogo"] == "tipo_tercero"} == {"04", "05", "15"}
     assert any(d["titulo"] == crit.DOC_RESPUESTAS for d in b["documentos"])
 

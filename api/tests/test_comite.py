@@ -294,4 +294,20 @@ def test_asistente_del_comite_contesta_con_la_ficha(admin: TestClient, sincrono,
     assert not r["encontrada"] and "no está en la ficha" in r["texto"] and r["fuentes"] == []
     assert admin.post(url, json={"pregunta": "x"}).status_code == 422
     assert admin.post(f"{R}/productos/999999/preguntar", json={"pregunta": "¿Por qué?"}).status_code == 404
+
+    # El mismo asistente en cada producto del radar de productos (Diego, 2026-11-09), con lo que decidió el comité
+    eid = item["evaluacion"]["id"]
+    admin.put(f"{R}/productos/{item['id']}/decision", json={"decision": "en_espera", "motivo": "Falta muestra física"})
+    urlp = f"/api/compras/productos/evaluaciones/{eid}/preguntar"
+    vistos.clear()
+    r = admin.post(urlp, json={"pregunta": "¿Por qué salió de este color?"})
+    assert r.status_code == 200, r.text
+    assert vistos["tarea"] == ac.TAREA_PRODUCTOS and vistos["proveedor"] == "ollama"
+    assert "radar de productos" in vistos["instrucciones"] and "Factor Rentabilidad" in vistos["mensaje"]
+    assert "Colágeno hidrolizado sabor fresa" in vistos["mensaje"] and "Precio al público: 320" in vistos["mensaje"]
+    assert r.json()["encontrada"]
+    r = admin.post(urlp, json={"pregunta": "¿Quién es el dueño del proveedor?"}).json()
+    assert not r["encontrada"] and "no está en la ficha" in r["texto"]
+    assert admin.post(urlp, json={"pregunta": "x"}).status_code == 422
+    assert admin.post("/api/compras/productos/evaluaciones/999999/preguntar", json={"pregunta": "¿Por qué?"}).status_code == 404
     cerrar_pendientes()

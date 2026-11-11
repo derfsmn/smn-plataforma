@@ -4,10 +4,13 @@ Reglas reconstruidas del papel de trabajo de Fiscal de ODP (agosto y septiembre 
 que cada importe se pueda rastrear hasta el renglón del documento que lo originó. El cálculo es determinista (Decimal);
 la IA no participa. Lo que no tiene regla verificada no se convierte en cero: queda como incidencia para Fiscal.
 """
+import re
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_DOWN, ROUND_HALF_UP, Decimal
+from functools import lru_cache
+from pathlib import Path
 
 from modulos.contraloria import diot_criterios as crit
 from modulos.contraloria.diot_lectura import TIPOS, Tabla, decimal, es_error, texto
@@ -121,6 +124,7 @@ class Tercero:
     fuentes: list[str]
     estado: str = "ok"  # ok / revisar
     ajustes: list[dict] = field(default_factory=list)
+    region: str = ""  # norte / sur: región fronteriza del 8 %, por el CP de expedición de sus CFDI
 
 
 @dataclass
@@ -160,10 +164,12 @@ class _Contexto:
         self.ops: list[Operacion] = []
         self.inc: list[Incidencia] = []
         self.catalogo: dict[str, tuple[str, str]] = {}
+        self.tipo_catalogo: dict[str, str] = {}  # Proveedor / Acreedor… (la columna «Tipo» del catálogo, si viene)
         for f in docs["proveedores"].filas if "proveedores" in docs else []:
             clave = texto(f.get("Clave")).upper()
             if clave and clave not in self.catalogo:
                 self.catalogo[clave] = (texto(f.get("RFC")).upper(), texto(f.get("Nombre")))
+                self.tipo_catalogo[clave] = texto(f.get("Tipo")).upper()
 
     def num(self, fuente: str, renglon: int, fila: dict, col: str, referencia: str) -> Decimal | None:
         try:
@@ -222,8 +228,19 @@ def texto_regla(cfg: crit.Config, clave: str) -> str:
 
 # ---------------------------------------------------------------- Tesorería
 
+def _tarjetas(c: _Contexto) -> set[str]:
+    """Claves de las tarjetas de crédito: el «Acreedor/Responsable» de los gastos «Gasto T/Credito» cuando el
+    proveedor real («Acreedor») es otro."""
+    movs = tuple(c.cfg.lista("TES-TARJETA", "movimientos_gasto"))
+    com = c.docs.get("comprobantes")
+    return {texto(f.get("Acreedor/Responsable")).upper() for f in (com.filas if com else [])
+            if texto(f.get("Movimiento (2)") or f.get("Movimiento")).upper().startswith(movs)
+            and texto(f.get("Acreedor/Responsable")) and texto(f.get("Acreedor/Responsable")) != texto(f.get("Acreedor"))}
+
+
 def _tesoreria(c: _Contexto) -> None:
     vistos: dict[tuple, int] = {}
+    tarjetas, avisadas = _tarjetas(c), set()
     for i, f in enumerate(c.docs["tesoreria"].filas, 1):
         mov, movid = texto(f.get("Mov")), texto(f.get("MovID"))
         ref = f"{mov} {movid}".strip()
@@ -246,10 +263,29 @@ def _tesoreria(c: _Contexto) -> None:
         propio = _propio(c, "tesoreria", {"concepto": concepto, "referencia": referencia, "nombre": nombre,
                                            "rfc": rfc or ""})
         g = c.cfg
+        contacto_tipo = texto(f.get("ContactoTipo")).upper()
         if propio:
             _aplicar_propio(op, propio, (c.num("tesoreria", i, f, "SubTotal", ref) or CERO) * tc)
+        elif texto(f.get("Contacto")).upper() in tarjetas:
+            op.regla = "TES-TARJETA"
+            if ref not in avisadas:
+                avisadas.add(ref)
+                c.inc.append(Incidencia(CONTROLADO, "TARJETA", f"{ref}: pago a la tarjeta {nombre}; no se declara "
+                                        "porque cada gasto pagado con ella ya entra con su proveedor (Gasto "
+                                        "T/Crédito).", "tesoreria", i, rfc))
         elif mov.upper() in g.lista("TES-BANCO", "movimientos"):
             op.regla = "TES-BANCO"
+        elif contacto_tipo and contacto_tipo in g.lista("TES-CLIENTE", "contacto_tipo"):
+            op.regla = "TES-CLIENTE"
+        elif any(x in nombre.upper() for x in g.lista("TES-IMPUESTOS", "beneficiarios")):
+            op.regla = "TES-IMPUESTOS"
+        elif tasa is None and concepto.startswith(tuple(g.lista("TES-ANTICIPO-SF", "sin_tasa"))):
+            op.regla = "TES-ANTICIPO-SF"
+            c.inc.append(Incidencia(CONTROLADO, "ANTICIPO-SF", f"{ref}: anticipo a {nombre} sin tasa de IVA (sin "
+                                    "factura); se declara cuando se aplique contra su factura.", "tesoreria", i, rfc,
+                                    c.num("tesoreria", i, f, "SubTotal", ref)))
+        elif tasa is None and any(x in concepto for x in g.lista("TES-PRESTAMO", "conceptos")):
+            op.regla = "TES-PRESTAMO"
         elif concepto.startswith(tuple(g.lista("TES-ANTICIPO-SF", "prefijos"))):
             op.regla = "TES-ANTICIPO-SF"
             c.inc.append(Incidencia(CONTROLADO, "ANTICIPO-SF", f"{ref}: anticipo a {nombre} sin factura; se declara "
@@ -277,6 +313,11 @@ def _tesoreria(c: _Contexto) -> None:
             op.regla = "TES-NOMINA"
         elif rfc and rfc == c.rfc_empresa:
             op.regla = "TES-PROPIA"
+        elif tasa is None and g.p("TES-SIN-TASA", "tratamiento") == "tasa0":
+            sub = (c.num("tesoreria", i, f, "SubTotal", ref) or CERO) * tc
+            op.regla, op.incluida, op.tasa, op.base0 = "TES-SIN-TASA", True, "0", sub
+            c.inc.append(Incidencia(CONTROLADO, "SIN-TASA-0", f"{ref}: pago a {nombre} sin tasa de IVA; se declaró a "
+                                    "tasa 0 %.", "tesoreria", i, rfc, sub))
         elif tasa is None:
             op.regla = "TES-SIN-TASA"
             c.inc.append(Incidencia(POSIBLE, "SIN-TASA", f"{ref}: pago a {nombre} sin tasa de IVA ni clasificación.",
@@ -286,6 +327,12 @@ def _tesoreria(c: _Contexto) -> None:
             sub = (c.num("tesoreria", i, f, "SubTotal", ref) or CERO) * tc
             t = tasa.quantize(UNO, rounding=ROUND_HALF_UP)
             op.regla, op.incluida = "TES-TASA", True
+            if str(t) in g.lista("TES-TASA-ERRONEA", "tasas"):
+                nueva = Decimal(str(g.p("TES-TASA-ERRONEA", "corregir_a")))
+                c.inc.append(Incidencia(CONTROLADO, "TASA-CORREGIDA", f"{ref}: tasa {t} % no existe (error de "
+                                        f"captura); se tomó {nueva} % con el IVA del reporte.", "tesoreria", i, rfc,
+                                        iva))
+                tasa = t = nueva
             if t == 16:
                 op.tasa, op.iva16, op.base16 = "16", iva, iva / T16
             elif t == 8:
@@ -298,6 +345,33 @@ def _tesoreria(c: _Contexto) -> None:
                                         rfc))
             if tasa != t:
                 op.nota = f"Tasa del reporte {tasa}, se tomó {t}."
+        if op.incluida and not op.rfc and op.fuente == "tesoreria":
+            op.rfc = str(g.p("TES-SIN-RFC", "rfc")).upper() or None
+            op.nota = ((op.nota or "") + " Sin RFC: va al RFC genérico.").strip()
+            c.inc.append(Incidencia(CONTROLADO, "SIN-RFC-GENERICO", f"{ref}: {nombre or 'sin nombre'} no tiene RFC; "
+                                    f"se declaró con el genérico {op.rfc}.", "tesoreria", i, op.rfc))
+        c.ops.append(op)
+
+
+def _comisiones(c: _Contexto) -> None:
+    """IVA de comisiones de bancos y plataformas: viene en el auxiliar de IVA acreditable (origen «Cargo Bancario»), no
+    en tesorería. Va al RFC genérico (Fiscal, 10 de noviembre)."""
+    origenes = set(c.cfg.lista("TES-COMISIONES", "origenes"))
+    rfc = str(c.cfg.p("TES-COMISIONES", "rfc")).upper()
+    for i, f in enumerate(c.docs["auxiliar_iva"].filas, 1):
+        origen = texto(f.get("Origen"))
+        if origen.upper() not in origenes:
+            continue
+        clave = f"{origen} {texto(f.get('OrigenID'))}".strip()
+        try:
+            iva = (decimal(f.get("Debe")) or CERO) - (decimal(f.get("Haber")) or CERO)
+        except ValueError:
+            continue
+        if not iva:
+            continue
+        op = Operacion("auxiliar_iva", i, clave, rfc, texto(f.get("Concepto")) or "Comisiones bancarias",
+                       "TES-COMISIONES", True, tasa="16", clave=clave)
+        op.iva16, op.base16 = iva, iva / T16
         c.ops.append(op)
 
 
@@ -414,9 +488,19 @@ def _comprobantes(c: _Contexto) -> dict[str, tuple[str | None, str]]:
                 else:
                     c.inc.append(Incidencia(CONTROLADO, "NO-OBJETO", f"{ref}: «{texto(f.get('Concepto'))}» sin IVA "
                                             "se declaró como no objeto.", "comprobantes", i, rfc, base))
-            if not rfc:
-                c.inc.append(Incidencia(POSIBLE, "SIN-RFC", f"{ref}: el acreedor {texto(f.get('Acreedor'))} no está "
-                                        "en el catálogo de proveedores.", "comprobantes", i, None, base))
+                tipo = c.tipo_catalogo.get(texto(f.get("Acreedor")).upper(), "")
+                if tipo and tipo in c.cfg.lista("COM-NO-OBJETO", "avisar_tipos"):
+                    c.inc.append(Incidencia(CONTROLADO, "AVISO-FISCAL", f"{ref}: {nombre} es {tipo.lower()} en el "
+                                            f"catálogo y su comprobante «{texto(f.get('Concepto'))}» viene como no "
+                                            "objeto. Avisar al equipo de Fiscal para revisarlo con el proveedor.",
+                                            "comprobantes", i, rfc, base))
+            if not rfc and op.incluida:
+                op.rfc = str(c.cfg.p("COM-SIN-RFC", "rfc")).upper() or None
+                op.nota = ((op.nota or "") + " Sin proveedor en el catálogo: va al RFC genérico.").strip()
+                c.inc.append(Incidencia(CONTROLADO, "SIN-RFC-GENERICO", f"{ref}: el acreedor "
+                                        f"{texto(f.get('Acreedor')) or '(vacío)'} ({nombre or 'sin nombre'}) no está en "
+                                        f"el catálogo de proveedores; se declaró con el genérico {op.rfc}.",
+                                        "comprobantes", i, op.rfc, base))
         c.ops.append(op)
     return por_poliza
 
@@ -471,6 +555,122 @@ def _tipos_operacion(docs: dict[str, Tabla], catalogo: dict[str, str]) -> tuple[
     return t, no_leidos
 
 
+def _tipo_por_evidencia(c: _Contexto) -> dict[str, tuple[str, str]]:
+    """Proveedores nuevos (sin hoja de Fiscal ni tipo guardado): 06 si sus gastos son arrendamiento, 03 si son
+    honorarios o es persona física con retención de ISR del 10 % (criterio TER-TIPO-REGLA). RFC → (tipo, por qué)."""
+    g = c.cfg
+    c06, c03 = g.lista("TER-TIPO-REGLA", "conceptos_06"), g.lista("TER-TIPO-REGLA", "conceptos_03")
+    try:
+        ret = Decimal(str(g.p("TER-TIPO-REGLA", "retencion_isr_03"))) / 100
+    except ArithmeticError:
+        ret = None
+    t: dict[str, tuple[str, str]] = {}
+    for f in c.docs["comprobantes"].filas if "comprobantes" in c.docs else []:
+        rfc = c.rfc_de_clave(texto(f.get("Acreedor")))[0]
+        if not rfc:
+            continue
+        concepto = texto(f.get("Concepto")).upper()
+        if concepto.startswith(tuple(c06)):
+            t[rfc] = ("06", f"gasto «{texto(f.get('Concepto'))}»")
+        elif t.get(rfc, ("",))[0] == "06":
+            continue
+        elif any(x in concepto for x in c03):
+            t[rfc] = ("03", f"gasto «{texto(f.get('Concepto'))}»")
+        elif ret and len(rfc) == 13:
+            try:
+                importe = (decimal(f.get("Cantidad")) or CERO) * (decimal(f.get("Precio")) or CERO)
+                isr = decimal(f.get("Retención")) or CERO
+            except ValueError:
+                continue
+            if importe and abs(isr / importe - ret) < Decimal("0.005"):
+                t[rfc] = ("03", f"persona física con retención de ISR del {ret * 100:.0f} %")
+    return t
+
+
+ARCHIVO_CP_FRONTERA = Path(__file__).with_name("datos") / "cp_region_fronteriza.csv"
+
+
+@lru_cache(maxsize=1)
+def cp_region_fronteriza() -> dict[str, str]:
+    """CP → «norte» o «sur», del catálogo c_CodigoPostal del SAT (columna «Estímulo Franja Fronteriza»)."""
+    regiones = {}
+    with open(ARCHIVO_CP_FRONTERA, encoding="utf-8") as f:
+        for linea in f:
+            if linea.startswith("#") or linea.startswith("cp,"):
+                continue
+            cp, region = linea.split(",")[:2]
+            regiones[cp.strip()] = region.strip()
+    return regiones
+
+
+def _regiones_por_rfc(docs: dict[str, Tabla]) -> dict[str, Counter]:
+    """De los CFDI recibidos (Visor del SAT), la región fronteriza de cada proveedor según el CP de expedición
+    («LugarExpedicion»). Pesan más las facturas con 8 %; un CP sin estímulo cuenta como «fuera»."""
+    cps = cp_region_fronteriza()
+    por_rfc: dict[str, Counter] = defaultdict(Counter)
+    tabla = docs.get("cfdi_sat")
+    for f in tabla.filas if tabla else []:
+        rfc = texto(f.get("EmisorRFC")).upper()
+        cp = texto(f.get("LugarExpedicion")).split(".")[0].zfill(5)
+        if not rfc or not cp.strip("0"):
+            continue
+        try:
+            peso = decimal(f.get("TotalTrasladosBaseIVA8")) or CERO
+        except ValueError:
+            peso = CERO
+        por_rfc[rfc][(cps.get(cp, "fuera"), cp)] += 1 + (1000 if peso else 0)
+    return por_rfc
+
+
+def _region_8(c: _Contexto, terceros: list[Tercero], decididas: dict[str, str] | None = None) -> None:
+    """Base e IVA del 8 % van al campo de la región fronteriza norte o sur según el CP del CFDI (Fiscal, 10 nov).
+    `decididas`: lo que Fiscal decidió en «Resolver pendientes» por RFC (norte, sur o 16: pasar el 8 % al 16 %)."""
+    con_8 = [t for t in terceros if t.exactos.get("base8") or t.exactos.get("iva8")]
+    if not con_8:
+        return
+    por_rfc = _regiones_por_rfc(c.docs)
+    generico = dict(x.split("=", 1) for x in c.cfg.lista("TER-REGION-GENERICO", "regiones") if "=" in x)
+    decididas = decididas or {}
+    for t in con_8:
+        votos = por_rfc.get(t.rfc)
+        importe = t.exactos.get("base8")
+        decision = decididas.get(t.rfc.upper())
+        if decision in ("norte", "sur"):
+            t.region = decision
+            c.inc.append(Incidencia(CONTROLADO, "REGION-8", f"{t.rfc}: 8 % en región fronteriza {decision} por "
+                                    "decisión de Fiscal (ajuste).", rfc=t.rfc, importe=importe))
+            continue
+        if decision == "16":
+            t.exactos["base16"] += t.exactos["base8"]
+            t.exactos["iva16"] += t.exactos["iva8"]
+            t.exactos["base8"] = t.exactos["iva8"] = CERO
+            c.inc.append(Incidencia(CONTROLADO, "REGION-8", f"{t.rfc}: su 8 % se declaró en los campos del 16 % por "
+                                    "decisión de Fiscal (ajuste); base e IVA tal como vienen.", rfc=t.rfc,
+                                    importe=importe))
+            continue
+        if not votos and t.tipo_tercero == "15" and generico.get(c.rfc_empresa.upper(), "").lower() in ("norte", "sur"):
+            t.region = generico[c.rfc_empresa.upper()].lower()
+            c.inc.append(Incidencia(CONTROLADO, "REGION-8", f"{t.rfc}: el genérico no tiene CFDI; su 8 % va a región "
+                                    f"{t.region} (criterio de la empresa).", rfc=t.rfc, importe=importe))
+            continue
+        if not votos:
+            t.estado = "revisar"
+            c.inc.append(Incidencia(POSIBLE, "REGION-8", f"{t.rfc}: tiene compras al 8 % y no hay CFDI suyo en los "
+                                    "archivos del SAT para saber por su código postal si es región norte o sur. Sube "
+                                    "los CFDI del SAT (Visor) o captura un ajuste.", rfc=t.rfc, importe=importe))
+            continue
+        (region, cp), _ = votos.most_common(1)[0]
+        if region == "fuera":
+            t.estado = "revisar"
+            c.inc.append(Incidencia(POSIBLE, "REGION-8", f"{t.rfc}: tiene compras al 8 %, pero sus CFDI se expiden en el "
+                                    f"CP {cp}, que no es región fronteriza según el catálogo del SAT. Revisa la tasa "
+                                    "con el proveedor.", rfc=t.rfc, importe=importe))
+            continue
+        t.region = region
+        c.inc.append(Incidencia(CONTROLADO, "REGION-8", f"{t.rfc}: 8 % en región fronteriza {region} (CP {cp} de sus "
+                                "CFDI).", rfc=t.rfc, importe=importe))
+
+
 def _tipo_tercero(cfg: crit.Config, rfc: str) -> str:
     """04 si el RFC es mexicano válido; 05 o 15 si está en esas listas; vacío si el RFC no es válido (por revisar)."""
     if rfc in cfg.lista("TER-TIPO-TERCERO", "globales"):
@@ -478,6 +678,31 @@ def _tipo_tercero(cfg: crit.Config, rfc: str) -> str:
     if rfc in cfg.lista("TER-TIPO-TERCERO", "extranjeros"):
         return "05"
     return "04" if rfc_valido(rfc) else ""
+
+
+def _rfc_por_cfdi(c: _Contexto) -> dict[str, str]:
+    """RFC inválidos del catálogo que en los CFDI del SAT aparecen con un carácter distinto (PV1230615EX2 →
+    PVI230615EX2, Pinturas VIM, SMN octubre 2026)."""
+    malos = {o.rfc for o in c.ops if o.incluida and o.rfc and not rfc_valido(o.rfc)
+             and o.rfc not in c.cfg.lista("TER-TIPO-TERCERO", "extranjeros")}
+    tabla = c.docs.get("cfdi_sat")
+    if not malos or not tabla:
+        return {}
+    try:
+        maximo = int(str(c.cfg.p("TER-RFC-CFDI", "diferencia_max")))
+    except ValueError:
+        maximo = 1
+    emisores = {texto(f.get("EmisorRFC")).upper() for f in tabla.filas}
+    emisores = {e for e in emisores if rfc_valido(e)}
+    salida = {}
+    for r in sorted(malos):
+        cerca = [e for e in emisores if len(e) == len(r) and sum(a != b for a, b in zip(e, r)) <= maximo]
+        if len(cerca) == 1:
+            salida[r] = cerca[0]
+            c.inc.append(Incidencia(CONTROLADO, "RFC-CORREGIDO", f"El RFC «{r}» del catálogo no es válido; en los CFDI "
+                                    f"del SAT está como {cerca[0]}: se declaró así. Corrige el catálogo de "
+                                    "proveedores.", rfc=cerca[0]))
+    return salida
 
 
 def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
@@ -489,11 +714,20 @@ def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
         if (k.accion or {}).get("accion") == "tipo_operacion" and (k.condicion or {}).get("campo") == "rfc":
             por_criterio[(k.condicion.get("valor") or "").upper().strip()] = (str(k.accion.get("tipo_operacion"))
                                                                               .zfill(2), k.clave)
+    corregidos = _rfc_por_cfdi(c)
+    # Ajuste «RFC correcto» de Fiscal (Resolver pendientes): el RFC inválido se declara con el que capturó.
+    for a in ajustes:
+        if a.get("campo") == "rfc_correcto" and a.get("nombre"):
+            corregidos[a["rfc"].upper()] = a["nombre"].upper()
+            c.inc.append(Incidencia(CONTROLADO, "RFC-CORREGIDO", f"El RFC «{a['rfc']}» se declaró como {a['nombre']} "
+                                    f"(ajuste de Fiscal: {a.get('motivo') or ''}).", rfc=a["nombre"]))
     grupos: dict[str, list[Operacion]] = defaultdict(list)
     for o in c.ops:
         if o.incluida and o.rfc:
+            o.rfc = corregidos.get(o.rfc, o.rfc)
             grupos[o.rfc].append(o)
     terceros, con_omision = [], []
+    por_evidencia = _tipo_por_evidencia(c)
     for rfc, ops in sorted(grupos.items()):
         exactos = {k: sum((getattr(o, k) for o in ops), CERO) for k in CAMPOS}
         tt = _tipo_tercero(cfg, rfc)
@@ -505,6 +739,17 @@ def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
             to = str(cfg.p("TER-TIPO-OPERACION", "extranjero")).zfill(2)
         elif rfc in tipos:
             to = tipos[rfc]
+        elif ((c.rfc_empresa, rfc) in cfg.operacion_rfc
+              or (c.rfc_empresa[:3].upper(), rfc) in cfg.operacion_rfc):  # en la base va con las 3 letras
+            guardado = cfg.operacion_rfc.get((c.rfc_empresa, rfc)) or cfg.operacion_rfc[(c.rfc_empresa[:3].upper(), rfc)]
+            to = omision if guardado == "omision" else guardado
+            if guardado == "omision":
+                con_omision.append(rfc)
+        elif rfc in por_evidencia:
+            to, motivo = por_evidencia[rfc]
+            c.inc.append(Incidencia(CONTROLADO, "TIPO-POR-REGLA", f"{rfc}: proveedor sin tipo de operación guardado; "
+                                    f"va como {to} por {motivo}. Si no es así, cámbialo en la Base de conocimiento.",
+                                    rfc=rfc))
         else:
             to = omision
             con_omision.append(rfc)
@@ -522,6 +767,11 @@ def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
     # Ajustes de Fiscal (con motivo) sobre el consolidado
     por_rfc = {t.rfc: t for t in terceros}
     for a in ajustes:
+        if str(a.get("campo") or "").startswith(("region_", "rfc_correcto")):
+            t = por_rfc.get(corregidos.get(a["rfc"], a["rfc"]))
+            if t:
+                t.ajustes.append(a)
+            continue  # se aplican en _region_8 y al agrupar
         t = por_rfc.get(a["rfc"])
         if a.get("excluir"):
             if t:
@@ -546,6 +796,8 @@ def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
             if t.estado == "revisar" and rfc_valido(t.rfc):
                 t.estado = "ok"
         t.ajustes.append(a)
+    _region_8(c, terceros, {a["rfc"].upper(): a["campo"][7:] for a in ajustes
+                            if str(a.get("campo") or "").startswith("region_")})
     metodo = cfg.p("TER-REDONDEO", "metodo")
     en_layout = set(cfg.mapa.values())
     medios = []
@@ -556,7 +808,8 @@ def _consolidar(c: _Contexto, ajustes: list[dict]) -> list[Tercero]:
             t.estado = "revisar"
             c.inc.append(Incidencia(POSIBLE, "NEGATIVO", f"{t.rfc}: importe negativo en el consolidado (devolución o "
                                     "nota de crédito); revisa antes de declarar.", rfc=t.rfc))
-        sin_campo = [crit.QUE_LLEVA[k] for k in CAMPOS if t.redondeados[k] and k not in en_layout]
+        sin_campo = [crit.QUE_LLEVA[k] for k in CAMPOS if t.redondeados[k] and k not in en_layout
+                     and not (k in ("base8", "iva8") and (not t.region or f"{k}_{t.region}" in en_layout))]
         if sin_campo:
             t.estado = "revisar"
             c.inc.append(Incidencia(POSIBLE, "LAYOUT", f"{t.rfc}: tiene importes de {', '.join(sin_campo)}, que no "
@@ -621,6 +874,8 @@ def _grupo_auxiliar(f: dict) -> tuple[str, str] | None:
     origen, tipo = texto(f.get("Origen")), texto(f.get("OrigenTipo")).upper()
     if origen == "Pago Prov Imptos":
         return None  # el pago del IVA del mes anterior: no es de proveedores
+    if origen in ORIGENES_SIN_REPORTE:
+        return None  # compras locales: falta el reporte que las detalla (Fiscal lo va a anexar)
     if origen == "Aplicacion" or (tipo == "CXP" and origen != "Pago Prov Imptos"):
         return "aplicaciones", texto(f.get("Movimiento"))
     if tipo == "GAS" or origen in ("Comprobante", "Caja Chica", "Devolucion Gasto"):
@@ -628,6 +883,7 @@ def _grupo_auxiliar(f: dict) -> tuple[str, str] | None:
     return "tesoreria", f"{origen} {texto(f.get('OrigenID'))}".strip()
 
 
+ORIGENES_SIN_REPORTE = ("Compra Local",)
 NOMBRE_GRUPO = {"tesoreria": "Pagos de tesorería (cheques y transferencias)",
                 "aplicaciones": "Aplicaciones de anticipos (CxP)",
                 "comprobantes": "Gastos comprobados y caja chica"}
@@ -650,8 +906,9 @@ def _conciliar(c: _Contexto) -> tuple[list[dict], list[dict], Decimal]:
             aux[g] += neto
     ops: dict[tuple[str, str], Decimal] = defaultdict(lambda: CERO)
     for o in c.ops:
-        if o.incluida and o.fuente in NOMBRE_GRUPO and o.clave is not None:
-            ops[(o.fuente, o.clave)] += o.iva16 + o.iva8
+        fuente = "tesoreria" if o.fuente == "auxiliar_iva" else o.fuente  # comisiones: su póliza es de tesorería
+        if o.incluida and fuente in NOMBRE_GRUPO and o.clave is not None:
+            ops[(fuente, o.clave)] += o.iva16 + o.iva8
     grupos, difs = [], []
     for g, nombre in NOMBRE_GRUPO.items():
         claves = {k for k in set(aux) | set(ops) if k[0] == g}
@@ -666,9 +923,29 @@ def _conciliar(c: _Contexto) -> tuple[list[dict], list[dict], Decimal]:
         compensadas = abs(o - a) <= TOLERANCIA_CONCILIACION and malas > 0
         for d in difs[len(difs) - malas:]:
             d["compensada"] = compensadas  # las diferencias por póliza se anulan entre sí: el total del grupo cuadra
+        # Dos movimientos cuyas diferencias se anulan exactamente: se contabilizaron en una sola póliza (PS octubre
+        # 2026: el IVA de PS49105 está en la póliza de PS49106) o se registraron y cancelaron (diarios de gastos).
+        sueltas = [d for d in difs[len(difs) - malas:] if not d["compensada"]]
+        for d in sueltas:
+            if d.get("par"):
+                continue
+            opciones = [x for x in sueltas if x is not d and not x.get("par")
+                        and abs(x["diferencia"] + d["diferencia"]) <= TOLERANCIA_CONCILIACION]
+            otra = min(opciones, key=lambda x: _cercania(d["movimiento"], x["movimiento"]), default=None)
+            if otra:
+                d["compensada"] = otra["compensada"] = True
+                d["par"], otra["par"] = otra["movimiento"], d["movimiento"]
         grupos.append({"grupo": g, "concepto": nombre, "operaciones": o, "auxiliar": a, "diferencia": o - a,
                        "movimientos": len(claves), "con_diferencia": malas, "compensadas": compensadas})
     return grupos, difs, fuera
+
+
+def _cercania(a: str, b: str) -> tuple[int, int]:
+    """Qué tan cerca están dos movimientos: mismo tipo y folio más próximo primero (PS49105 con PS49106)."""
+    ma, mb = re.match(r"(.*?)(\d+)$", a), re.match(r"(.*?)(\d+)$", b)
+    if not ma or not mb:
+        return (2, 0)
+    return (0 if ma.group(1) == mb.group(1) else 1, abs(int(ma.group(2)) - int(mb.group(2))))
 
 
 def _pesos(x) -> str:
@@ -701,7 +978,7 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
             else:
                 b.linea(f"No se subió «{t.nombre}» (opcional): "
                         + ("el IVA retenido saldrá en cero." if t.codigo == "iva_retenido"
-                           else f"todos los proveedores irán con el tipo de operación por omisión ({omision})."),
+                           else "el tipo de operación sale de lo ya declarado y de los gastos de cada proveedor."),
                         "aviso")
             continue
         faltan = [col for col in t.columnas if col.upper() not in {x.upper() for x in tabla.columnas}]
@@ -755,6 +1032,7 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
     # ---- Paso 3. Limpiar y clasificar
     b.inicio(3)
     _tesoreria(c)
+    _comisiones(c)
     _aplicaciones(c)
     por_poliza = _comprobantes(c)
     if "iva_retenido" in docs:
@@ -764,8 +1042,9 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
         c.inc.append(Incidencia(POSIBLE if retenciones else SIN_IMPACTO, "SIN-RETENIDO",
                                 "No se cargó el auxiliar de IVA retenido (2500-002-007); el IVA retenido sale en cero."))
     if "tipos_operacion" not in docs:
-        c.inc.append(Incidencia(CONTROLADO, "SIN-TIPOS", "No se cargó la lista de tipos de operación; todos los "
-                                f"proveedores van con el tipo por omisión ({omision})."))
+        c.inc.append(Incidencia(CONTROLADO, "SIN-TIPOS", "No se cargó la lista de tipos de operación: el tipo de cada "
+                                "proveedor sale del que ya tenía declarado en esta empresa y, si es nuevo, de sus "
+                                f"gastos (arrendamiento 06, honorarios 03); los demás van con {omision}."))
     _pendientes_de_clasificacion(c)
     for codigo in ("tesoreria", "aplicaciones", "comprobantes", "iva_retenido"):
         ops_doc = [o for o in c.ops if o.fuente == codigo]
@@ -810,9 +1089,23 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
                 f"diferencia {_pesos(g['diferencia'])} · {g['movimientos']} movimientos, {g['con_diferencia']} con "
                 f"diferencia de más de {_pesos(TOLERANCIA_CONCILIACION)}.", "ok" if not g["con_diferencia"] else "aviso",
                 datos={k: str(v) if isinstance(v, Decimal) else v for k, v in g.items()})
+    locales = CERO
+    for f in c.docs["auxiliar_iva"].filas:
+        if texto(f.get("Origen")) in ORIGENES_SIN_REPORTE:
+            try:
+                locales += (decimal(f.get("Debe")) or CERO) - (decimal(f.get("Haber")) or CERO)
+            except ValueError:
+                pass
+    fuera -= locales
     if fuera:
         b.linea(f"El auxiliar también trae {_pesos(fuera)} que no son de proveedores (pago provisional del IVA); no se "
                 "concilian.")
+    if locales:
+        b.linea(f"Compras locales: el auxiliar trae {_pesos(locales)} de IVA y falta el reporte que dice a qué "
+                "proveedor corresponde.", "aviso")
+        c.inc.append(Incidencia(POSIBLE, "COMPRAS-LOCALES", f"El auxiliar de IVA trae {_pesos(locales)} de IVA de "
+                                "compras locales y no se declaran: falta el reporte de compras locales que va a anexar "
+                                "Fiscal (dice el proveedor de cada una).", importe=locales))
     abiertas = [d for d in difs if not d["compensada"]]
     compensadas = [d for d in difs if d["compensada"]]
     correcta = not abiertas
@@ -834,7 +1127,10 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
         for d in difs:
             msg = (f"{NOMBRE_GRUPO[d['grupo']]} · {d['movimiento']}: IVA de las operaciones {_pesos(d['operaciones'])} "
                    f"contra auxiliar {_pesos(d['auxiliar'])} (diferencia {_pesos(d['diferencia'])}). ")
-            if d["compensada"]:
+            if d.get("par"):
+                msg += (f"Se compensa exactamente con {d['par']}: los dos se contabilizaron en una sola póliza, o "
+                        "se registró y se canceló.")
+            elif d["compensada"]:
                 msg += "Se compensa con otra póliza del mismo grupo (por ejemplo, una devolución registrada aparte)."
             else:
                 msg += "Identifica la causa y, si hace falta, captura un ajuste."
@@ -850,8 +1146,12 @@ def procesar(docs: dict[str, Tabla], rfc_empresa: str, ajustes: list[dict] | Non
     # ---- Paso 6. Generar archivo DIOT (TXT)
     b.inicio(6)
     for a in ajustes or []:
-        cambio = ("se quita de la DIOT" if a.get("excluir") else
-                  ", ".join(x for x in (f"{a['campo']} {Decimal(str(a['importe'])):+,.2f}" if a.get("campo") else "",
+        especial = {"region_norte": "su 8 % va a región norte", "region_sur": "su 8 % va a región sur",
+                    "region_16": "su 8 % se declara como 16 %",
+                    "rfc_correcto": f"se declara con el RFC {a.get('nombre')}"}.get(str(a.get("campo")))
+        cambio = especial or ("se quita de la DIOT" if a.get("excluir") else
+                  ", ".join(x for x in (f"{a['campo']} {Decimal(str(a['importe'])):+,.2f}" if a.get("campo") and a.get("importe") is not None
+                                         else "",
                                          f"tipo de tercero {a['tipo_tercero']}" if a.get("tipo_tercero") else "",
                                          f"tipo de operación {a['tipo_operacion']}" if a.get("tipo_operacion") else "")
                             if x))

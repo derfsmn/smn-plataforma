@@ -346,3 +346,37 @@ class TiendaGrupo(Base):
     rasgos: Mapped[str | None] = mapped_column(UnicodeText)  # JSON: rasgos donde más se sale de su grupo
     alertas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON: en qué va abajo de sus pares (None si en nada)
     metricas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON: sus rasgos medidos y su localidad del Censo
+
+
+class ClienteCorrida(Base):
+    """Un cálculo de los tipos de cliente (Datos → Clientes). Sin datos de personas: solo los perfiles de cada tipo."""
+    __tablename__ = "cliente_corrida"
+    __table_args__ = {"schema": ESQUEMA}
+
+    corrida_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    estado: Mapped[str] = mapped_column(Unicode(20))  # en_curso / completa / fallida
+    paso: Mapped[str | None] = mapped_column(Unicode(300))
+    archivo: Mapped[str | None] = mapped_column(Unicode(260))  # nombre del CSV que se subió
+    renglones: Mapped[int | None] = mapped_column(Integer)
+    clientes: Mapped[int | None] = mapped_column(Integer)
+    tipos: Mapped[int | None] = mapped_column(Integer)
+    calidad: Mapped[float | None] = mapped_column(Float)  # silueta promedio, de -1 a 1
+    resumen: Mapped[str | None] = mapped_column(UnicodeText)  # JSON: totales, genéricos, precios por departamento
+    perfiles: Mapped[str | None] = mapped_column(UnicodeText)  # JSON: un perfil por tipo con su nombre y texto
+    nota_ia: Mapped[str | None] = mapped_column(Unicode(500))
+    error: Mapped[str | None] = mapped_column(Unicode(1000))
+    iniciada_por: Mapped[int | None] = mapped_column(ForeignKey("nucleo.usuario.usuario_id"))
+    iniciada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+    terminada_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ClienteObjetivo(Base):
+    """«Nuestro cliente»: el nivel socioeconómico al que le vendemos y su descripción (un solo renglón, id 1)."""
+    __tablename__ = "cliente_objetivo"
+    __table_args__ = {"schema": ESQUEMA}
+
+    objetivo_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    nivel: Mapped[str] = mapped_column(Unicode(10))  # A/B, C+, C, C-, D+, D, E
+    descripcion: Mapped[str | None] = mapped_column(UnicodeText)  # la escriben Transformación Digital o Compras
+    actualizado_por: Mapped[int | None] = mapped_column(ForeignKey("nucleo.usuario.usuario_id"))
+    actualizado_en: Mapped[datetime | None] = mapped_column(DateTime)

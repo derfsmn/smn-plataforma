@@ -131,7 +131,9 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     eid = r.json()["id"]
     e = admin.get(f"{R}/evaluaciones/{eid}").json()
     assert e["estado"] == "lista", e["error"]
-    assert e["sujeto"]["tipo"] == "idea" and e["sujeto"]["estado"] == "nueva"
+    # Sin proveedor: si sale verde o amarillo se abre sola su búsqueda de proveedor
+    esperado = "buscar_proveedor" if e["color"] in {"verde", "amarillo"} else "nueva"
+    assert e["sujeto"]["tipo"] == "idea" and e["sujeto"]["estado"] == esperado
     # Sin IA en pruebas: la subcategoría se toma de los parecidos, que son todos «Minerales»
     assert e["clasificacion_origen"] == "parecidos" and e["subcategoria"] == "Minerales"
     parecidos = [c["sku"] for c in e["comparables"]]
@@ -434,9 +436,27 @@ def test_explicacion_entendible():
     assert "**Lo que lo sube:** demanda (90)" in texto and "**Lo que lo baja:** precio (40)" in texto
     assert "Precio: para verde tendría que venderse en $95 o menos" in texto and "Faltan datos de tendencia" in texto
     calc, mejora = rp._precio_explicado(Decimal("1.15"), Decimal("100"), "el mercado")
-    assert "15 % más caro: 40" in calc and "$94.90" in mejora
+    assert "15 % más caro: 60" in calc and "$94.00" in mejora
     for palabra in ("mediana", "percentil", "umbral"):
         assert palabra not in texto + calc + mejora
+
+
+def test_recalibracion_9_nov():
+    """Escalas recalibradas con productos que ya vendemos (9 nov 2026): igual al mercado = 75, 1 punto por 1 %;
+    tendencia sin señal no cuenta ni baja la confianza; demanda abierta alrededor de 50."""
+    assert rp._por_precio(Decimal("1")) == 75 and rp._por_precio(Decimal("0.94")) == 81
+    assert rp._por_precio(Decimal("1.20")) == 55
+    assert rp._percentil_para(81) == 74
+    peso = {f: Decimal(100) / 6 for f in rp.FACTORES}
+    factores = {f: rp.Factor(84, "dato", "x") for f in rp.FACTORES}
+    factores["tendencia"] = rp.Factor(None, rp.SIN_SENAL, "Ninguna señal habla de él")
+    fuera = rp.sin_senal(factores)
+    assert fuera == {"tendencia"} and rp.sumar(factores, peso, fuera) == (84, "alta")
+    assert rp.sin_senal({"tendencia": rp.Factor(None, None, "Sin datos")}) == set()
+    s = rp.Sujeto(tipo="idea", nombre="Producto ficticio")
+    texto = rp.explicacion_simple(s, 84, "verde", "alta", factores, peso, fuera)
+    assert "5 de 5 factores" in texto and "no cuenta: ni lo sube ni lo baja" in texto
+    assert "Es una oportunidad" not in texto and "Faltan datos de tendencia" not in texto
 
 
 def test_precio_no_compara_presentaciones_distintas():
