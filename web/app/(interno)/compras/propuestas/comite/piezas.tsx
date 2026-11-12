@@ -46,9 +46,9 @@ export function Atender({ p, cerrar, listo }: { p: Peticion; cerrar: () => void;
 }
 
 /** La foto n del producto (las del cuestionario o de la idea); si no hay, la de internet de la oportunidad o un hueco. */
-export function Foto({ i, n = 0, className = "" }: { i: Item; n?: number; className?: string }) {
+export function Foto({ i, n = 0, className = "", ancho = 160 }: { i: Item; n?: number; className?: string; ancho?: number }) {
   const [rota, setRota] = useState(false);
-  const src = i.fotos > n ? urlFoto(i.id, n) : n === 0 ? i.foto_externa : null;
+  const src = i.fotos > n ? urlFoto(i.id, n, ancho) : n === 0 ? i.foto_externa : null;
   if (!src || rota)
     return (
       <div className={`grid place-items-center bg-smn-gris-50 text-smn-gris-500 ${className}`}>
@@ -56,7 +56,7 @@ export function Foto({ i, n = 0, className = "" }: { i: Item; n?: number; classN
       </div>
     );
   // eslint-disable-next-line @next/next/no-img-element -- la foto sale de la API con la sesión
-  return <img src={src} alt={i.nombre} onError={() => setRota(true)} className={`bg-smn-gris-50 object-contain ${className}`} />;
+  return <img src={src} alt={i.nombre} loading="lazy" decoding="async" onError={() => setRota(true)} className={`bg-smn-gris-50 object-contain ${className}`} />;
 }
 
 /** Pre-filtro de Compras: pasa o no pasa, con motivo y los criterios que se revisaron (políticas y criterios nuevos). */

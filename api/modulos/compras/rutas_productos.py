@@ -520,8 +520,8 @@ def cambiar_estado_idea(idea_id: int, datos: CambioEstadoIdea, request: Request,
 
 
 @router.get("/ideas/{idea_id}/fotos/{archivo_id}")
-def foto_idea(idea_id: int, archivo_id: int, _: Contexto = Depends(requiere(VER)),
-              bd: Session = Depends(obtener_bd)) -> FileResponse:
+def foto_idea(idea_id: int, archivo_id: int, ancho: int | None = Query(None, ge=32, le=2000),
+              _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> FileResponse:
     """Cualquiera con permiso de ver el radar ve las fotos de una idea (el almacén solo deja al que la subió)."""
     ligada = bd.get(ProductoIdeaFoto, (idea_id, archivo_id))
     archivo = bd.get(Archivo, archivo_id) if ligada else None
@@ -529,8 +529,9 @@ def foto_idea(idea_id: int, archivo_id: int, _: Contexto = Depends(requiere(VER)
     ruta = (raiz / archivo.ruta_almacenamiento).resolve() if archivo else None
     if not ruta or raiz not in ruta.parents or not ruta.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa foto.")
-    return FileResponse(ruta, media_type=archivo.tipo_contenido, filename=archivo.nombre_original,
-                        headers={"X-Content-Type-Options": "nosniff"})
+    from modulos.compras import miniaturas
+
+    return miniaturas.responder(raiz, ruta, archivo.tipo_contenido, archivo.nombre_original, ancho, inline=False)
 
 
 # ---------------------------------------------------------------- asistente de IA local por producto

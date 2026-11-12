@@ -153,6 +153,16 @@ def test_ciclo_completo_del_comite(admin: TestClient, sincrono):  # noqa: F811
     assert admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "comite"}).json()["estado"] == "comite"
     admin.put(f"{R}/productos/{i_cap['id']}/decision", json={"decision": "aceptado", "motivo": "Se alinea al surtido"})
     admin.put(f"{R}/productos/{i_idea['id']}/decision", json={"decision": "en_espera", "motivo": "Ver en el siguiente ciclo"})
+    # 12 nov 2026: lo que decide el comité (y el pre-filtro que no pasa) queda como antecedente en la Base de conocimiento
+    from sqlalchemy import select
+
+    from modulos.compras.modelos_conocimiento import ConocimientoCaso
+    with Session(motor()) as bd:
+        casos = {c.notas: c for c in bd.scalars(select(ConocimientoCaso).where(ConocimientoCaso.notas.in_(
+            [f"Registrado por el comité (producto {x})" for x in (i_cap["id"], i_portal["id"], i_idea["id"])])))}
+    assert casos[f"Registrado por el comité (producto {i_cap['id']})"].decision == "aprobado"
+    assert casos[f"Registrado por el comité (producto {i_portal['id']})"].decision == "rechazado"
+    assert f"Registrado por el comité (producto {i_idea['id']})" not in casos  # en espera no es antecedente
     reunion = admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "cerrada"}).json()
     assert reunion["estado"] == "cerrada" and reunion["cerrada_por"]
     # Acta en PDF con las decisiones y su motivo
@@ -257,7 +267,7 @@ def test_asistente_del_comite_contesta_con_la_ficha(admin: TestClient, sincrono,
     reunion = admin.post(f"{R}/reuniones/{rid}/productos", json={"idea_id": barata}).json()
     x = item_de(reunion, tipo="idea", sujeto_id=barata)["evaluacion"]["ejecutivo"]
     assert [p["factor"] for p in x["en_contra"]][:1] == ["rentabilidad"] and "débil en rentabilidad" in x["titular"]
-    assert "vendiéndolo en $" in x["para_verde"] and x["margen_minimo"] is not None
+    assert "venderlo en $" in x["para_verde"] and x["margen_minimo"] is not None
 
     # Los parecidos de la diapositiva, con su venta (o sin ella si no hay ventas cargadas)
     par = admin.get(f"{R}/productos/{item['id']}/parecidos")
@@ -311,3 +321,32 @@ def test_asistente_del_comite_contesta_con_la_ficha(admin: TestClient, sincrono,
     assert admin.post(urlp, json={"pregunta": "x"}).status_code == 422
     assert admin.post("/api/compras/productos/evaluaciones/999999/preguntar", json={"pregunta": "¿Por qué?"}).status_code == 404
     cerrar_pendientes()
+
+
+def test_asistente_no_repite_lineas():
+    """11 nov 2026: el asistente se ciclaba repitiendo la misma pregunta; se queda lo primero que dijo."""
+    from modulos.compras.asistente_comite import sin_repetir
+
+    texto = "Es un shaker [1].\n¿Qué es el producto parecido?\n¿Qué es el producto parecido?\nCuesta $210. Cuesta $210 y más. "
+    assert sin_repetir(texto).count("¿Qué es el producto parecido?") == 1
+    assert sin_repetir("Es un vaso para batidos. Es un vaso para batidos. Es un vaso para batidos.") == "Es un vaso para batidos."
+
+
+def test_duplicados_en_la_reunion():
+    """11 nov 2026: Krystal Stone de 120 g y de 60 g en la misma reunión: se avisa y se dice cuál conviene por gramo."""
+    from datetime import datetime
+    from decimal import Decimal
+
+    from modulos.compras import rutas_comite as rc
+
+    def item(n, pres, precio):
+        return rc.ItemSalida(id=n, tipo="idea", sujeto_id=n, nombre="Desodorante Ficticio Sólido 120g", marca="FICTICIA",
+                             departamento=None, folio=None, proveedor=None, proveedor_actual=False, origen="nuevo",
+                             viene_de_fecha=None, presentacion=pres, descripcion=None, precio=Decimal(precio), costo=None,
+                             margen=None, fotos=0, foto_externa=None, estado_sujeto="x", falta=None, evaluacion=None,
+                             prefiltro=None, prefiltro_motivo=None, criterios=[], prefiltro_color=None, prefiltro_por=None,
+                             prefiltro_en=None, decision=None, decision_motivo=None, decision_color=None, decision_por=None,
+                             decision_en=None, revisiones=[], agregado_por=None, agregado_en=datetime(2026, 11, 11))
+    a, b = item(1, "120 G", "184"), item(2, "60 G", "131")
+    rc._marcar_duplicados([a, b])
+    assert "60 G" in a.duplicado and "es el que más conviene" in a.duplicado and "hay otro que conviene más" in b.duplicado

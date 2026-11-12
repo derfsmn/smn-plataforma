@@ -132,6 +132,7 @@ TAREAS_IA = [
     ("compras.radar_resumen", "Radar: agrupar en señales, elegir los hallazgos del día y redactar el reporte", "compras", "api"),
     ("compras.precios_coincidencia", "Radar de precios: elegir nuestro producto entre los resultados de Google Shopping", "compras", "ollama_y_api_respaldo"),
     ("compras.productos_clasificar", "Radar de productos: ubicar un producto nuevo en rama, subcategoría y segmento (solo IA local)", "compras", "ollama"),
+    ("compras.productos_parecidos", "Radar de productos: revisar si cada producto parecido es de verdad el mismo tipo de producto y quitar los que no (solo IA local)", "compras", "ollama"),
     ("compras.productos_explicar", "Radar de productos: explicar en palabras simples el color del semáforo (solo IA local)", "compras", "ollama"),
     ("compras.productos_tendencia", "Radar de productos: elegir las señales del radar de tendencias que hablan de un producto nuevo (solo IA local)", "compras", "ollama"),
     ("compras.productos_politicas", "Radar de productos: revisar un producto nuevo contra las políticas y reglas de Compras (solo IA local)", "compras", "ollama"),

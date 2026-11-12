@@ -51,6 +51,7 @@ export type Ejecutivo = {
   para_verde: string | null;
   faltan_puntos: number | null;
   margen_minimo: string | null;
+  dictamen?: string | null; // meter, negociar o no meter, con el precio o costo meta
 };
 
 export type Criterio = { criterio: string; valor: ValorCriterio; nota: string | null };
@@ -80,6 +81,7 @@ export type Item = {
   falta: string | null;
   faltantes: string[]; // lo que le falta para presentarse completo
   llego_solo: boolean;
+  duplicado?: string | null; // el mismo producto está otra vez en la reunión
   evaluacion: Semaforo | null;
   prefiltro: "pasa" | "no_pasa" | null;
   prefiltro_motivo: string | null;
@@ -161,7 +163,9 @@ export const MODELO = {
   sin_proveedor: "Sin proveedor actual: rentabilidad y proveedor solo cuentan si hay datos",
 };
 
-export const urlFoto = (item: number, n: number) => `${urlApi()}${RUTA}/productos/${item}/fotos/${n}`;
+/** Con `ancho`, la API manda la foto reducida (la original pesa varios MB y por la VPN tarda). */
+export const urlFoto = (item: number, n: number, ancho?: number) =>
+  `${urlApi()}${RUTA}/productos/${item}/fotos/${n}${ancho ? `?ancho=${ancho}` : ""}`;
 
 /** La fecha de la reunión (AAAA-MM-DD) sin que la zona horaria la mueva un día. */
 export const fechaReunion = (f: string, opciones: Intl.DateTimeFormatOptions = { weekday: "long", day: "numeric", month: "long", year: "numeric" }) =>
@@ -189,8 +193,32 @@ export type Parecido = {
   tiendas: number | null;
   por_tienda_mes: number | null;
   cambio: number | null;
+  tamano?: string | null;
+  por_unidad?: string | null; // precio por gramo, mililitro, pieza o metro
+  cuenta?: boolean | null; // entra en la comparación de precio (tamaño cercano)
 };
-export type Parecidos = { ventana: string | null; productos: Parecido[] };
+export type Parecidos = {
+  ventana: string | null;
+  productos: Parecido[];
+  unidad?: string | null; // gramo / mililitro / pieza / metro
+  este_por_unidad?: string | null;
+  este_tamano?: string | null;
+  internet?: { vendedor: string | null; precio: string; liga: string | null }[];
+  quitados?: string | null; // los que la IA no dejó comparar
+};
+
+/** El dictamen en una etiqueta de color: «Negociar: pedir costo…» → Negociar + el resto (maqueta, 12 nov 2026). */
+export function dictamenCorto(d: string): { etiqueta: string; resto: string; solido: string; fondo: string } {
+  const corte = d.indexOf(": ");
+  const cabeza = (corte >= 0 ? d.slice(0, corte) : d).replace(/\.$/, "");
+  const resto = corte >= 0 ? d.slice(corte + 2) : "";
+  const c = cabeza.toLowerCase();
+  if (c.startsWith("no meter")) return { etiqueta: cabeza, resto, solido: "bg-red-700", fondo: "bg-red-600/10" };
+  if (c.startsWith("negociar")) return { etiqueta: "Negociar", resto, solido: "bg-orange-700", fondo: "bg-orange-600/10" };
+  if (c.includes("a prueba")) return { etiqueta: "Meter a prueba", resto, solido: "bg-amber-700", fondo: "bg-amber-500/15" };
+  if (c.startsWith("meter")) return { etiqueta: "Meter", resto, solido: "bg-green-700", fondo: "bg-green-600/10" };
+  return { etiqueta: cabeza, resto, solido: "bg-smn-gris-700", fondo: "bg-smn-gris-50" };
+}
 
 /** Acta en PDF de la reunión (borrador si no está cerrada). */
 export const descargarActa = (r: Pick<Reunion, "id" | "fecha" | "estado">) =>

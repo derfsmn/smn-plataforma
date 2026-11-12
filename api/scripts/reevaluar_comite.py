@@ -49,6 +49,14 @@ def main() -> None:
 
     fabrica = _fabrica()
     with fabrica() as bd:
+        # Este proceso no es la API: hay que leer los ajustes guardados en la base (modelo de Ollama, pesos, etc.);
+        # sin esto toma solo el .env (2026-11-11: salió «Ollama no tiene modelo configurado»).
+        from core import ajustes
+        ajustes.aplicar(bd)
+        print(f"Modelo de Ollama: {ajustes.configuracion().ollama_modelo or '(ninguno)'}")
+        if not ajustes.configuracion().ollama_modelo:
+            raise SystemExit("No hay modelo de Ollama en Administración > Configuración: sin él el radar no clasifica. "
+                             "Ponlo y vuelve a correr.")
         q = select(ComiteReunion)
         q = q.where(ComiteReunion.reunion_id == args.reunion) if args.reunion else \
             q.where(ComiteReunion.estado != "cerrada").order_by(ComiteReunion.fecha.desc(), ComiteReunion.reunion_id.desc())

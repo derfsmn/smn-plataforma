@@ -1,0 +1,1112 @@
+{
+ "nota": "Los 100 productos del comité del 12 nov 2026 (nombre, marca, contenido y precio como los capturó Compras). «tamano» es lo que debe leer rp.tamano(contenido, nombre) y «repetido» el grupo de productos que son el mismo en la reunión. Revisado a mano: las cintas Go Plus de colores son el mismo producto; distinto sabor no es repetido.",
+ "productos": [
+  {
+   "orden": 1,
+   "nombre": "Cinta Kinesiológica Azul Go Plus 5m Pre-cortada",
+   "marca": "Go Plus",
+   "contenido": "5M",
+   "precio": "300.00",
+   "tamano": {
+    "m": 5.0
+   },
+   "repetido": "cinta-go-plus"
+  },
+  {
+   "orden": 2,
+   "nombre": "Cinta Kinesiologica Negra 5 M Diseño Go Plus",
+   "marca": "GO PLUS",
+   "contenido": "5M",
+   "precio": "300.00",
+   "tamano": {
+    "m": 5.0
+   },
+   "repetido": "cinta-go-plus"
+  },
+  {
+   "orden": 3,
+   "nombre": "Corrector de Postura para Espalda Go Plus | Soporte Ajustable para Hombros y Espalda",
+   "marca": "GO PLUS",
+   "contenido": "1 PIEZA",
+   "precio": "500.00",
+   "tamano": {
+    "pz": 1.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 4,
+   "nombre": "Cinta Kinesiológica Rosa 5m Pre-cortada Go Plus",
+   "marca": "GO PLUS",
+   "contenido": "4 TIRAS DE 5CM X 25CM",
+   "precio": "95.00",
+   "tamano": {
+    "pz": 4.0
+   },
+   "repetido": "cinta-go-plus"
+  },
+  {
+   "orden": 5,
+   "nombre": "Smart Shaker Go Plus | Vaso Mezclador de Proteína 500 ml",
+   "marca": "GO PLUS",
+   "contenido": "1 PIEZA",
+   "precio": "210.00",
+   "tamano": {
+    "pz": 1.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 6,
+   "nombre": "Gel con Efecto Frio Caliente Go Plus Frasco 100 g",
+   "marca": "GO PLUS",
+   "contenido": "100G",
+   "precio": "110.00",
+   "tamano": {
+    "g": 100.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 7,
+   "nombre": "Set Cuidado De La Piel Bam Boo! Lifestyle 4 Pzas",
+   "marca": "BAM BOO",
+   "contenido": "SET DE 4 PIEZAS",
+   "precio": "289.00",
+   "tamano": {
+    "pz": 4.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 8,
+   "nombre": "Cosmetiquera Skincare Kit Amor Y Cuidado Bam Boo! Lifestyle",
+   "marca": "Bam Boo",
+   "contenido": "KIT",
+   "precio": "539.00",
+   "tamano": {},
+   "repetido": null
+  },
+  {
+   "orden": 9,
+   "nombre": "KRYSTAL STONE SPORT ROLL-ON 90 ML",
+   "marca": "KALI NATURA",
+   "contenido": "90 ML",
+   "precio": "95.00",
+   "tamano": {
+    "ml": 90.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 10,
+   "nombre": "Krystal Stone Sólido 120g",
+   "marca": "KRYSTAL STONE",
+   "contenido": "120 G",
+   "precio": "184.00",
+   "tamano": {
+    "g": 120.0
+   },
+   "repetido": "krystal-solido"
+  },
+  {
+   "orden": 11,
+   "nombre": "Krystal Stone Sólido 120g",
+   "marca": "KRYSTAL STONE",
+   "contenido": "60 G",
+   "precio": "131.00",
+   "tamano": {
+    "g": 60.0
+   },
+   "repetido": "krystal-solido"
+  },
+  {
+   "orden": 12,
+   "nombre": "Toallitas antiolor y refrescante para pies",
+   "marca": "Shivai",
+   "contenido": "30 pzs",
+   "precio": "84.48",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 13,
+   "nombre": "Crema extra hidratante y suavizante para pies",
+   "marca": "Shivai",
+   "contenido": "250 ml",
+   "precio": "214.66",
+   "tamano": {
+    "ml": 250.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 14,
+   "nombre": "Crema antiolor y refrescante para pies",
+   "marca": "Shivai",
+   "contenido": "150 ml",
+   "precio": "214.66",
+   "tamano": {
+    "ml": 150.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 15,
+   "nombre": "Vaso Mezclador De Proteína Iron Shaker Premium Go Plus 750ml",
+   "marca": null,
+   "contenido": null,
+   "precio": "395.00",
+   "tamano": {
+    "ml": 750.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 16,
+   "nombre": "Kit Mix de Jabones Artesanales Naturales | 100 g | Bam Boo! Lifestyle",
+   "marca": "Bam Boo!",
+   "contenido": "8 piezas de 100g",
+   "precio": "339.00",
+   "tamano": {
+    "pz": 8.0,
+    "g": 800.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 17,
+   "nombre": "Seltz Proteina Refrescante en Polvo sabor Horchata Refresher | 21g de Proteina por porción | Sin Lactosa, Sin Azúcar, Si",
+   "marca": "Seltz",
+   "contenido": "391g",
+   "precio": "699.00",
+   "tamano": {
+    "g": 391.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 18,
+   "nombre": "Seltz Proteina Refrescante en Polvo sabor Mango Coco Bliss | 21g de Proteina por porción | Sin Lactosa, Sin Azúcar, Sin ",
+   "marca": "Seltz",
+   "contenido": "382g",
+   "precio": "699.00",
+   "tamano": {
+    "g": 382.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 19,
+   "nombre": "Seltz Proteina Refrescante en Polvo sabor Peach & Tea Twist | 21 gr de Proteina por porción | Sin Lactosa, Sin Azúcar, S",
+   "marca": "Seltz",
+   "contenido": "389g",
+   "precio": "699.00",
+   "tamano": {
+    "g": 389.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 20,
+   "nombre": "Seltz Electrolitos Tabletas Efervescentes Fresa Kiwi SIN AZÚCAR",
+   "marca": "Seltz",
+   "contenido": "15 tabletas de 5.3g c/u",
+   "precio": "125.00",
+   "tamano": {
+    "pz": 15.0,
+    "g": 79.5
+   },
+   "repetido": null
+  },
+  {
+   "orden": 21,
+   "nombre": "Seltz Electrolitos Sabor Lima Limón Tabletas Efervescentes SIN AZÚCAR",
+   "marca": "Seltz",
+   "contenido": "15 tabletas de 5.3g c/u",
+   "precio": "125.00",
+   "tamano": {
+    "pz": 15.0,
+    "g": 79.5
+   },
+   "repetido": null
+  },
+  {
+   "orden": 22,
+   "nombre": "Seltz Electrolitos Sabor Durazno Tabletas Efervescentes SIN AZÚCAR",
+   "marca": "Seltz",
+   "contenido": "15 tabletas de 5.3g c/u",
+   "precio": "125.00",
+   "tamano": {
+    "pz": 15.0,
+    "g": 79.5
+   },
+   "repetido": null
+  },
+  {
+   "orden": 23,
+   "nombre": "C-VYM + D3 Vitaminas C, D3 y Zinc SABOR FRESA-KIWI",
+   "marca": "Biomiral",
+   "contenido": "11 tabletas de 4.1g c/u",
+   "precio": "70.00",
+   "tamano": {
+    "pz": 11.0,
+    "g": 45.1
+   },
+   "repetido": null
+  },
+  {
+   "orden": 24,
+   "nombre": "Glicinato de Magnesio Biomiral | Con L-Teanina, Zinc y vitaminas B6 y D3",
+   "marca": "Biomiral",
+   "contenido": "30 capsulas de 525mg c/u",
+   "precio": "110.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 25,
+   "nombre": "ADN Kalamyn Loción Crema",
+   "marca": "ADN",
+   "contenido": "180 ml",
+   "precio": "55.00",
+   "tamano": {
+    "ml": 180.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 26,
+   "nombre": "ADN DERM Aceite de Almendras Dulces e Hidróxido de Calcio",
+   "marca": "ADN",
+   "contenido": "240 ml",
+   "precio": "90.00",
+   "tamano": {
+    "ml": 240.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 27,
+   "nombre": "ADN kalamyn loción crema para piernas cansadas",
+   "marca": "ADN",
+   "contenido": "180 ml",
+   "precio": "70.00",
+   "tamano": {
+    "ml": 180.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 28,
+   "nombre": "BEE FRESH ENERGIA Y FRESCURA",
+   "marca": "BEETAL HONEY NUTRITION",
+   "contenido": "14g",
+   "precio": "62.00",
+   "tamano": {
+    "g": 14.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 29,
+   "nombre": "Shampoo Cebolla Morada",
+   "marca": "Cuarzo",
+   "contenido": "550 ml",
+   "precio": "85.00",
+   "tamano": {
+    "ml": 550.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 30,
+   "nombre": "Shampoo Chile 550 Ml",
+   "marca": "Cuarzo",
+   "contenido": "550 ml",
+   "precio": "85.00",
+   "tamano": {
+    "ml": 550.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 31,
+   "nombre": "Formula D alimento en polvo para preparar bebida fortificada sabor a vainilla",
+   "marca": "Wellbalance",
+   "contenido": "462 G",
+   "precio": "320.00",
+   "tamano": {
+    "g": 462.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 32,
+   "nombre": "Formula D alimento en polvo para preparar bebida fortificada sabor a fresa",
+   "marca": "Wellbalance",
+   "contenido": "462G",
+   "precio": "320.00",
+   "tamano": {
+    "g": 462.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 33,
+   "nombre": "Wellbalance Dieta Polimérica Sabor Chocolate 462 G",
+   "marca": "Wellbalance",
+   "contenido": "462 g",
+   "precio": "280.00",
+   "tamano": {
+    "g": 462.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 34,
+   "nombre": "BEE FOCUS",
+   "marca": "Beetal Honey Nutrition",
+   "contenido": "14 g",
+   "precio": "62.00",
+   "tamano": {
+    "g": 14.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 35,
+   "nombre": "Eco-nutree jabón concha nacar",
+   "marca": "Eco-nutree",
+   "contenido": "100 g",
+   "precio": "20.00",
+   "tamano": {
+    "g": 100.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 36,
+   "nombre": "Eco Nutree Jabón para caballero",
+   "marca": "Eco Nutree",
+   "contenido": "100g",
+   "precio": "20.00",
+   "tamano": {
+    "g": 100.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 37,
+   "nombre": "Eco Nutree jabón neutro",
+   "marca": "Eco Nutree",
+   "contenido": "100g",
+   "precio": "20.00",
+   "tamano": {
+    "g": 100.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 38,
+   "nombre": "Agua mineral carbonatada",
+   "marca": "Manzanita Balseca de Tehuacán",
+   "contenido": "600ml",
+   "precio": "20.00",
+   "tamano": {
+    "ml": 600.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 39,
+   "nombre": "Kriya Golden Milk",
+   "marca": "Kriya",
+   "contenido": "200g",
+   "precio": "350.00",
+   "tamano": {
+    "g": 200.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 40,
+   "nombre": "Shampoo Forté B+",
+   "marca": "CarvoMex",
+   "contenido": "480ml",
+   "precio": "190.00",
+   "tamano": {
+    "ml": 480.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 41,
+   "nombre": "Shampoo Activa R+",
+   "marca": "CalvoMex",
+   "contenido": "480 ml",
+   "precio": "289.00",
+   "tamano": {
+    "ml": 480.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 42,
+   "nombre": "Shampoo Intensive C+",
+   "marca": "PalvoMex",
+   "contenido": "430ml",
+   "precio": "190.00",
+   "tamano": {
+    "ml": 430.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 43,
+   "nombre": "Gel trifuerza",
+   "marca": "CalvoMex",
+   "contenido": "250 ml",
+   "precio": "150.00",
+   "tamano": {
+    "ml": 250.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 44,
+   "nombre": "Óleo Acelerador",
+   "marca": "CalvoMex",
+   "contenido": "60ml",
+   "precio": "169.00",
+   "tamano": {
+    "ml": 60.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 45,
+   "nombre": "Loción bifásica",
+   "marca": "CalvoMex",
+   "contenido": "120 ml",
+   "precio": "169.00",
+   "tamano": {
+    "ml": 120.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 46,
+   "nombre": "Pastel sabor chocolate harina preparada para pastel",
+   "marca": "Kidda!",
+   "contenido": "365 g",
+   "precio": "190.00",
+   "tamano": {
+    "g": 365.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 47,
+   "nombre": "Harina preparada para pastel keto sabor vainilla 365gr KIDDA!",
+   "marca": "Kidda!",
+   "contenido": "365g",
+   "precio": "205.00",
+   "tamano": {
+    "g": 365.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 48,
+   "nombre": "Crema de pistache y chocolate blanco 250gr KIDDA!",
+   "marca": "Kidda!",
+   "contenido": "250g",
+   "precio": "370.00",
+   "tamano": {
+    "g": 250.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 49,
+   "nombre": "Harina preparada para brownies keto 365gr KIDDA!",
+   "marca": "Kidda!",
+   "contenido": "365g",
+   "precio": "205.00",
+   "tamano": {
+    "g": 365.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 50,
+   "nombre": "Proteina sabor chocolate",
+   "marca": "Nuba nutrición balanceada",
+   "contenido": "1kg",
+   "precio": "800.00",
+   "tamano": {
+    "g": 1000.0
+   },
+   "repetido": "proteina-nuba"
+  },
+  {
+   "orden": 51,
+   "nombre": "Proteina Nuba Sabor Chocolate",
+   "marca": "Nuba",
+   "contenido": "500g",
+   "precio": "550.00",
+   "tamano": {
+    "g": 500.0
+   },
+   "repetido": "proteina-nuba"
+  },
+  {
+   "orden": 52,
+   "nombre": "Proteína sabor chocolate",
+   "marca": "Nuba",
+   "contenido": "250g",
+   "precio": "299.00",
+   "tamano": {
+    "g": 250.0
+   },
+   "repetido": "proteina-nuba"
+  },
+  {
+   "orden": 53,
+   "nombre": "Psyllium Husk, 300g Sin Azucar, Vizana Nutrition",
+   "marca": "Vizana",
+   "contenido": "300g",
+   "precio": "257.00",
+   "tamano": {
+    "g": 300.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 54,
+   "nombre": "Creatina monohidratada",
+   "marca": "B-Fit",
+   "contenido": "150g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 150.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 55,
+   "nombre": "Creatina + Inositol",
+   "marca": "B-fit",
+   "contenido": "240 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 240.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 56,
+   "nombre": "Creatina + Inositol sabor frutos rojo",
+   "marca": "B-fit",
+   "contenido": "240 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 240.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 57,
+   "nombre": "Colágeno + Inositol sabor mandarina",
+   "marca": "B-fit",
+   "contenido": "360 g",
+   "precio": "486.85",
+   "tamano": {
+    "g": 360.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 58,
+   "nombre": "Colágeno Bovino - Grass Fed",
+   "marca": "B-fit",
+   "contenido": "360 g",
+   "precio": "599.00",
+   "tamano": {
+    "g": 360.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 59,
+   "nombre": "Pre + Probióticos",
+   "marca": "B-fit",
+   "contenido": "42 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 42.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 60,
+   "nombre": "Omega 3",
+   "marca": "B-fit",
+   "contenido": "42 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 42.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 61,
+   "nombre": "Multi Woman",
+   "marca": "B-fit",
+   "contenido": "43.2 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 43.2
+   },
+   "repetido": null
+  },
+  {
+   "orden": 62,
+   "nombre": "Bisglicinato de magnesio +",
+   "marca": "B-fit",
+   "contenido": "50.1 g",
+   "precio": "249.00",
+   "tamano": {
+    "g": 50.1
+   },
+   "repetido": null
+  },
+  {
+   "orden": 63,
+   "nombre": "Jabón neutro líquido Extractos Naturales",
+   "marca": "Karla Di",
+   "contenido": "500 ml",
+   "precio": "155.00",
+   "tamano": {
+    "ml": 500.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 64,
+   "nombre": "Body lotion leche de burra",
+   "marca": "Karla Di",
+   "contenido": "500 ml",
+   "precio": "110.00",
+   "tamano": {
+    "ml": 500.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 65,
+   "nombre": "Body wash magnesio Lavanda + Caléndula",
+   "marca": "Karla Di",
+   "contenido": "500 ml",
+   "precio": "155.00",
+   "tamano": {
+    "ml": 500.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 66,
+   "nombre": "Shampoo fuerza y revitalización Chile y Sábila",
+   "marca": "Eco Nutree",
+   "contenido": "950 ml",
+   "precio": "35.00",
+   "tamano": {
+    "ml": 950.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 67,
+   "nombre": "Shampoo anticaida y crecimiento",
+   "marca": "Eco Nutree",
+   "contenido": "950 ml",
+   "precio": "35.00",
+   "tamano": {
+    "ml": 950.0
+   },
+   "repetido": "shampoo-anticaida"
+  },
+  {
+   "orden": 68,
+   "nombre": "Shampoo estimulación y volumen capilar",
+   "marca": "Eco Nutree",
+   "contenido": "950 ml",
+   "precio": "20.00",
+   "tamano": {
+    "ml": 950.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 69,
+   "nombre": "Shampoo anticaida y crecimiento",
+   "marca": "Eco Nutree",
+   "contenido": "950 ml",
+   "precio": "20.00",
+   "tamano": {
+    "ml": 950.0
+   },
+   "repetido": "shampoo-anticaida"
+  },
+  {
+   "orden": 70,
+   "nombre": "Shampoo fuerza revitalización",
+   "marca": "Eco Nutree",
+   "contenido": "950 ml",
+   "precio": "20.00",
+   "tamano": {
+    "ml": 950.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 71,
+   "nombre": "Tropical mix Rodajas de piña y manzana deshidratada",
+   "marca": "Huerto alegre",
+   "contenido": "30 g",
+   "precio": "37.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 72,
+   "nombre": "Tropical Mix rodajas de piña y manzana deshidratada con chile en polvo",
+   "marca": "Huerto Alegre",
+   "contenido": "30 g",
+   "precio": "37.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 73,
+   "nombre": "Chips de manzana",
+   "marca": "Huerto Alegre",
+   "contenido": "30 g",
+   "precio": "37.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 74,
+   "nombre": "Chips de camote salsa negra",
+   "marca": "Huerto alegre",
+   "contenido": "30 g",
+   "precio": "35.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 75,
+   "nombre": "Chips de camote con chile en polvo",
+   "marca": "Huerto Alegre",
+   "contenido": "30 g",
+   "precio": "35.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 76,
+   "nombre": "Sleep Línea funcional",
+   "marca": "Infusiónate",
+   "contenido": "70 g",
+   "precio": "58.00",
+   "tamano": {
+    "g": 70.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 77,
+   "nombre": "Antiflú línea funcional",
+   "marca": "Infusiónate",
+   "contenido": "70 g",
+   "precio": "60.00",
+   "tamano": {
+    "g": 70.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 78,
+   "nombre": "Enzimas Digestivas Polvo Sabor Coco 12 Sobres",
+   "marca": "Cocteau lab",
+   "contenido": "12 sobres con 5g c/u",
+   "precio": "348.50",
+   "tamano": {
+    "pz": 12.0,
+    "g": 60.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 79,
+   "nombre": "Enzimas Digestivas Polvo para suspensión - 12 sobres",
+   "marca": "Cocteau lab",
+   "contenido": "12 sobres con 5g c/u",
+   "precio": "356.00",
+   "tamano": {
+    "pz": 12.0,
+    "g": 60.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 80,
+   "nombre": "Probióticos + Prebióticos Polvo en sobres",
+   "marca": "Cocteau lab",
+   "contenido": "12 sobres de 5g c/u",
+   "precio": "356.00",
+   "tamano": {
+    "pz": 12.0,
+    "g": 60.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 81,
+   "nombre": "Gel en roll on con efecto frío",
+   "marca": "Cocteau lab",
+   "contenido": "90 ml",
+   "precio": "129.00",
+   "tamano": {
+    "ml": 90.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 82,
+   "nombre": "Gel auxiliar con extracto de ruda",
+   "marca": "Cocteau lab",
+   "contenido": "60 ml",
+   "precio": "224.00",
+   "tamano": {
+    "ml": 60.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 83,
+   "nombre": "Gel en roll on con efecto caliente",
+   "marca": "Cocteau lab",
+   "contenido": "90 ml",
+   "precio": "128.00",
+   "tamano": {
+    "ml": 90.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 84,
+   "nombre": "Pimienta negra molida",
+   "marca": "Sazónarte",
+   "contenido": "28 g",
+   "precio": "33.00",
+   "tamano": {
+    "g": 28.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 85,
+   "nombre": "Romero",
+   "marca": "Sazónarte",
+   "contenido": "14 g",
+   "precio": "33.00",
+   "tamano": {
+    "g": 14.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 86,
+   "nombre": "Orégano",
+   "marca": "Sazónarte",
+   "contenido": "14 g",
+   "precio": "33.00",
+   "tamano": {
+    "g": 14.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 87,
+   "nombre": "Hierbas finas",
+   "marca": "Sazónarte",
+   "contenido": "28 g",
+   "precio": "34.00",
+   "tamano": {
+    "g": 28.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 88,
+   "nombre": "Tomillo",
+   "marca": "Sazónarte",
+   "contenido": "14 g",
+   "precio": "30.00",
+   "tamano": {
+    "g": 14.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 89,
+   "nombre": "Comino molido",
+   "marca": "Sazónarte",
+   "contenido": "28 g",
+   "precio": "35.00",
+   "tamano": {
+    "g": 28.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 90,
+   "nombre": "Bebida PLN Isolate Protein Low Carb Sabor Fresa con 30 g de proteína 330 ml",
+   "marca": "PLN",
+   "contenido": "30 g",
+   "precio": "59.00",
+   "tamano": {
+    "g": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 91,
+   "nombre": "Creatina Monohidratada Creanatomy 390g Micronizada Sin Sabor Creatina Monohidratada Creanatomy 390g Micronizada Sin Sabo",
+   "marca": "Creanatomy",
+   "contenido": "390 g",
+   "precio": "449.00",
+   "tamano": {
+    "g": 390.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 92,
+   "nombre": "Geadite Ácido Fólico Y Dha",
+   "marca": "Geadité",
+   "contenido": "30 cápsulas",
+   "precio": "134.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 93,
+   "nombre": "Rdp Ácido Ascórbico Vitamina C Antigripal 500mg 10 Caps",
+   "marca": "Progela",
+   "contenido": "10 cápsulas",
+   "precio": "27.13",
+   "tamano": {
+    "pz": 10.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 94,
+   "nombre": "Prugnex 50mg 30Caps Lgen",
+   "marca": "Progela",
+   "contenido": "30 cápsulas",
+   "precio": "70.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 95,
+   "nombre": "Promega Kids DHA Fosfatidilserina 30 Capsulas",
+   "marca": "Progela",
+   "contenido": "30 cápsulas de 413mg",
+   "precio": "155.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 96,
+   "nombre": "Lactopram Infantil Suplemento Alimenticio (150 Mg) Cápsulas de Gelatina Blanda Sabor a Chocolate",
+   "marca": "Progela",
+   "contenido": "20 cápsulas de 150 mg",
+   "precio": "66.00",
+   "tamano": {
+    "pz": 20.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 97,
+   "nombre": "Melidam 30 Capsulas",
+   "marca": "Progela",
+   "contenido": "30 cápsulas",
+   "precio": "161.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 98,
+   "nombre": "RDP Kids Suplemento Alimenticio Sabor Uva 30 Capsulas",
+   "marca": "Progrela",
+   "contenido": "30 cápsulas de 346 g",
+   "precio": "175.00",
+   "tamano": {
+    "pz": 30.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 99,
+   "nombre": "Gomitas CBD Natural sabor frutos rojos",
+   "marca": "CBD LIFE",
+   "contenido": "30 gomitas de 3.5g",
+   "precio": "300.00",
+   "tamano": {
+    "pz": 30.0,
+    "g": 105.0
+   },
+   "repetido": null
+  },
+  {
+   "orden": 100,
+   "nombre": "Calmax pomada calor frío",
+   "marca": "ADN",
+   "contenido": "125 g",
+   "precio": "42.87",
+   "tamano": {
+    "g": 125.0
+   },
+   "repetido": null
+  }
+ ]
+}

@@ -71,7 +71,9 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
     cuerpo = json.dumps({
         # Sin razonamiento: en modelos que piensan (qwen3, gpt-oss) se comería los tokens antes de contestar
         "model": modelo, "stream": False, **({"think": False} if con_think else {}),
-        "options": {"num_predict": max_tokens, **({"num_ctx": contexto} if contexto else {})},
+        # Freno a las repeticiones (11 nov 2026: el asistente repetía «¿Qué es el producto parecido?» hasta el tope)
+        "options": {"num_predict": max_tokens, "temperature": 0.3, "repeat_penalty": 1.15, "repeat_last_n": 256,
+                    **({"num_ctx": contexto} if contexto else {})},
         "messages": [{"role": "system", "content": instrucciones}, usuario],
     }).encode()
     peticion = urllib.request.Request(f"{cfg.ollama_url.rstrip('/')}/api/chat", data=cuerpo,

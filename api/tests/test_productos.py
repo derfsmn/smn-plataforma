@@ -140,7 +140,7 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     assert set(skus[:3]) <= set(parecidos) and skus[3] not in parecidos
     f = {x["factor"]: x for x in e["factores"]}
     assert f["proveedor"]["puntaje"] is None and f["demanda"]["puntaje"] is None
-    assert f["rentabilidad"]["valor"] == "Deja 38.1 % de margen (mínimo 30 %)"
+    assert f["rentabilidad"]["valor"] == "Deja 38.1 % de margen, 8.1 puntos arriba del mínimo (30 %)"
     assert f["precio"]["provisional"] and "parecido" in f["precio"]["detalle"]
     assert e["color"] in {"verde", "amarillo", "rojo"} and e["puntaje"] is not None and e["explicacion"]
     assert [x["archivo_id"] for x in e["fotos"]] == [foto]
@@ -161,7 +161,7 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     assert [h["id"] for h in e2["historial"]] == [n["id"], eid]
     assert admin.post(f"{R}/evaluaciones/{eid}/recalcular").status_code == 409  # ya no es la vigente
     cat = {x["factor"]: x for x in e2["factores"]}["categoria"]
-    assert cat["valor"] == "3 productos en su subcategoría (una típica tiene 3)"
+    assert cat["valor"] == "Surtido normal: 3 productos en su subcategoría, una normal tiene 3"
 
     # Parecidos: un SKU que no existe se rechaza; los que fija Compras se conservan al recalcular
     assert admin.put(f"{R}/evaluaciones/{n['id']}/comparables", json={"skus": ["NO-EXISTE"]}).status_code == 400
@@ -200,7 +200,7 @@ def test_propuesta_lista_se_evalua_sola(admin: TestClient, sincrono):
     assert e["sujeto"]["tipo"] == "propuesta" and e["sujeto"]["folio"].startswith("PN-")
     assert e["sujeto"]["proveedor"] == "Proveedor de Prueba S.A."
     f = {x["factor"]: x for x in e["factores"]}
-    assert f["rentabilidad"]["valor"] == "Deja 50 % de margen (mínimo 30 %)"
+    assert f["rentabilidad"]["valor"] == "Deja 50 % de margen, 20 puntos arriba del mínimo (30 %)"
     # Proveedor nuevo 50 + registro sanitario 10 + un apoyo de lanzamiento 5
     assert f["proveedor"]["puntaje"] == 65 and f["proveedor"]["provisional"]
     assert e["id"] in [x["id"] for x in admin.get(f"{R}/evaluaciones", params={"tipo": "propuesta"}).json()]
@@ -237,7 +237,7 @@ def test_producto_nuevo_se_busca_en_internet(admin: TestClient, sincrono, monkey
     notas = " ".join(m["notas"])
     assert "Google Shopping: no se buscó" in notas and "Soriana: bloqueó" in notas
     f = {x["factor"]: x for x in e["factores"]}["precio"]
-    assert f["valor"] == "10 % más barato que en internet" and not f["provisional"] and "Walmart" in f["detalle"]
+    assert f["valor"] == "Buen precio: 10 % más barato que en internet" and not f["provisional"] and "Walmart" in f["detalle"]
 
     # Recalcular dentro de la semana reusa la búsqueda: no se vuelve a consultar la tienda
     antes = len(walmart.consultas)
@@ -275,7 +275,7 @@ def test_regla_de_rechazo_de_compras_pone_rojo(admin: TestClient, sincrono, monk
             raise puerta.ErrorIA("sin IA en pruebas")
         vistos.append(json.loads(kw["mensaje"]))
         return Respuesta(json.dumps({"hallazgos": [
-            {"id": ids[0], "resultado": "no_cumple", "motivo": "Precio visto 1,500 (ficticio)"},
+            {"id": ids[0], "resultado": "no_cumple", "motivo": "Precio visto 1,500 (ficticio)", "dato": "$1,500"},
             {"id": ids[1], "resultado": "sin_datos", "motivo": "Falta el dato ficticio"},
             {"id": "R999999", "resultado": "no_cumple", "motivo": "no existe"}]}))
 
@@ -362,7 +362,7 @@ def test_factores_con_ventas_compras_e_inventario_de_smnbi():
             assert "sin mayoreo" in d.detalle and "+100 %" in d.detalle and "de 2 tiendas" in d.detalle
 
             r = rp.f_rentabilidad(bd, s, sub, v)
-            assert f"«{sub}» dejan en realidad 40.0 %" in r.detalle  # (100 − 60) / 100
+            assert f"«{sub.capitalize()}» (2 productos) deja 40 %" in r.detalle  # (100 − 60) / 100
 
             c = rp.f_categoria(bd, s, sub, parecidos, v)
             assert "días de venta" in c.detalle and "Podría quitarle venta" in c.detalle
@@ -460,8 +460,83 @@ def test_recalibracion_9_nov():
 
 
 def test_precio_no_compara_presentaciones_distintas():
-    """Si los parecidos cuestan 5 veces más (otra presentación), no se califica el precio contra ellos."""
-    s = rp.Sujeto(tipo="idea", nombre="Creatina 300 g", precio=Decimal("100"))
-    caro = Producto(sku="X9", descripcion="Creatina 2 kg", precio_lista_con_impuestos=Decimal("624"))
+    """Sin tamaño, si los parecidos cuestan 5 veces más (otra presentación), no se califica el precio contra ellos."""
+    s = rp.Sujeto(tipo="idea", nombre="Creatina chica", precio=Decimal("100"))
+    caro = Producto(sku="X9", descripcion="Creatina grande", precio_lista_con_impuestos=Decimal("624"))
     f = rp.f_precio(s, [(caro, Decimal("0.6"))])
     assert f.puntaje is None and "no parecen la misma presentación" in f.detalle
+
+
+def test_precio_por_unidad_y_tamano_cercano():
+    """Diego (11 nov 2026): 120 g a $184 no se compara contra 60 g a $131 por el total, sino por gramo; y si hay
+    parecidos de tamaño cercano, solo esos (un bote de 2 kg siempre sale más barato por gramo). Datos ficticios."""
+    assert rp.tamano("15 tabletas de 5.3g c/u") == {"pz": Decimal("15"), "g": Decimal("79.5")}
+    assert rp.tamano(None, "Shampoo 1 L") == {"ml": Decimal("1000")}
+    assert rp.tamano("30 cápsulas de 413mg") == {"pz": Decimal("30")}  # los mg son dosis
+    assert rp.tamano("8 piezas de 100g")["g"] == Decimal("800")
+    s = rp.Sujeto(tipo="idea", nombre="Desodorante ficticio 120g", contenido="120 G", precio=Decimal("120"))
+    cercano = Producto(sku="A", descripcion="DESODORANTE FICTICIO 100 G", precio_lista_con_impuestos=Decimal("100"))
+    granel = Producto(sku="B", descripcion="DESODORANTE FICTICIO 2 KG", precio_lista_con_impuestos=Decimal("1600"))
+    f = rp.f_precio(s, [(cercano, Decimal("0.6")), (granel, Decimal("0.5"))])
+    assert f.puntaje == 75 and "$1.00 por gramo" in f.detalle and "por gramo" in f.valor
+    solo_granel = rp.f_precio(s, [(granel, Decimal("0.5"))])
+    assert "por gramo" in solo_granel.valor  # sin cercanos, por gramo contra el que haya
+
+
+def test_rentabilidad_baja_parejo_hasta_15():
+    """Diego (11 nov 2026): abajo del mínimo baja parejo hasta 0 con 15 % de margen (antes 30.4 % contra 31 % ya
+    perdía mucho y 18 % valía 0); además dice a qué precio o costo llegaría al mínimo."""
+    class SinReglas:
+        def scalars(self, *_):
+            return self
+
+        def all(self):
+            return []
+
+    bd = SinReglas()
+    minimo = rp.margen_minimo(bd, None)[0]
+    def puntos(margen):
+        s = rp.Sujeto(tipo="idea", nombre="x", precio=Decimal("300"), costo=Decimal("210"), margen=Decimal(margen))
+        return rp.f_rentabilidad(bd, s)
+    assert puntos(minimo).puntaje == 60 and puntos("15").puntaje == 0 and puntos("10").puntaje == 0
+    medio = (minimo + 15) / 2
+    assert puntos(medio).puntaje == 30
+    r = puntos("18.8")
+    assert r.puntaje > 0 and r.valor.startswith("Margen bajo") and "venderlo en $" in r.mejora
+
+
+def test_parecidos_sin_repetir_y_de_su_subcategoria():
+    """11 nov 2026: con subcategoría conocida solo entran los de esa (si son menos de 3, se completan con su rama) y la
+    misma descripción no se repite."""
+    def p(sku, desc, sub, rama="R1"):
+        return Producto(sku=sku, descripcion=desc, subcategoria=sub, rama=rama, precio_lista_con_impuestos=Decimal(50))
+    lista = [(p("1", "CINTA KINESIO 5 M", "VENDAS"), Decimal("0.9")), (p("2", "CINTA KINESIO 5 M", "VENDAS"), Decimal("0.8")),
+             (p("3", "PRE WORKOUT AZUL", "PRE-ENTRENO", "R2"), Decimal("0.7")), (p("4", "VENDA ELASTICA", "RODILLERAS"), Decimal("0.4"))]
+    salida = [x.sku for x, _ in rp._depurar(lista, "VENDAS", "R1")]
+    assert salida == ["1", "4"]
+    assert "azul" not in rp.palabras("Cinta Kinesiológica Azul Pre-cortada")
+
+
+def test_rechazo_solo_con_prueba_y_de_su_tipo():
+    """11 nov 2026: una regla de suplementos no aplica a un shaker; sin el dato que lo pruebe es aviso, no rechazo."""
+    from modulos.compras import politicas_producto as pp
+
+    shaker = {"nombre": "Smart Shaker Vaso Mezclador 500 ml", "departamento": "DEPORTES", "precio_venta_con_impuestos": 210}
+    regla = {"titulo": "Suplementos sin registro sanitario", "descripcion": None}
+    assert pp.tipo_que_no_es(regla, shaker) == "suplemento"
+    assert pp.tipo_que_no_es(regla, {"nombre": "Glicinato de magnesio 60 cápsulas"}) is None
+    assert pp.dato_comprobado("Smart Shaker", shaker) and pp.dato_comprobado("$210", shaker)
+    assert not pp.dato_comprobado("tiene azúcar", shaker) and not pp.dato_comprobado(None, shaker)
+
+
+def test_dictamen_de_comprador():
+    """11 nov 2026: una línea de comprador: negociar a qué costo o precio y contra qué se compara (datos ficticios)."""
+    s = rp.Sujeto(tipo="idea", nombre="Producto ficticio", precio=Decimal("300"), costo=Decimal("210"), margen=Decimal("18.8"))
+    factores = {f: rp.Factor(70, "x", "x") for f in rp.FACTORES}
+    par = [(Producto(sku="A", descripcion="PARECIDO FICTICIO 100 G", precio_lista_con_impuestos=Decimal("250")), Decimal("0.6"))]
+    d = rp.dictamen(s, "amarillo", factores, par, Decimal("31"))
+    assert d.startswith("Dictamen: Negociar: pedir costo de $178.45") and "PARECIDO FICTICIO 100 G ($250.00)" in d
+    factores["precio"] = rp.Factor(30, "Caro", "x")
+    assert "subirle el precio no conviene" in rp.dictamen(s, "rojo", factores, par, Decimal("31"))
+    assert rp.dictamen(s, "rojo", factores, [], Decimal("31"), {"titulo": "Regla X"}).startswith("Dictamen: No meter")
+    assert rp.dictamen(rp.Sujeto(tipo="idea", nombre="x"), "verde", factores, [], None) == "Dictamen: Meter."

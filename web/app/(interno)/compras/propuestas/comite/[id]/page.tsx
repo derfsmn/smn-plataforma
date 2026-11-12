@@ -63,7 +63,7 @@ export default function CicloReunion() {
   const evaluando = r?.productos.some((i) => i.evaluacion?.estado === "en_curso");
   useEffect(() => {
     if (!evaluando) return;
-    const t = setTimeout(cargar, 3000);
+    const t = setTimeout(cargar, 8000); // con 100 productos, cada recarga pesa: cada 8 s basta
     return () => clearTimeout(t);
   }, [evaluando, r, cargar]);
 
@@ -421,6 +421,7 @@ function Tarjeta({ i, r, quitar, reevaluar, prefiltrar, decidir, verSemaforo, re
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-[15px] leading-snug font-semibold">{i.nombre}</p>
           <p className="truncate text-[13px] text-smn-gris-500" title={proveedor}>{proveedor}</p>
+          {i.duplicado && <p className="text-[13px] text-aviso-texto" title={i.duplicado}>Repetido en esta reunión</p>}
           {i.llego_solo && (
             <p className="text-[13px] text-smn-gris-700">Llegó del portal el {new Date(i.agregado_en).toLocaleDateString("es-MX", { day: "numeric", month: "short" })}</p>
           )}

@@ -7,9 +7,16 @@ el semáforo queda en rojo con ese motivo. También junta los casos que Compras 
 
 La IA solo puede citar reglas y políticas que existen: un id que no viene en la lista se descarta. Sin IA no se decide
 nada: se listan las que aplican como «sin revisar».
+
+Desde el 11 nov 2026 (aprobado por Diego) un rechazo directo pide pruebas: la IA debe copiar el dato del producto que
+lo hace caer, ese dato debe estar de verdad en los datos del producto, y si la regla habla de un tipo de producto
+(suplemento, cosmético, alimento…) el producto debe ser de ese tipo. Si falta algo, queda como aviso para Compras y
+no cambia el color (antes un shaker caía en una regla de suplementos).
 """
 import json
 import logging
+import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 
@@ -40,13 +47,65 @@ Para cada regla y cada política que tenga que ver con el producto, di:
 - "sin_datos": la regla aplica pero falta el dato para saberlo (di cuál falta).
 Omite las políticas que no tengan nada que ver con este producto. El motivo es una línea corta en español (máximo 25
 palabras) que cita el dato.
-Contesta solo JSON: {"hallazgos": [{"id": "R3", "resultado": "no_cumple", "motivo": "..."}]}"""
+Cuidado con el tipo de producto: una regla de suplementos no aplica a un accesorio (un shaker, una cinta, un vaso), ni
+una de alimentos a un cosmético. Si la regla habla de otro tipo de producto, omítela.
+Para una regla de tipo "rechazo" con "no_cumple" es obligatorio "dato": copia TAL CUAL, letra por letra, el valor del
+producto que lo hace caer (por ejemplo el nombre, el precio o el ingrediente). Sin ese dato no es rechazo.
+Contesta solo JSON: {"hallazgos": [{"id": "R3", "resultado": "no_cumple", "motivo": "...", "dato": "..."}]}"""
+
+
+# Tipos de producto que una regla puede nombrar: si la regla nombra uno, el producto debe ser de ese tipo
+TIPOS = {
+    "suplemento": ("suplement", "capsul", "tableta", "vitamin", "proteina", "colageno", "creatina", "probiotic",
+                   "omega", "magnesio", "electrolit", "enzima"),
+    "cosmetico": ("cosmet", "shampoo", "crema", "jabon", "locion", "gel", "desodorante", "body", "facial", "corporal"),
+    "alimento": ("aliment", "harina", "chips", "botana", "bebida", "galleta", "pan", "especia", "cereal", "proteina"),
+    "medicamento": ("medicament", "farmac"),
+    "herbolaria": ("herbolari", "hierba", "planta", "te ", "infusion"),
+    "bebida": ("bebida", "agua", "refresco", "jugo", "kombucha"),
+}
+_RAIZ_TIPO = {"suplemento": "suplement", "cosmetico": "cosmet", "alimento": "aliment", "medicamento": "medicament",
+              "herbolaria": "herbolari", "bebida": "bebida"}
+
+
+def _norm(texto) -> str:
+    t = unicodedata.normalize("NFKD", str(texto or "").lower())
+    return re.sub(r"\s+", " ", "".join(c for c in t if not unicodedata.combining(c)))
+
+
+def _texto_producto(datos: dict) -> str:
+    return " " + _norm(" ".join(str(datos.get(k) or "") for k in (
+        "nombre", "descripcion", "ingrediente", "forma", "departamento", "subcategoria", "tipo"))) + " "
+
+
+def tipo_que_no_es(regla: dict, datos: dict) -> str | None:
+    """Si la regla habla de un tipo de producto (suplemento, cosmético…) y nada del producto dice que sea de ese tipo,
+    regresa el tipo. «Rechazar suplementos sin registro» no aplica a un shaker."""
+    texto_regla = _norm(f"{regla.get('titulo')} {regla.get('descripcion') or ''}")
+    producto = _texto_producto(datos)
+    for tipo, raiz in _RAIZ_TIPO.items():
+        if raiz in texto_regla and not any(x in producto for x in TIPOS[tipo]):
+            return tipo
+    return None
+
+
+def dato_comprobado(dato, datos: dict) -> bool:
+    """El dato que citó la IA está de verdad en los datos del producto (sin acentos ni mayúsculas)."""
+    d = _norm(dato).strip(" .\"'«»")
+    if len(d) < 2:
+        return False
+    plano = _norm(json.dumps(datos, ensure_ascii=False, default=str))
+    if d in plano:
+        return True
+    numeros = re.findall(r"\d+(?:[.,]\d+)?", d)  # «$1,500» contra 1500.00
+    return bool(numeros) and all(n.replace(",", "") in plano.replace(",", "") for n in numeros)
 
 
 @dataclass
 class Revision:
     hallazgos: list[dict] = field(default_factory=list)  # {id, tipo, titulo, resultado, motivo}
     rechazo: dict | None = None  # el hallazgo de la regla de rechazo en la que cae
+    avisos: list[dict] = field(default_factory=list)  # rechazos que la IA dijo sin probarlos: no cambian el color
     casos: list[dict] = field(default_factory=list)  # {caso_id, producto, decision, motivo, resultado, fecha, similitud}
     notas: list[str] = field(default_factory=list)
     revisada_ia: bool = False
@@ -126,8 +185,19 @@ def revisar(bd: Session, departamento: str | None, texto: set[str], datos: dict)
             ident = str(h.get("id") or "").strip().upper()
             if ident not in lista or h.get("resultado") not in RESULTADOS:
                 continue  # la IA no puede citar lo que no existe
-            rev.hallazgos.append({"id": ident, "tipo": lista[ident]["tipo"], "titulo": lista[ident]["titulo"],
-                                  "resultado": h["resultado"], "motivo": str(h.get("motivo") or "")[:500]})
+            hallazgo = {"id": ident, "tipo": lista[ident]["tipo"], "titulo": lista[ident]["titulo"],
+                        "resultado": h["resultado"], "motivo": str(h.get("motivo") or "")[:500]}
+            if hallazgo["tipo"] == "rechazo" and hallazgo["resultado"] == "no_cumple":
+                if tipo_que_no_es(lista[ident], datos):
+                    continue  # la regla es de otro tipo de producto: no tiene que ver con este
+                if not dato_comprobado(h.get("dato"), datos):
+                    hallazgo["sin_prueba"] = True
+                    hallazgo["motivo"] = ("Posible, sin un dato del producto que lo pruebe; que Compras lo confirme. "
+                                          + hallazgo["motivo"])[:500]
+                    rev.avisos.append(hallazgo)
+                else:
+                    hallazgo["dato"] = str(h.get("dato"))[:200]
+            rev.hallazgos.append(hallazgo)
         rev.revisada_ia = True
     except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as e:
         log.info("Radar de productos: la IA no revisó las políticas de «%s»: %s", datos.get("nombre"), e)
@@ -145,5 +215,6 @@ def revisar(bd: Session, departamento: str | None, texto: set[str], datos: dict)
     citadas = {h["id"] for h in rev.hallazgos}
     if omitidas := len(lista) - len(citadas):
         rev.notas.append(f"La IA consideró que {omitidas} regla(s) o política(s) no tienen que ver con este producto.")
-    rev.rechazo = next((h for h in rev.hallazgos if h["tipo"] == "rechazo" and h["resultado"] == "no_cumple"), None)
+    rev.rechazo = next((h for h in rev.hallazgos if h["tipo"] == "rechazo" and h["resultado"] == "no_cumple"
+                        and not h.get("sin_prueba")), None)
     return rev

@@ -317,17 +317,17 @@ export default function DetalleEvaluacion() {
                         <dt className="sr-only">Qué encontramos</dt>
                         <dd className={f.puntaje === null ? "text-smn-gris-500 italic" : "text-smn-gris-700"}>{f.detalle}</dd>
                       </div>
-                      {f.calculo && (
-                        <div>
-                          <dt className="text-[13px] font-medium text-smn-gris-500">Cómo se calificó</dt>
-                          <dd className="text-smn-gris-700">{f.calculo}</dd>
-                        </div>
-                      )}
                       {f.mejora && (
                         <div>
                           <dt className="text-[13px] font-medium text-smn-gris-500">{f.puntaje !== null && f.puntaje > 80 ? "Qué significa" : "Qué lo subiría"}</dt>
                           <dd className="text-smn-gris-700">{f.mejora}</dd>
                         </div>
+                      )}
+                      {f.calculo && (
+                        <details className="text-[13px] text-smn-gris-500">
+                          <summary className="cursor-pointer select-none">Cómo se calificó</summary>
+                          <p className="mt-1 text-smn-gris-700">{f.calculo}</p>
+                        </details>
                       )}
                     </dl>
                     {aporte !== undefined && (
@@ -408,7 +408,7 @@ export default function DetalleEvaluacion() {
                     {e.fotos.map((f) => (
                       <a key={f.archivo_id} href={urlFoto(e.sujeto.id, f.archivo_id)} target="_blank" rel="noreferrer" className="aspect-square overflow-hidden rounded-xl bg-smn-gris-50">
                         {/* eslint-disable-next-line @next/next/no-img-element -- foto servida por la API con sesión */}
-                        <img src={urlFoto(e.sujeto.id, f.archivo_id)} alt={f.nombre} className="h-full w-full object-cover" />
+                        <img src={urlFoto(e.sujeto.id, f.archivo_id, 400)} alt={f.nombre} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </a>
                     ))}
                   </div>

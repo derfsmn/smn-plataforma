@@ -13,7 +13,7 @@ import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Insignia } from "@/componentes/ui";
 import { api, mensajeDe } from "@/lib/api";
-import { DECISION, descargarActa, fechaReunion, pesos, RUTA, VALOR, type Item, type Parecidos, type Reunion } from "@/lib/comite";
+import { DECISION, descargarActa, dictamenCorto, fechaReunion, pesos, RUTA, VALOR, type Item, type Parecidos, type Reunion } from "@/lib/comite";
 import { SEMAFORO } from "@/lib/precios";
 import { Miniatura } from "../../../../precios/piezas";
 import { AgregarAsistente, FormDecision, Foto, ListaPeticiones, NuevaPeticion } from "../../piezas";
@@ -342,7 +342,7 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
   return (
     <div className="grid gap-8 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:gap-12">
       <div className="space-y-5">
-        <Foto i={i} n={foto} className="aspect-square w-full rounded-3xl" />
+        <Foto i={i} n={foto} ancho={800} className="aspect-square w-full rounded-3xl" />
         {i.fotos > 1 && (
           <div className="flex flex-wrap gap-2">
             {Array.from({ length: i.fotos }, (_, n) => (
@@ -387,6 +387,7 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
         </div>
 
         <Numeros i={i} minimo={e?.ejecutivo?.margen_minimo ?? null} />
+        {i.duplicado && <p className="rounded-2xl bg-aviso-fondo px-4 py-2 text-[15px] text-aviso-texto">{i.duplicado}</p>}
 
         {e ? <Veredicto e={e} abrir={abrir} /> : (
           <section className="rounded-3xl border border-smn-gris-100 p-5">
@@ -465,8 +466,18 @@ function Veredicto({ e, abrir }: { e: NonNullable<Item["evaluacion"]>; abrir: (m
   const color = e.color;
   const x = e.ejecutivo;
   const factores = e.factores.filter((f) => !(e.modelo === "sin_proveedor" && f.factor === "proveedor" && f.puntaje == null));
+  const d = x?.dictamen ? dictamenCorto(x.dictamen) : null;
   return (
     <section className="rounded-3xl border border-smn-gris-100 p-5 sm:p-6">
+      {d && (
+        <div className={`mb-5 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl p-4 sm:p-5 ${d.fondo}`}>
+          <div>
+            <p className="text-xs font-semibold tracking-wide text-smn-gris-700 uppercase">Dictamen</p>
+            <p className={`mt-1 rounded-xl px-4 py-2 text-2xl font-semibold text-white ${d.solido}`}>{d.etiqueta}</p>
+          </div>
+          {d.resto && <p className="min-w-0 flex-1 basis-72 text-lg leading-snug">{d.resto}</p>}
+        </div>
+      )}
       <div className="flex items-start gap-5">
         <div className={`flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl ${color ? SEMAFORO[color].punto : "bg-smn-gris-300"} text-white`}>
           <span className="text-3xl leading-none font-semibold tabular-nums">{e.puntaje ?? "—"}</span>
@@ -479,16 +490,27 @@ function Veredicto({ e, abrir }: { e: NonNullable<Item["evaluacion"]>; abrir: (m
           </p>
           <p className="mt-1 text-2xl leading-snug font-semibold">{x?.titular ?? "Semáforo listo."}</p>
           {e.motivo_cambio && <p className="mt-1 text-sm text-smn-gris-700">Compras cambió el color: {e.motivo_cambio}</p>}
-          <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-smn-gris-700">
-            {factores.map((f) => (
-              <li key={f.factor} className="inline-flex items-center gap-1.5" title={f.valor ?? undefined}>
-                <span className={`h-2 w-2 rounded-full ${TONO(f.puntaje)}`} />
-                {f.nombre} <b className="tabular-nums text-tinta">{f.puntaje ?? "s/d"}</b>
-              </li>
-            ))}
-          </ul>
         </div>
       </div>
+
+      {/* Barras por factor con su peso: de un vistazo qué lo sube y qué lo baja (maqueta, 12 nov 2026) */}
+      <ul className="mt-5 grid gap-x-6 gap-y-3.5 sm:grid-cols-2">
+        {factores.map((f) => (
+          <li key={f.factor} className="min-w-0">
+            <div className="flex items-baseline justify-between gap-2 text-[15px]">
+              <span className={`font-semibold ${f.puntaje == null ? "text-smn-gris-500" : ""}`}>{f.nombre}</span>
+              <span className="shrink-0 tabular-nums">
+                {f.puntaje == null ? <span className="text-smn-gris-500">no cuenta</span> : <b>{f.puntaje}</b>}
+                <span className="text-smn-gris-500"> · pesa {Number(f.peso).toFixed(0)} %</span>
+              </span>
+            </div>
+            <div className="mt-1 h-2.5 rounded-full bg-smn-gris-100" aria-hidden>
+              {f.puntaje != null && <div className={`h-2.5 rounded-full ${TONO(f.puntaje)}`} style={{ width: `${Math.max(2, f.puntaje)}%` }} />}
+            </div>
+            {f.valor && <p className="mt-1 line-clamp-2 text-sm leading-snug text-smn-gris-700">{f.valor}</p>}
+          </li>
+        ))}
+      </ul>
 
       {x && (x.a_favor.length > 0 || x.en_contra.length > 0) && (
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -593,27 +615,46 @@ function ContraParecidos({ i }: { i: Item }) {
       vivo = false;
     };
   }, [i.id]);
-  if (!d || d.productos.length === 0) return null;
+  if (!d || (d.productos.length === 0 && !d.internet?.length)) return null;
   const nuevo = i.precio ? Number(i.precio) : null;
+  // Con tamaño se compara por gramo, mililitro o pieza; sin tamaño, por el precio total (Diego, 11 nov 2026)
+  const porUnidad = d.unidad && d.este_por_unidad ? Number(d.este_por_unidad) : null;
+  const corta: Record<string, string> = { gramo: "g", mililitro: "ml", pieza: "pz", metro: "m" };
+  const dinero = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+  const unidad = (x: string | null | undefined) => {
+    if (!x) return null;
+    const n = Number(x);
+    return n >= 0.1 ? `${dinero(n)} por ${d.unidad}` : `${dinero(n * 100)} por 100 ${corta[d.unidad ?? ""] ?? d.unidad}`;
+  };
   return (
     <section className="rounded-3xl border border-smn-gris-100 p-5">
-      <h2 className="text-sm font-semibold tracking-wide text-smn-gris-500 uppercase">Contra lo que ya vendemos</h2>
+      <h2 className="text-sm font-semibold tracking-wide text-smn-gris-500 uppercase">Contra qué se comparó el precio</h2>
       <div className="mt-3 flex items-center gap-3 rounded-2xl bg-smn-naranja/10 px-3 py-2.5">
         <Foto i={i} className="h-11 w-11 shrink-0 rounded-xl" />
-        <p className="min-w-0 flex-1 truncate font-semibold">Este producto</p>
+        <p className="min-w-0 flex-1 font-semibold">Este producto{d.este_tamano && <span className="block text-xs font-normal text-smn-gris-500">{d.este_tamano}</span>}</p>
         <p className="shrink-0 text-right tabular-nums">
           <span className="block text-lg font-semibold">{i.precio ? pesos(i.precio) : "—"}</span>
-          <span className="block text-xs text-smn-gris-500">todavía sin venta</span>
+          <span className="block text-xs text-smn-gris-500">{porUnidad ? unidad(d.este_por_unidad) : "todavía sin venta"}</span>
         </p>
       </div>
       <ul className="mt-1 divide-y divide-smn-gris-100">
         {d.productos.map((p) => {
-          const dif = nuevo && p.precio ? Math.round((nuevo / Number(p.precio) - 1) * 100) : null;
+          const dif =
+            porUnidad && p.por_unidad && p.cuenta
+              ? Math.round((porUnidad / Number(p.por_unidad) - 1) * 100)
+              : !porUnidad && nuevo && p.precio
+                ? Math.round((nuevo / Number(p.precio) - 1) * 100)
+                : null;
           return (
-            <li key={p.producto_id} className="flex items-center gap-3 px-3 py-2.5">
+            <li key={p.producto_id} className={`flex items-center gap-3 px-3 py-2.5 ${p.cuenta === false ? "opacity-70" : ""}`}>
               <Miniatura liga={p.imagen} />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-2 leading-snug font-medium">{p.descripcion || p.sku}</p>
+                {porUnidad && (
+                  <p className={`text-[13px] ${p.cuenta ? "text-green-700 dark:text-green-400" : "text-smn-gris-500"}`}>
+                    {p.cuenta ? "Tamaño cercano: cuenta" : p.cuenta === false ? "Otro tamaño: no cuenta" : "Sin tamaño: no cuenta"}
+                  </p>
+                )}
                 <p className="mt-0.5 text-[13px] text-smn-gris-500">
                   {p.por_tienda_mes !== null ? (
                     <>
@@ -634,6 +675,7 @@ function ContraParecidos({ i }: { i: Item }) {
               </div>
               <p className="shrink-0 text-right tabular-nums">
                 <span className="block font-semibold">{p.precio ? pesos(p.precio) : "—"}</span>
+                {porUnidad && p.por_unidad && <span className="block text-xs text-smn-gris-500">{unidad(p.por_unidad)}</span>}
                 {dif !== null && dif !== 0 && (
                   <span className={`block text-xs ${dif > 0 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}`}>nuevo {Math.abs(dif)} % {dif > 0 ? "más caro" : "más barato"}</span>
                 )}
@@ -642,6 +684,24 @@ function ContraParecidos({ i }: { i: Item }) {
           );
         })}
       </ul>
+      {d.internet && d.internet.length > 0 && (
+        <div className="mt-3 border-t border-smn-gris-100 pt-3">
+          <h3 className="text-sm font-semibold">En internet</h3>
+          <ul className="mt-1 space-y-1 text-[15px]">
+            {d.internet.map((x, k) => (
+              <li key={k} className="flex justify-between gap-3">
+                <span className="min-w-0 truncate">{x.liga ? <a href={x.liga} target="_blank" rel="noreferrer" className="underline">{x.vendedor || "Tienda"}</a> : x.vendedor || "Tienda"}</span>
+                <span className="shrink-0 tabular-nums">{pesos(x.precio)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {d.quitados && (
+        <p className="mt-3 border-t border-dashed border-smn-gris-300 pt-3 text-sm text-smn-gris-700">
+          <b className="text-tinta">La IA quitó de la comparación:</b> {d.quitados}
+        </p>
+      )}
       {d.ventana && <p className="mt-2 text-xs text-smn-gris-500 first-letter:uppercase">{d.ventana}. Flecha: últimas 13 semanas contra las 13 anteriores.</p>}
     </section>
   );

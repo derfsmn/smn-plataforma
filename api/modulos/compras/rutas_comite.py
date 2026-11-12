@@ -16,15 +16,16 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, select, true
+from sqlalchemy.orm import Session, selectinload
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, ip_de, requiere
+from modulos.compras import miniaturas
 from modulos.compras import propuestas as pr
 from modulos.compras import radar_productos as rp
 from modulos.compras.modelos_comite import ComiteAsistente, ComitePeticion, ComiteProducto, ComiteReunion, ComiteRevision
-from modulos.compras.modelos_conocimiento import ConocimientoPolitica
+from modulos.compras.modelos_conocimiento import ConocimientoCaso, ConocimientoPolitica
 from modulos.compras.modelos_productos import Oportunidad, ProductoEvaluacion, ProductoIdea
 from modulos.compras.modelos_propuestas import Propuesta
 from modulos.compras.rutas_productos import proveedor_de_idea
@@ -101,6 +102,7 @@ class Ejecutivo(BaseModel):
     para_verde: str | None
     faltan_puntos: int | None
     margen_minimo: Decimal | None
+    dictamen: str | None = None  # lectura de comprador: meter, negociar o no meter (11 nov 2026)
 
 
 class SemaforoSalida(BaseModel):
@@ -158,6 +160,7 @@ class ItemSalida(BaseModel):
     # «Listo para presentar» (Diego, 2026-11-06): lo que le falta para que la diapositiva salga completa
     faltantes: list[str] = []
     llego_solo: bool = False  # la mandó el proveedor por el portal durante el ciclo y entró sola
+    duplicado: str | None = None  # el mismo producto está otra vez en la reunión, quizá en otra presentación
     evaluacion: SemaforoSalida | None
     prefiltro: str | None
     prefiltro_motivo: str | None
@@ -290,7 +293,7 @@ def _ejecutivo(e: ProductoEvaluacion, precio: Decimal | None, costo: Decimal | N
     faltan = (81 - e.puntaje) if e.puntaje is not None and color != "verde" and e.puntaje <= 80 else None
     renta = next((f for f in con if f.factor == "rentabilidad"), None)
     minimo = None
-    if renta and renta.valor and (m := re.search(r"mínimo ([\d.]+) %", renta.valor)):
+    if renta and renta.valor and (m := re.search(r"mínimo \(?([\d.]+) %", renta.valor)):
         minimo = Decimal(m.group(1))
     para_verde = None
     if color != "verde":
@@ -315,8 +318,9 @@ def _ejecutivo(e: ProductoEvaluacion, precio: Decimal | None, costo: Decimal | N
                 para_verde = f"{rp.NOMBRES.get(palanca[0].factor)} arriba de 80: {texto[0].lower()}{texto[1:]}"
             elif sin:
                 para_verde = f"Faltan datos de {_y(sin)}."
+    dictamen = next((x[len(rp.DICTAMEN):] for x in (e.explicacion or "").split("\n") if x.startswith(rp.DICTAMEN)), None)
     return Ejecutivo(titular=titular, a_favor=[punto(f) for f in favor], en_contra=[punto(f) for f in contra],
-                     para_verde=para_verde, faltan_puntos=faltan, margen_minimo=minimo)
+                     para_verde=para_verde, faltan_puntos=faltan, margen_minimo=minimo, dictamen=dictamen)
 
 
 def _datos_propuesta(p: Propuesta) -> dict:
@@ -359,12 +363,23 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
     origenes = dict(bd.execute(
         select(ComiteProducto.item_id, ComiteReunion.fecha).join(ComiteReunion)
         .where(ComiteProducto.item_id.in_({i.viene_de for i in items if i.viene_de} or {0}))).all())
+    # De una vez y no producto por producto (12 nov 2026: con 100 productos la reunión tardaba mucho en abrir)
+    iids = {i.idea_id for i in items if i.idea_id} or {0}
+    pids = {i.propuesta_id for i in items if i.propuesta_id} or {0}
+    bd.scalars(select(ProductoIdea).where(ProductoIdea.idea_id.in_(iids)).options(selectinload(ProductoIdea.fotos))).all()
+    bd.scalars(select(Propuesta).where(Propuesta.propuesta_id.in_(pids))).all()
+    vigentes: dict[tuple[str, int], ProductoEvaluacion] = {}
+    for ev in bd.scalars(select(ProductoEvaluacion).where(
+            ProductoEvaluacion.vigente == true(), or_(ProductoEvaluacion.idea_id.in_(iids), ProductoEvaluacion.propuesta_id.in_(pids)))
+            .options(selectinload(ProductoEvaluacion.factores)).order_by(ProductoEvaluacion.evaluacion_id)):
+        vigentes[("p", ev.propuesta_id) if ev.propuesta_id else ("i", ev.idea_id)] = ev  # la más nueva gana
+    oportunidades = {o.idea_id: o for o in bd.scalars(select(Oportunidad).where(Oportunidad.idea_id.in_(iids)))}
     salida = []
     for i in items:
         if i.propuesta_id:
             p = bd.get(Propuesta, i.propuesta_id)
             org = bd.get(OrganizacionExterna, p.organizacion_id)
-            e = rp.vigente(bd, propuesta_id=p.propuesta_id)
+            e = vigentes.get(("p", p.propuesta_id))
             datos = _datos_propuesta(p)
             falta = None
             if p.estado == "borrador":
@@ -381,8 +396,8 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
                         precio=datos.get("precio"), costo=datos.get("costo"), margen=datos.get("margen"))
         else:
             idea = bd.get(ProductoIdea, i.idea_id)
-            e = rp.vigente(bd, idea_id=idea.idea_id)
-            op = bd.scalar(select(Oportunidad).where(Oportunidad.idea_id == idea.idea_id))
+            e = vigentes.get(("i", idea.idea_id))
+            op = oportunidades.get(idea.idea_id)
             margen = rp.sujeto_de_idea(idea).margen
             presentacion = " · ".join(x for x in (idea.contenido, idea.forma) if x) or None
             base = dict(tipo="idea", sujeto_id=idea.idea_id, nombre=idea.nombre, marca=idea.marca,
@@ -403,7 +418,58 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
                                        por=usuarios.get(r.actualizada_por), en=r.actualizada_en)
                         for r in sorted(i.revisiones, key=lambda r: list(REVISIONES).index(r.tipo))],
             faltantes=_faltantes(e, base), **base))
+    _marcar_duplicados(salida)
     return salida
+
+
+def _por_unidad(x: ItemSalida) -> tuple[str, Decimal] | None:
+    tam = rp.tamano(x.presentacion, x.nombre)
+    precio = _decimal(x.precio)
+    dim = next((d for d in ("g", "ml", "pz", "m") if d in tam), None)
+    return (dim, precio / tam[dim]) if dim and precio else None
+
+
+def _marcar_duplicados(items: list[ItemSalida]) -> None:
+    """El mismo producto (mismas palabras del nombre y marca) dos veces en la reunión: se avisa en los dos y se dice cuál
+    conviene por gramo, mililitro o pieza (Diego, 11 nov 2026: Krystal Stone de 120 g y de 60 g)."""
+    def clave(x: ItemSalida) -> tuple[frozenset, frozenset]:
+        marca = frozenset(rp.palabras(x.marca))
+        nombre = frozenset(rp.palabras(x.nombre))
+        return (nombre - marca) or nombre, marca
+
+    # Mismo nombre (sin contar la marca) y la marca comparte una palabra: «Proteína Nuba sabor chocolate» de Nuba y
+    # «Proteína sabor chocolate» de «Nuba nutrición balanceada» son el mismo (comité del 12 nov 2026)
+    grupos: dict[int, list[ItemSalida]] = {}
+    claves = [(x, clave(x)) for x in items]
+    for x, (nombre, marca) in claves:
+        if not nombre:
+            continue
+        for y_grupo in grupos.values():
+            nombre_y, marca_y = clave(y_grupo[0])
+            if nombre == nombre_y and (marca & marca_y or not (marca or marca_y)):
+                y_grupo.append(x)
+                break
+        else:
+            grupos[x.id] = [x]
+    for grupo in (g for g in grupos.values() if len(g) > 1):
+        unidades = {x.id: u for x in grupo if (u := _por_unidad(x))}
+        dims = {u[0] for u in unidades.values()}
+        mejor = min(unidades, key=lambda k: unidades[k][1]) if len(unidades) == len(grupo) and len(dims) == 1 else None
+        for x in grupo:
+            otros = []
+            for y in grupo:
+                if y.id == x.id:
+                    continue
+                u = unidades.get(y.id)
+                otros.append(f"«{y.nombre}»" + (f" ({y.presentacion})" if y.presentacion else "")
+                             + (f" a {_dinero(_decimal(y.precio))}" if y.precio else "")
+                             + (f", {rp._precio_unidad(u[1], u[0])}" if u else ""))
+            texto = "También está en esta reunión: " + "; ".join(otros) + "."
+            if mejor:
+                u = unidades[x.id]
+                texto += (f" Este sale a {rp._precio_unidad(u[1], u[0])}; "
+                          + ("es el que más conviene." if mejor == x.id else "hay otro que conviene más."))
+            x.duplicado = texto
 
 
 def _faltantes(e: ProductoEvaluacion | None, base: dict) -> list[str]:
@@ -840,16 +906,16 @@ def evaluar(item_id: int, request: Request, ctx: Contexto = Depends(requiere(SUB
 
 
 @router.get("/productos/{item_id}/fotos/{n}")
-def foto(item_id: int, n: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> FileResponse:
-    """La foto n (desde 0) del producto: las del cuestionario del proveedor o las de la idea."""
+def foto(item_id: int, n: int, ancho: int | None = Query(None, ge=32, le=2000), _: Contexto = Depends(requiere(VER)),
+         bd: Session = Depends(obtener_bd)) -> FileResponse:
+    """La foto n (desde 0) del producto: las del cuestionario del proveedor o las de la idea. Con `ancho`, reducida."""
     fotos = _fotos(bd, _item(bd, item_id))
     archivo = bd.get(Archivo, fotos[n]) if 0 <= n < len(fotos) else None
     raiz = _raiz()
     ruta = (raiz / archivo.ruta_almacenamiento).resolve() if archivo else None
     if not ruta or raiz not in ruta.parents or not ruta.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa foto.")
-    return FileResponse(ruta, media_type=archivo.tipo_contenido, filename=archivo.nombre_original,
-                        content_disposition_type="inline", headers={"X-Content-Type-Options": "nosniff"})
+    return miniaturas.responder(raiz, ruta, archivo.tipo_contenido, archivo.nombre_original, ancho)
 
 
 # ---------------------------------------------------------------- pre-filtro
@@ -878,6 +944,8 @@ def prefiltrar(item_id: int, datos: Prefiltro, request: Request, ctx: Contexto =
     i.prefiltro_por, i.prefiltro_en = ctx.usuario.usuario_id, ahora()
     _bitacora(bd, "prefiltro", ctx, request, "comite_producto", i.item_id,
               {"reunion": r.reunion_id, "resultado": datos.resultado, "semaforo": i.prefiltro_color})
+    antecedente(bd, i, r, "rechazado" if datos.resultado == "no_pasa" else None, f"Pre-filtro de Compras: {motivo}",
+                ctx.usuario.usuario_id)
     bd.commit()
     return _salida(bd, r)
 
@@ -933,8 +1001,36 @@ def decidir(item_id: int, datos: Decision, request: Request, ctx: Contexto = Dep
         i.revisiones.clear()
     _bitacora(bd, "decision", ctx, request, "comite_producto", i.item_id,
               {"reunion": r.reunion_id, "decision": datos.decision, "semaforo": i.decision_color})
+    antecedente(bd, i, r, {"aceptado": "aprobado", "denegado": "rechazado"}.get(datos.decision),
+                f"Comité: {motivo}", ctx.usuario.usuario_id)
     bd.commit()
     return _salida(bd, r)
+
+
+def antecedente(bd: Session, i: ComiteProducto, r: ComiteReunion, decision: str | None, motivo: str,
+                usuario_id: int) -> None:
+    """Lo que decide el comité (o el pre-filtro) queda como caso en la Base de conocimiento: las evaluaciones de
+    productos parecidos lo citan (Diego, 12 nov 2026: «aprender del comité»). En espera o «pasa» no es antecedente;
+    si se cambia la decisión, se actualiza el mismo caso."""
+    marca = f"Registrado por el comité (producto {i.item_id})"
+    caso = bd.scalar(select(ConocimientoCaso).where(ConocimientoCaso.notas == marca))
+    if decision is None:
+        if caso and caso.motivo and caso.motivo.startswith(motivo.split(":")[0]):
+            caso.decision, caso.motivo = "condicionado", f"{motivo} (ya no es definitivo)"[:1000]
+        return
+    if i.propuesta_id:
+        p = bd.get(Propuesta, i.propuesta_id)
+        producto, depto = p.producto or "Producto sin nombre", p.departamento
+        proveedor = bd.get(OrganizacionExterna, p.organizacion_id).nombre
+    else:
+        idea = bd.get(ProductoIdea, i.idea_id)
+        producto, depto, proveedor = idea.nombre, idea.departamento, idea.proveedor_nuevo
+    if not caso:
+        caso = ConocimientoCaso(notas=marca, creado_por=usuario_id)
+        bd.add(caso)
+    caso.producto, caso.departamento, caso.proveedor = producto[:300], depto, (proveedor or None) and proveedor[:200]
+    caso.decision, caso.motivo, caso.fecha_decision = decision, motivo[:1000], r.fecha
+    caso.actualizado_por = usuario_id
 
 
 class Revision(BaseModel):
@@ -1140,11 +1236,25 @@ class ParecidoSalida(BaseModel):
     tiendas: int | None
     por_tienda_mes: float | None
     cambio: float | None
+    tamano: str | None = None  # «55 g», como lo lee el radar de la descripción
+    por_unidad: Decimal | None = None  # precio por gramo, mililitro, pieza o metro
+    cuenta: bool | None = None  # si entra en la comparación de precio (tamaño de la mitad al doble del nuevo)
+
+
+class EnInternet(BaseModel):
+    vendedor: str | None
+    precio: Decimal
+    liga: str | None
 
 
 class Parecidos(BaseModel):
     ventana: str | None  # de qué periodo es la venta; None si no hay ventas cargadas
     productos: list[ParecidoSalida]
+    unidad: str | None = None  # gramo / mililitro / pieza / metro, si se pudo comparar por unidad
+    este_por_unidad: Decimal | None = None
+    este_tamano: str | None = None
+    internet: list[EnInternet] = []
+    quitados: str | None = None  # los que la IA no dejó comparar (v0.3.1)
 
 
 @router.get("/productos/{item_id}/parecidos", response_model=Parecidos)
@@ -1156,11 +1266,49 @@ def parecidos(item_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = 
     e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
     if not e or e.estado != "lista":
         return Parecidos(ventana=None, productos=[])
-    ventana, filas = ac.parecidos_con_venta(bd, e, n=3)
-    return Parecidos(ventana=ventana, productos=[ParecidoSalida(
+    ventana, filas = ac.parecidos_con_venta(bd, e, n=6)
+    salida = Parecidos(ventana=ventana, productos=[ParecidoSalida(
         producto_id=x.producto.producto_id, sku=x.producto.sku, descripcion=x.producto.descripcion, marca=x.producto.marca,
         imagen=x.producto.liga_imagen or x.producto.imagen_cdn, precio=x.precio, al_mes=x.al_mes, tiendas=x.tiendas,
         por_tienda_mes=x.por_tienda_mes, cambio=x.cambio) for x in filas])
+    base = _items(bd, [i])[0]
+    _por_unidad_parecidos(salida, base.presentacion, base.nombre, _decimal(base.precio))
+    mercado = rp.mp.Mercado.de_json(e.mercado)
+    if mercado:
+        salida.internet = [EnInternet(vendedor=p.get("vendedor"), precio=Decimal(str(p["precio"])), liga=p.get("liga"))
+                           for p in mercado.precios[:5] if p.get("precio")]
+    salida.quitados = next((x.split(": ", 1)[1].rstrip(".") for x in (e.explicacion or "").split("\n")
+                            if x.startswith("No se comparó contra") and ": " in x), None)
+    return salida
+
+
+def _texto_tamano(cantidad: Decimal, dim: str) -> str:
+    n = f"{cantidad.normalize():f}"
+    return {"g": f"{n} g", "ml": f"{n} ml", "pz": f"{n} pz", "m": f"{n} m"}[dim]
+
+
+def _por_unidad_parecidos(d: Parecidos, presentacion: str | None, nombre: str, precio: Decimal | None) -> None:
+    """Precio por unidad del producto nuevo y de sus parecidos, con la misma regla que el radar: la unidad que comparten
+    más parecidos y, si hay de tamaño cercano (de la mitad al doble), solo esos cuentan (Diego, 11 nov 2026)."""
+    suyo = rp.tamano(presentacion, nombre)
+    if not suyo:
+        return
+    mejor = None
+    for dim, cantidad in suyo.items():
+        con = [(x, t[dim]) for x in d.productos if x.precio and dim in (t := rp.tamano(x.descripcion))]
+        if con and (mejor is None or len(con) > len(mejor[2])):
+            mejor = (dim, cantidad, con)
+    dim, cantidad = mejor[:2] if mejor else next(iter(suyo.items()))
+    d.este_tamano = _texto_tamano(cantidad, dim)
+    if not mejor:
+        return
+    d.unidad = rp.NOMBRE_UNIDAD[dim]
+    d.este_por_unidad = (precio / cantidad).quantize(Decimal("0.0001")) if precio else None
+    cercanos = {x.producto_id for x, t in mejor[2] if cantidad / 2 <= t <= cantidad * 2}
+    for x, t in mejor[2]:
+        x.tamano = _texto_tamano(t, dim)
+        x.por_unidad = (x.precio / t).quantize(Decimal("0.0001"))
+        x.cuenta = x.producto_id in cercanos if cercanos else True
 
 
 @router.post("/productos/{item_id}/preguntar", response_model=RespuestaAsistente)

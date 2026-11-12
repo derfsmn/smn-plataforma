@@ -11,6 +11,10 @@ Reglas de la fase 1, aprobadas en el plan:
   de Configuración. Todo lo provisional queda marcado en el factor.
 - Rechazo directo (2026-10-26): la IA revisa el producto contra las políticas vigentes y las reglas de rechazo y umbral
   de la Base de conocimiento (politicas_producto); si cae en una regla de rechazo, queda en rojo con ese motivo.
+  Desde el 11 nov 2026 solo con el dato que lo prueba y si la regla habla de su tipo de producto; si no, es un aviso.
+- Ajustes del 11 nov 2026 (aprobados por Diego): margen abajo del mínimo baja poco a poco hasta 0 en 15 %; parecidos
+  sin colores ni palabras sueltas, de la misma subcategoría cuando se sabe y solo con precio de $5 o más; el precio
+  contra los parecidos se compara por gramo, mililitro o pieza cuando se sabe el tamaño.
 """
 import json
 import logging
@@ -49,6 +53,7 @@ FACTORES = ("demanda", "rentabilidad", "precio", "tendencia", "categoria", "prov
 NOMBRES = {"demanda": "Demanda", "rentabilidad": "Rentabilidad", "precio": "Precio", "tendencia": "Tendencia",
            "categoria": "Categoría", "proveedor": "Proveedor"}
 TAREA_CLASIFICAR = "compras.productos_clasificar"
+TAREA_PARECIDOS = "compras.productos_parecidos"
 TAREA_TENDENCIA = "compras.productos_tendencia"
 MAX_COMPARABLES = 10
 MIN_SIMILITUD = Decimal("0.15")
@@ -72,7 +77,16 @@ PALABRAS_VACIAS = {
     "de", "del", "la", "el", "los", "las", "con", "sin", "para", "por", "en", "y", "o", "un", "una", "al", "a",
     "mg", "gr", "g", "ml", "kg", "lt", "pza", "pzas", "piezas", "caps", "capsulas", "tabs", "tabletas", "frasco",
     "polvo", "liquido", "gomitas", "sobres", "natural", "naturales", "plus", "premium",
+    # 11 nov 2026: colores y palabras sueltas que juntaban productos que no se parecen («cinta azul» con «pre workout
+    # frambuesa azul», «pre-cortada» con pre-entrenos, «sólido» con shampoo sólido)
+    "azul", "azules", "rojo", "roja", "rosa", "rosado", "morado", "morada", "gris", "amarillo", "amarilla", "negro",
+    "negra", "blanco", "blanca", "dorado", "plateado", "pre", "cortada", "precortada", "solido", "solida", "sabor",
+    "sabores", "sab", "set", "kit", "pieza", "efecto", "tipo", "nuevo", "nueva", "extra", "ultra", "max", "mini",
+    "pack", "paquete", "diseno", "azucar", "lactosa", "grasa", "gluten", "libre", "cada",
 }
+PISO_MARGEN = Decimal("15")  # con este margen o menos, Rentabilidad vale 0
+PRECIO_MINIMO_PARECIDO = Decimal("5")  # menos que esto es un regalo o un error de captura, no un precio de venta
+MIN_MISMA_SUBCATEGORIA = 3  # con menos parecidos de su subcategoría se completa con los de su rama
 
 
 class ErrorEvaluacion(Exception):
@@ -177,6 +191,9 @@ def sujeto_de_idea(i: ProductoIdea) -> Sujeto:
 INSTRUCCIONES_CLASIFICAR = """Eres analista de Compras de una cadena de tiendas naturistas en México.
 Te doy un producto nuevo y la lista de ramas, subcategorías y segmentos que ya existen en el catálogo.
 Elige la combinación que mejor le queda, copiándola EXACTAMENTE de la lista. Si ninguna le queda, contesta nulos.
+Fíjate en QUÉ ES el producto y cómo se usa, no en una palabra suelta: orégano seco para cocinar es un condimento, no un
+suplemento digestivo; un vaso mezclador (shaker) es un accesorio, no una proteína; una cinta kinesiológica no es una
+muñequera. En "ejemplos" van productos del catálogo que se le parecen por nombre: úsalos solo si son el mismo tipo.
 Contesta solo JSON: {"rama": "...", "subcategoria": "...", "segmento": "..."}"""
 
 
@@ -189,14 +206,28 @@ def opciones_clasificacion(bd: Session, departamento: str | None) -> list[tuple[
     return [(r or "", s or "", g or "") for r, s, g in filas]
 
 
-def clasificar(bd: Session, s: Sujeto) -> tuple[str | None, str | None, str | None]:
+def clasificar(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]] | None = None
+               ) -> tuple[str | None, str | None, str | None]:
     """La IA sugiere rama, subcategoría y segmento de entre los que existen. Si falla, queda sin clasificar."""
-    opciones = opciones_clasificacion(bd, s.departamento)
+    # 11 nov 2026: el departamento que captura Compras («SUPLEMENTOS», «DEPORTES») muchas veces no existe en el
+    # catálogo y entonces salían 300 opciones al azar; ahora van también las de los productos que más se le parecen
+    # (v0.4: los que ya revisó la IA, para que el orégano no tome la subcategoría de unas cápsulas)
+    if parecidos is None:
+        parecidos = buscar_parecidos(bd, s, None)
+    cercanos = [p for p, _ in parecidos if p.subcategoria]
+    propias = [(p.rama or "", p.subcategoria or "", p.segmento or "") for p in cercanos]
+    con_depto = bd.execute(select(Producto.rama, Producto.subcategoria, Producto.segmento).distinct().where(
+        Producto.activo == true(), Producto.subcategoria.is_not(None), Producto.departamento == s.departamento)
+        .limit(300)).all() if s.departamento else []
+    opciones = list(dict.fromkeys(propias + [(r or "", c or "", g or "") for r, c, g in con_depto]))
+    if not opciones:
+        opciones = opciones_clasificacion(bd, s.departamento)
     if not opciones:
         return None, None, None
     mensaje = json.dumps({
         "producto": s.nombre, "marca": s.marca, "departamento": s.departamento, "descripcion": s.descripcion,
-        "ingrediente_principal": s.ingrediente, "forma": s.forma,
+        "ingrediente_principal": s.ingrediente, "forma": s.forma, "contenido": s.contenido,
+        "ejemplos": [f"{p.descripcion} → {p.subcategoria}" for p in cercanos[:8]],
         "opciones": [{"rama": r, "subcategoria": c, "segmento": g} for r, c, g in opciones],
     }, ensure_ascii=False)
     try:
@@ -282,14 +313,23 @@ def mismo_de(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]) -> Producto |
     return next((p for p, _ in parecidos if es_mismo(s, p)), None)
 
 
-def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None) -> list[tuple[Producto, Decimal]]:
+def _con_precio(p: Producto) -> bool:
+    return bool(p.precio_lista_con_impuestos) and p.precio_lista_con_impuestos >= PRECIO_MINIMO_PARECIDO
+
+
+def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str | None = None
+                     ) -> list[tuple[Producto, Decimal]]:
     """Productos activos del catálogo que más se parecen.
 
     Busca en todo el catálogo, no solo en el departamento capturado (el departamento puede venir distinto). Lo que más
     pesa son las palabras del nombre que aparecen en la descripción del producto; la descripción larga de una idea solo
     suma un poco, para que no diluya el parecido. Suben la misma marca, la misma subcategoría, el mismo departamento y
     la misma forma. Al final se ordena por presentación (Plus 30 cápsulas antes que Plus 90 cápsulas) y el que es el
-    mismo producto queda con 1.0."""
+    mismo producto queda con 1.0.
+
+    Desde el 11 nov 2026: debe compartir al menos una palabra del nombre; sin precio de lista (o de menos de $5) no
+    cuenta como parecido; si se sabe la subcategoría, solo entran los de esa subcategoría (y, si son menos de 3, los de
+    su misma rama); la misma descripción no se repite."""
     nombre = palabras(s.nombre)
     clave = _clave_sujeto(s)
     todas = s.texto()
@@ -297,17 +337,25 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None) -> list[t
         return []
     marca = palabras(s.marca)
     depto, forma = _norm(s.departamento).strip(), _norm(s.forma)
+    medidas = set(tamano(s.contenido, s.nombre))
     calificados = []
     for p in bd.scalars(select(Producto).where(Producto.activo == true())):
         otras = palabras(p.descripcion)
         if not otras:
             continue
+        mismo = es_mismo(s, p)
+        # La marca del catálogo cuenta como parte del nombre («Krystal Stone» viene en la marca, no en la descripción);
+        # de su misma subcategoría entra aunque no comparta palabras (un desodorante en barra de otra marca)
+        su_sub = bool(subcategoria) and p.subcategoria == subcategoria
+        misma_marca = bool(marca) and (marca <= palabras(p.marca) or marca <= otras)
+        if not mismo and (not _con_precio(p) or (nombre and not su_sub and not nombre & (otras | palabras(p.marca)))):
+            continue
         cobertura = Decimal(len(nombre & otras)) / Decimal(len(nombre)) if nombre else Decimal(0)
         jaccard = Decimal(len(todas & otras)) / Decimal(len(todas | otras))
         sim = cobertura * Decimal("0.6") + jaccard * Decimal("0.4")
-        if sim == 0:
+        if sim == 0 and not su_sub and not misma_marca:
             continue
-        if marca and (marca <= palabras(p.marca) or marca <= otras):
+        if misma_marca:
             sim += Decimal("0.2")
         if subcategoria and p.subcategoria == subcategoria:
             sim += Decimal("0.15")
@@ -315,16 +363,97 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None) -> list[t
             sim += Decimal("0.05")
         if forma and forma in _norm(p.descripcion):
             sim += Decimal("0.05")
-        if es_mismo(s, p):
+        if mismo:
             calificados.append((p, Decimal("1.000")))
             continue
         suya = _clave_producto(p)
         if clave:  # nombre y presentación completos, con números: separa variantes de la misma marca
             sim += Decimal(len(clave & suya)) / Decimal(len(clave | suya)) * Decimal("0.25")
+        if medidas and (suyas := set(tamano(p.descripcion))) and not medidas & suyas:
+            if not (su_sub or misma_marca):
+                continue  # otra forma de producto: orégano de 14 g no se parece a cápsulas de orégano (11 nov 2026)
+            sim /= 2
         if sim >= MIN_SIMILITUD:
             calificados.append((p, min(sim, Decimal("0.99")).quantize(Decimal("0.001"))))
     calificados.sort(key=lambda x: (-x[1], x[0].sku))
-    return calificados[:MAX_COMPARABLES]
+    return _depurar(calificados, subcategoria, rama)[:MAX_COMPARABLES]
+
+
+def _depurar(calificados: list[tuple[Producto, Decimal]], subcategoria: str | None,
+             rama: str | None) -> list[tuple[Producto, Decimal]]:
+    """Con subcategoría conocida se quedan los de esa subcategoría; si son menos de 3, se completan con los de la misma
+    rama (o, sin rama, con los que no tienen subcategoría). Sin repetir la misma descripción."""
+    vistos, unicos = set(), []
+    for p, sim in calificados:
+        llave = " ".join(sorted(presentacion(p.descripcion)))
+        if llave not in vistos:
+            vistos.add(llave)
+            unicos.append((p, sim))
+    if not subcategoria:
+        return unicos
+    propios = [(p, sim) for p, sim in unicos if sim == 1 or p.subcategoria == subcategoria]
+    if len(propios) >= MIN_MISMA_SUBCATEGORIA:
+        return propios
+    if rama:
+        cercanos = [(p, sim) for p, sim in unicos if (p, sim) not in propios and p.rama == rama]
+    else:
+        cercanos = [(p, sim) for p, sim in unicos if (p, sim) not in propios and not p.subcategoria]
+    return propios + cercanos
+
+
+INSTRUCCIONES_PARECIDOS = """Eres comprador de una cadena de tiendas naturistas en México.
+Te doy un producto nuevo y una lista numerada de productos que ya vendemos. Para cada uno decide si es el MISMO TIPO de
+producto: un cliente lo vería como alternativa en el anaquel (sirve para lo mismo y se usa igual). La marca, el sabor,
+el color y el tamaño NO importan. Una palabra en común no basta.
+Ejemplos: cinta kinesiológica vs muñequera elástica = no (una se pega, la otra se pone); orégano seco para cocinar vs
+cápsulas de orégano = no (condimento vs suplemento); shaker vs proteína = no; desodorante en barra de otra marca = sí;
+proteína en polvo de 1 kg vs proteína en polvo de 500 g = sí.
+Contesta SOLO un JSON así: {"revision": [{"n": 1, "mismo_tipo": true, "motivo": "pocas palabras"}, ...]}, uno por
+cada número de la lista."""
+
+
+def revisar_parecidos(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
+                      vistos: dict[str, tuple[bool, str]] | None = None
+                      ) -> tuple[list[tuple[Producto, Decimal]], list[tuple[Producto, str]]]:
+    """La IA local revisa si cada parecido es de verdad el mismo tipo de producto y quita los que no (Diego eligió
+    «Solo revisar parecidos», 12 nov 2026). Devuelve (los que quedan, los quitados con su motivo). El mismo producto
+    (similitud 1) nunca se quita. Si la IA falla o contesta algo que no se entiende, se quedan todos, como antes.
+    `vistos` guarda lo ya revisado por SKU para no volver a preguntar en la misma evaluación."""
+    vistos = {} if vistos is None else vistos
+    nuevos = [p for p, sim in parecidos if sim < 1 and p.sku not in vistos]
+    if nuevos:
+        mensaje = json.dumps({
+            "producto": s.nombre, "marca": s.marca, "contenido": s.contenido, "forma": s.forma,
+            "departamento": s.departamento, "descripcion": (s.descripcion or "")[:400] or None,
+            "lista": [{"n": i, "producto": p.descripcion, "subcategoria": p.subcategoria}
+                      for i, p in enumerate(nuevos, 1)],
+        }, ensure_ascii=False)
+        try:
+            r = puerta.ejecutar(bd, TAREA_PARECIDOS, usuario_id=None, instrucciones=INSTRUCCIONES_PARECIDOS,
+                                mensaje=mensaje, max_tokens=60 + 40 * len(nuevos), esfuerzo="low",
+                                contexto=puerta.ventana(INSTRUCCIONES_PARECIDOS, mensaje, salida=60 + 40 * len(nuevos)))
+            datos = json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1])
+            for x in datos.get("revision") or []:
+                n = x.get("n") if isinstance(x, dict) else None
+                if isinstance(n, int) and 1 <= n <= len(nuevos) and isinstance(x.get("mismo_tipo"), bool):
+                    vistos[nuevos[n - 1].sku] = (x["mismo_tipo"], str(x.get("motivo") or "")[:120])
+        except (puerta.ErrorIA, ValueError, AttributeError) as e:
+            log.warning("Radar de productos: la IA no pudo revisar los parecidos de «%s»: %s", s.nombre, e)
+    quedan, quitados = [], []
+    for p, sim in parecidos:
+        si, motivo = vistos.get(p.sku, (True, ""))
+        if sim >= 1 or si:
+            quedan.append((p, sim))
+        else:
+            quitados.append((p, motivo))
+    return quedan, quitados
+
+
+def nota_quitados(quitados: list[tuple[Producto, str]]) -> str:
+    if not quitados:
+        return ""
+    lista = "; ".join(f"{p.descripcion}" + (f" ({m})" if m else "") for p, m in quitados[:5])
+    return f"\n\nNo se comparó contra (la IA vio que no es el mismo tipo de producto): {lista}."
 
 
 # ---------------------------------------------------------------- factores
@@ -337,6 +466,7 @@ class Factor:
     provisional: bool = False
     calculo: str | None = None  # cómo se llegó a la calificación, con sus números
     mejora: str | None = None  # qué tendría que pasar para que suba (o qué significa)
+    meta: Decimal | None = None  # Precio: el precio de referencia (total) contra el que se comparó
 
 
 def _n(x: float | Decimal, d: int = 1) -> str:
@@ -372,18 +502,22 @@ def f_rentabilidad(bd: Session, s: Sujeto, subcategoria: str | None = None, v: r
             falta = " y ".join(x for x, hay in (("el costo estimado", s.costo), ("el precio que se vio", s.precio)) if not hay)
         return Factor(None, None, f"Sin datos: falta {falta}. Con los dos se calcula el margen.")
     minimo, provisional = margen_minimo(bd, s.departamento)
-    # En el mínimo vale 60 (amarillo); cada punto arriba suma 8/3 hasta 100 a los 15 puntos; cada punto abajo resta 6
+    # En el mínimo vale 60 (amarillo); cada punto arriba suma 8/3 hasta 100 a los 15 puntos. Abajo del mínimo baja
+    # parejo hasta 0 en 15 % de margen (Diego, 11 nov 2026: con 6 por punto, 30.4 % contra 31 % ya casi no valía nada)
     dif = float(s.margen - minimo)
-    puntaje = 60 + dif * 40 / 15 if dif >= 0 else 60 + dif * 6
+    abajo = 60 / float(minimo - PISO_MARGEN) if minimo > PISO_MARGEN else 6.0
+    puntaje = 60 + dif * 40 / 15 if dif >= 0 else 60 + dif * abajo
     base = _acotar(puntaje)
     origen = ("provisional: Compras todavía no define el suyo" if provisional
               else "el que definió Compras en su Base de conocimiento")
     nota = f" ({s.margen_nota})" if s.margen_nota else ""
     minimo_texto = f"{minimo:.0f}" if minimo == minimo.to_integral_value() else f"{minimo:.1f}"
-    detalle = (f"Deja {_n(s.margen)} % de margen{nota}: de cada $100 que se vende, ${_n(s.margen)} quedan después de "
-               f"pagar el producto. El mínimo es {minimo_texto} % ({origen}).")
+    detalle = (f"De cada $100 que se vende quedan ${_n(s.margen)} después de pagar el producto{nota}. Compras pide al "
+               f"menos {minimo_texto} % ({origen}).")
+    piso = (f"baja parejo hasta 0 con {_n(PISO_MARGEN)} % de margen" if minimo > PISO_MARGEN
+            else "cada punto abajo resta 6")
     calculo = (f"Si deja justo el mínimo ({minimo_texto} %) saca 60. Cada punto de margen arriba del mínimo suma 2.7 "
-               f"(con 15 puntos arriba llega a 100) y cada punto abajo resta 6. Este queda {_n(dif)} puntos "
+               f"(con 15 puntos arriba llega a 100); abajo del mínimo {piso}. Este queda {_n(abs(dif))} puntos "
                f"{'arriba' if dif >= 0 else 'abajo'} del mínimo: {base}.")
     ajuste = ""
     # Contra lo que de verdad deja la subcategoría: 5 puntos menos si queda 5 o más abajo, 5 más si queda 5 o más arriba
@@ -395,16 +529,38 @@ def f_rentabilidad(bd: Session, s: Sujeto, subcategoria: str | None = None, v: r
         elif s.margen >= margen_sub + 5:
             puntaje += 5
             ajuste = f" Suma 5 porque deja 5 puntos o más por arriba de lo que deja su subcategoría ({margen_sub} %)."
-        detalle += (f" Los {n} productos de la subcategoría «{subcategoria}» dejan en realidad {margen_sub} % "
-                    f"({v.texto()}); este producto queda {float(s.margen - margen_sub):+.1f} puntos.")
+        detalle += (f" Lo que ya vendemos de «{subcategoria.capitalize()}» ({n} productos) deja {_n(margen_sub)} %.")
     final = _acotar(puntaje)
     mejora = None
     if final <= 80:
         meta = minimo + Decimal("7.6")
         mejora = (f"Para que este factor salga arriba de 80 tendría que dejar al menos {_n(meta)} % de margen (hoy {_n(s.margen)} %): con un precio "
                   "de venta más alto o un costo más bajo.")
-    return Factor(final, f"Deja {_n(s.margen)} % de margen (mínimo {minimo_texto} %)", detalle, provisional,
+        if dif < 0 and (lectura := _para_llegar(s, minimo)):
+            mejora = lectura
+    if dif >= 0:
+        valor = f"Deja {_n(s.margen)} % de margen, {_n(dif)} puntos arriba del mínimo ({minimo_texto} %)"
+    else:
+        valor = f"Margen bajo: deja {_n(s.margen)} %, {_n(-dif)} puntos abajo del mínimo ({minimo_texto} %)"
+    return Factor(final, valor, detalle, provisional,
                   calculo + (f"{ajuste} Calificación: {final}." if ajuste else ""), mejora)
+
+def _para_llegar(s: Sujeto, minimo: Decimal) -> str | None:
+    """Lectura de comprador: a qué precio venderlo o a qué costo conseguirlo para dejar el margen mínimo."""
+    if not s.precio or s.margen is None or minimo >= 100:
+        return None
+    base = s.precio / (1 + IVA_SUPUESTO / 100)
+    costo = s.costo or base * (1 - s.margen / 100)
+    if costo <= 0:
+        return None
+    precio_meta = costo / (1 - minimo / 100) * (1 + IVA_SUPUESTO / 100)
+    costo_meta = base * (1 - minimo / 100)
+    sube = (precio_meta / s.precio - 1) * 100
+    baja = (1 - costo_meta / costo) * 100
+    return (f"Para dejar el mínimo de {_n(minimo)} %: venderlo en {_pesos(precio_meta)} ({_n(sube)} % más) o "
+            f"conseguirlo en {_pesos(costo_meta)} de costo sin IVA ({_n(baja)} % menos). Con el precio de venta, revisa "
+            "en Precio si así sigue siendo competitivo.")
+
 
 def _por_precio(ratio: Decimal) -> int:
     # Igual al mercado vale 75; cada 1 % más caro resta 1 punto y cada 1 % más barato suma 1 (recalibración del
@@ -414,9 +570,10 @@ def _por_precio(ratio: Decimal) -> int:
 
 def _precio_valor(ratio: Decimal, contra: str) -> str:
     pct = float(ratio - 1) * 100
+    nivel = ("Buen precio" if pct <= -5 else "En precio" if pct <= 5 else "Algo caro" if pct <= 15 else "Caro")
     if round(pct) == 0:
-        return f"Igual que {contra}"
-    return f"{abs(pct):.0f} % {'más caro' if pct > 0 else 'más barato'} que {contra}"
+        return f"{nivel}: igual que {contra}"
+    return f"{nivel}: {abs(pct):.0f} % {'más caro' if pct > 0 else 'más barato'} que {contra}"
 
 
 def _precio_explicado(ratio: Decimal, referencia: Decimal, contra: str) -> tuple[str, str | None]:
@@ -462,6 +619,68 @@ def _fuera_texto(fuera: list[dict]) -> str:
     return f" Se descartaron {len(fuera)} precio(s) de internet fuera de rango ({lista}): no parecen la misma presentación."
 
 
+UNIDADES = {"kg": ("g", 1000), "kilo": ("g", 1000), "kilos": ("g", 1000), "g": ("g", 1), "gr": ("g", 1),
+            "grs": ("g", 1), "gramos": ("g", 1), "l": ("ml", 1000), "lt": ("ml", 1000), "lts": ("ml", 1000),
+            "litro": ("ml", 1000), "litros": ("ml", 1000), "ml": ("ml", 1), "mililitros": ("ml", 1),
+            "m": ("m", 1), "metros": ("m", 1)}
+UNIDADES.update({u: ("pz", 1) for u in (
+    "cap", "caps", "capsula", "capsulas", "softgel", "softgels", "tab", "tabs", "tableta", "tabletas", "comprimidos",
+    "sob", "sobre", "sobres", "pz", "pza", "pzas", "pzs", "pieza", "piezas", "tiras", "varitas", "toallitas",
+    "gomita", "gomitas", "gomas", "perlas", "grageas", "pastillas")})
+_CAPSULAS = {"cap", "caps", "capsula", "capsulas", "softgel", "softgels", "perlas"}  # ninguna pesa 3 g o más
+NOMBRE_UNIDAD = {"g": "gramo", "ml": "mililitro", "pz": "pieza", "m": "metro"}
+_TAMANO = re.compile(r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(UNIDADES, key=len, reverse=True)) + r")\b")
+
+
+def tamano(*textos: str | None) -> dict[str, Decimal]:
+    """Tamaño de la presentación por unidad: {"g": 120} para «120 g», {"pz": 15, "g": 79.5} para «15 tabletas de
+    5.3 g c/u». Toma el primer texto que diga algo (el contenido antes que el nombre). Los mg no cuentan: son dosis."""
+    for texto in textos:
+        t = _norm(texto)
+        salida: dict[str, Decimal] = {}
+        unidad_pz = None
+        for numero, unidad in _TAMANO.findall(t):
+            dim, factor = UNIDADES[unidad]
+            if dim == "pz" and "pz" not in salida:
+                unidad_pz = unidad
+            cantidad = Decimal(numero.replace(",", ".")) * factor
+            if cantidad > 0 and dim not in salida:
+                salida[dim] = cantidad
+        cada = "c/u" in t or " cada" in t or re.search(r"\d\s*[a-z]+\s+(?:de|con|x)\s+\d", t)
+        if "pz" in salida and cada:  # 15 tabletas de 5.3 g c/u = 79.5 g; 8 piezas de 100 g = 800 g
+            if unidad_pz in _CAPSULAS and salida.get("g", 0) >= 3:
+                salida.pop("g")  # «30 cápsulas de 346 g» es un error de captura (eran mg): solo cuentan las piezas
+            for dim in ("g", "ml"):
+                if dim in salida:
+                    salida[dim] *= salida["pz"]
+        if salida:
+            return salida
+    return {}
+
+
+def _por_unidad(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]
+                ) -> tuple[str, Decimal, list[tuple[Producto, Decimal]]] | None:
+    """Precio por gramo, mililitro o pieza del producto y de los parecidos que dicen su tamaño en la misma unidad.
+    Se usa la unidad que comparten más parecidos. Si hay parecidos de tamaño cercano (de la mitad al doble) solo se
+    usan esos: un bote de 2 kg siempre sale más barato por gramo que uno de 250 g (Diego, 11 nov 2026)."""
+    suyo = tamano(s.contenido, s.nombre, s.descripcion)
+    if not suyo or not s.precio:
+        return None
+    mejores = None
+    for dim, cantidad in suyo.items():
+        con_tam = [(p, tam[dim]) for p, _ in parecidos
+                   if p.precio_lista_con_impuestos and dim in (tam := tamano(p.descripcion))]
+        cercanos = [(p, x) for p, x in con_tam if cantidad / 2 <= x <= cantidad * 2]
+        lista = [(p, p.precio_lista_con_impuestos / x) for p, x in (cercanos or con_tam)]
+        if lista and (mejores is None or len(lista) > len(mejores[2])):
+            mejores = (dim, s.precio / cantidad, lista)
+    return mejores
+
+
+def _precio_unidad(x: Decimal, dim: str) -> str:
+    return f"${x:,.2f} por {NOMBRE_UNIDAD[dim]}" if x >= Decimal("0.1") else f"${x * 100:,.2f} por 100 {dim}"
+
+
 def f_precio(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], internet: mp.Mercado | None = None,
              mismo: Producto | None = None) -> Factor:
     """Contra lo que encontró el radar de precios en internet; si no encontró nada, contra lo que reportó el
@@ -481,10 +700,10 @@ def f_precio(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], internet: mp.
         ratio = nuestro / med
         donde = [f"{len(internet.precios)} de internet" if internet and internet.precios else "",
                  f"lo que se vio, {_pesos(visto)}" if visto else ""]
-        return Factor(_por_precio(ratio), "Nuestro precio: " + _precio_valor(ratio, "el mercado").lower(),
+        return Factor(_por_precio(ratio), _precio_valor(ratio, "el mercado") + " (nuestro precio)",
                       f"Ya lo vendemos ({mismo.sku}) a {_pesos(nuestro)}. El precio de en medio del mercado es "
                       f"{_pesos(med)} ({' y '.join(x for x in donde if x)}).{_fuera_texto(fuera)}", False,
-                      *_precio_explicado(ratio, med, "el precio de en medio del mercado"))
+                      *_precio_explicado(ratio, med, "el precio de en medio del mercado"), meta=med)
     if s.precio is None or s.precio <= 0:
         return Factor(None, None, "Sin datos: falta el precio de venta." if s.tipo == "propuesta"
                       else "Sin datos: falta el precio que se vio.")
@@ -500,19 +719,21 @@ def f_precio(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], internet: mp.
     extra = f" Como referencia, {' y '.join(contexto)}." if contexto else ""
 
     nuestros_med = Decimal(str(median(nuestros))) if nuestros else None
-    internet, fuera = _en_rango(internet, nuestros_med or s.precio)
+    # Contra el precio que se vio (es del mismo producto); los parecidos pueden ser otra presentación y antes tiraban
+    # precios buenos de la competencia (11 nov 2026)
+    internet, fuera = _en_rango(internet, s.precio or nuestros_med)
     extra += _fuera_texto(fuera)
     if internet and internet.precios:
         med = internet.mediana()
         ratio = s.precio / med
-        google = [p["vendedor"] for p in internet.precios if p["fuente"] == "google"]
-        sitios = [p["vendedor"] for p in internet.precios if p["fuente"] == "sitio"]
-        donde = "; ".join(x for x in (f"Google Shopping: {_vendedores(google)}" if google else "",
-                                       f"sitio de {_vendedores(sitios)}" if sitios else "") if x)
+        # Quién lo vende y en cuánto (Diego, 11 nov 2026: «información genérica y no específica»)
+        lista = "; ".join(f"{p['vendedor']} {_pesos(Decimal(str(p['precio'])))}"
+                          for p in sorted(internet.precios, key=lambda p: float(p["precio"]))[:6])
+        mas = f" y {len(internet.precios) - 6} más" if len(internet.precios) > 6 else ""
         return Factor(_por_precio(ratio), _precio_valor(ratio, "en internet"),
-                      f"{que} {_pesos(s.precio)} contra {_pesos(med)}, el precio de en medio de {len(internet.precios)} "
-                      f"precio(s) que encontró el radar de precios ({donde}).{extra}", False,
-                      *_precio_explicado(ratio, med, "el precio de en medio de internet"))
+                      f"{que} {_pesos(s.precio)} contra {_pesos(med)}, el precio de en medio de la competencia en "
+                      f"internet: {lista}{mas}.{extra}", False,
+                      *_precio_explicado(ratio, med, "el precio de en medio de internet"), meta=med)
     if s.tipo == "propuesta" and s.mercado:
         med = Decimal(str(median([p for p, _ in s.mercado])))
         ratio = s.precio / med
@@ -521,10 +742,28 @@ def f_precio(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], internet: mp.
         return Factor(_por_precio(ratio), _precio_valor(ratio, "la competencia que reportó el proveedor"),
                       f"Precio sugerido {_pesos(s.precio)} contra {_pesos(med)}, el precio de en medio de "
                       f"{len(s.mercado)} precio(s) que reportó el proveedor ({donde}); no está confirmado.{sin}", True,
-                      *_precio_explicado(ratio, med, "el precio de en medio de la competencia"))
+                      *_precio_explicado(ratio, med, "el precio de en medio de la competencia"), meta=med)
     if not nuestros:
         return Factor(None, None, "Sin datos: no hay precios de la competencia ni de productos parecidos en SMN.")
+    sin = "El radar de precios no lo encontró en internet. " if internet else ""
+    if unidad := _por_unidad(s, parecidos):  # 11 nov 2026: 120 g a $184 no se compara contra 60 g a $131
+        dim, propio, lista = unidad
+        en_rango = [(p, x) for p, x in lista if RANGO_PRECIO[0] <= propio / x <= RANGO_PRECIO[1]]
+        dentro = [x for _, x in en_rango]
+        if dentro:
+            med = Decimal(str(median(dentro)))
+            ratio = propio / med
+            cantidad = tamano(s.contenido, s.nombre, s.descripcion)[dim]
+            contra = "; ".join(f"{p.descripcion} {_pesos(p.precio_lista_con_impuestos)} ({_precio_unidad(x, dim)})"
+                               for p, x in en_rango[:4])
+            return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestros parecidos, por {NOMBRE_UNIDAD[dim]}"),
+                          f"{que} {_pesos(s.precio)} por {_n(cantidad)} {dim}: sale a {_precio_unidad(propio, dim)}. "
+                          f"Nuestros parecidos salen, en medio, a {_precio_unidad(med, dim)}: {contra}. {sin}"
+                          "No es precio de la competencia.", True,
+                          *_precio_explicado(ratio, med * cantidad, f"nuestros parecidos por {NOMBRE_UNIDAD[dim]}"), meta=med * cantidad)
     comparables = [p for p in nuestros if RANGO_PRECIO[0] <= s.precio / p <= RANGO_PRECIO[1]]
+    contra = "; ".join(f"{p.descripcion} {_pesos(p.precio_lista_con_impuestos)}" for p, _ in parecidos
+                       if p.precio_lista_con_impuestos in comparables[:4])
     if not comparables:
         return Factor(None, None, f"Sin datos: no hay precios de internet y nuestros parecidos cuestan muy distinto "
                       f"({_pesos(min(nuestros))} a {_pesos(max(nuestros))} contra {_pesos(s.precio)}); no parecen la "
@@ -532,11 +771,10 @@ def f_precio(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], internet: mp.
     nuestros = comparables
     med = Decimal(str(median(nuestros)))
     ratio = s.precio / med
-    sin = "El radar de precios no lo encontró en internet. " if internet else ""
     return Factor(_por_precio(ratio), _precio_valor(ratio, "nuestros parecidos"),
-                  f"{que} {_pesos(s.precio)} contra {_pesos(med)}, el precio de lista de en medio de {len(nuestros)} "
-                  f"producto(s) parecido(s) que ya vendemos. {sin}No es precio de la competencia.", True,
-                  *_precio_explicado(ratio, med, "nuestros parecidos"))
+                  f"{que} {_pesos(s.precio)} contra {_pesos(med)}, el precio de en medio de nuestros parecidos: "
+                  f"{contra}. {sin}No es precio de la competencia.", True,
+                  *_precio_explicado(ratio, med, "nuestros parecidos"), meta=med)
 
 
 def datos_para_politicas(s: Sujeto, e: ProductoEvaluacion, factores: dict[str, Factor],
@@ -651,17 +889,15 @@ def f_categoria(bd: Session, s: Sujeto, subcategoria: str | None, parecidos: lis
         # pasan de 15 productos y con la escala fija todo salía en 15-25)
         # Recalibración del 9 nov 2026: una subcategoría de tamaño típico vale 80 (antes 70)
         puntaje = 90 if r <= 0.25 else 85 if r <= 0.5 else 80 if r <= 1 else 75 if r <= 2 else 65 if r <= 4 else 55
-        detalle = (f"Hay {n} producto(s) activos en la subcategoría «{subcategoria}»; una subcategoría típica del catálogo "
-                   f"tiene {tipica:.0f}. Menos productos, más hueco en el surtido (escala provisional hasta que Compras "
-                   "defina cuántos caben).")
+        detalle = (f"En «{subcategoria.capitalize()}» tenemos {n} producto{'' if n == 1 else 's'} activo"
+                   f"{'' if n == 1 else 's'}; una subcategoría normal tiene unos {tipica:.0f}.")
         calculo = (f"Compara cuántos productos hay en su subcategoría contra una típica ({tipica:.0f}): la cuarta parte o "
                    "menos = 90, la mitad o menos = 85, lo mismo o menos = 80, hasta el doble = 75, hasta 4 veces = 65, "
                    f"más = 55. Aquí hay {n}: {puntaje}.")
     else:
         n = len([1 for _, sim in parecidos if sim >= Decimal("0.3")])
         puntaje = 90 if n == 0 else 75 if n <= 3 else 65 if n <= 7 else 55
-        detalle = (f"Hay {n} producto(s) activos muy parecidos (sin subcategoría confirmada). Menos productos, más hueco "
-                   "en el surtido (escala provisional hasta que Compras defina cuántos caben).")
+        detalle = f"Tenemos {n} producto(s) muy parecido(s); todavía no tiene subcategoría confirmada."
         calculo = (f"Sin subcategoría, cuenta los productos muy parecidos: ninguno = 90, hasta 3 = 75, hasta 7 = 65, más "
                    f"= 55. Aquí hay {n}: {puntaje}.")
     # Inventario: más de 180 días de existencia resta 5 (la subcategoría ya está llena); menos de 45 suma 5
@@ -673,8 +909,8 @@ def f_categoria(bd: Session, s: Sujeto, subcategoria: str | None, parecidos: lis
         elif dias < 45:
             puntaje += 5
             calculo += f" Suma 5 porque la subcategoría tiene inventario para menos de 45 días ({dias:,.0f})."
-        detalle += (f" Con el inventario del {corte:%d/%m/%Y} la subcategoría tiene para {dias:,.0f} días de venta "
-                    f"({con_existencia} productos con existencia).")
+        detalle += (f" Lo que hay en tiendas de esa subcategoría alcanza para {dias:,.0f} días de venta "
+                    f"(inventario del {corte:%d/%m/%Y}).")
     iguales = [p for p, sim in parecidos if sim >= Decimal("0.8")]
     cercanos = [p for p, sim in parecidos if sim >= Decimal("0.5")]
     venta = rr.venta_por_sku(bd, v, [p.sku for p in cercanos]) if v and cercanos else {}
@@ -687,11 +923,14 @@ def f_categoria(bd: Session, s: Sujeto, subcategoria: str | None, parecidos: lis
         detalle += " Podría quitarle venta a: " + ", ".join(
             f"{p.sku} {p.descripcion} ({venta[p.sku].al_mes:,.0f} piezas al mes)" for p in canibal[:3]) + "."
     final = _acotar(puntaje)
-    valor = (f"{n} productos en su subcategoría (una típica tiene {tipica:.0f})" if subcategoria
-             else f"{n} productos muy parecidos en el catálogo")
+    nivel = ("Hay hueco en el surtido" if final >= 85 else "Surtido normal" if final >= 75
+             else "Ya tenemos bastantes" if final >= 60 else "Surtido lleno")
+    cuantos = f"{n} producto{'' if n == 1 else 's'}"
+    valor = (f"{nivel}: {cuantos} en su subcategoría, una normal tiene {tipica:.0f}" if subcategoria
+             else f"{nivel}: {cuantos} muy parecido{'' if n == 1 else 's'} en el catálogo")
     return Factor(final, valor, detalle, True,
                   f"Alto quiere decir que llena un hueco del surtido; bajo, que ya tenemos muchos parecidos. {calculo} "
-                  f"Calificación: {final}.")
+                  f"Escala provisional hasta que Compras defina cuántos productos caben. Calificación: {final}.")
 
 def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]], v: rr.Ventana | None,
               mismo: Producto | None = None) -> Factor:
@@ -739,8 +978,11 @@ def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
     mejora = None if final > 80 else (f"Para que este factor salga arriba de 80, {quienes} tendría"
                                       f"{'n' if not propio else ''} que vender más que {_percentil_para(81)} de cada 100 productos {donde}, "
                                       "o venir creciendo.")
-    return Factor(final, f"{'Vende' if propio else 'Sus parecidos venden'} {promedio:,.1f} piezas por tienda al mes; más "
-                  f"que {percentil:.0f} de cada 100 productos", detalle, False, f"{calculo} Calificación: {final}.",
+    nivel = ("Se vende muy bien" if percentil >= 80 else "Se vende bien" if percentil >= 60
+             else "Venta media" if percentil >= 40 else "Se vende poco")
+    return Factor(final, f"{nivel}: {'vende' if propio else 'sus parecidos venden'} más que {percentil:.0f} de cada "
+                  f"100 productos ({promedio:,.1f} piezas por tienda al mes)", detalle, False,
+                  f"{calculo} Calificación: {final}.",
                   mejora)
 
 def _cumplimiento_texto(c: rr.Cumplimiento) -> str:
@@ -1020,25 +1262,33 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         else:
             s = sujeto_de_idea(bd.get(ProductoIdea, e.idea_id))
         e.departamento = s.departamento
+        fijados = bool(e.comparables)
+        vistos: dict[str, tuple[bool, str]] = {}
+        quitados: list[tuple[Producto, str]] = []
         if e.clasificacion_origen != "compras":
-            e.rama, e.subcategoria, e.segmento = clasificar(bd, s)
+            # Se clasifica con los parecidos que la IA ya revisó (v0.4)
+            sin_sub, _ = revisar_parecidos(bd, s, buscar_parecidos(bd, s, None), vistos) if not fijados else (None, [])
+            e.rama, e.subcategoria, e.segmento = clasificar(bd, s, sin_sub)
             e.clasificacion_origen = "ia" if e.subcategoria else "sin_clasificar"
 
-        paso(2, "buscando productos parecidos en el catálogo")
-        if e.comparables:  # Compras los fijó
+        paso(2, "buscando productos parecidos en el catálogo y revisándolos con la IA")
+        if fijados:  # Compras los fijó: no se revisan
             parecidos = [(bd.get(Producto, c.producto_id), c.similitud) for c in e.comparables]
         else:
-            parecidos = buscar_parecidos(bd, s, e.subcategoria)
-            for i, (p, sim) in enumerate(parecidos, 1):
-                e.comparables.append(EvaluacionComparable(producto_id=p.producto_id, rango=i, similitud=sim, origen="sistema"))
+            parecidos, quitados = revisar_parecidos(bd, s, buscar_parecidos(bd, s, e.subcategoria, e.rama), vistos)
         mismo = mismo_de(s, parecidos)
-        for c in e.comparables:
-            if mismo and c.producto_id == mismo.producto_id:
-                c.similitud = Decimal(1)  # así la pantalla lo muestra como «Ya lo vendemos»
         if not e.subcategoria and e.clasificacion_origen != "compras":
             if fuente := mismo or subcategoria_de_parecidos(parecidos):
                 e.rama, e.subcategoria, e.segmento = fuente.rama, fuente.subcategoria, fuente.segmento
                 e.clasificacion_origen = "parecidos"
+                if not fijados:  # ya con subcategoría, se quitan los de otra (11 nov 2026)
+                    parecidos = _depurar(parecidos, e.subcategoria, e.rama)
+        if not fijados:
+            for i, (p, sim) in enumerate(parecidos, 1):
+                e.comparables.append(EvaluacionComparable(producto_id=p.producto_id, rango=i, similitud=sim, origen="sistema"))
+        for c in e.comparables:
+            if mismo and c.producto_id == mismo.producto_id:
+                c.similitud = Decimal(1)  # así la pantalla lo muestra como «Ya lo vendemos»
 
         paso(3, "buscando precios en internet y en las tiendas")
         internet = mercado_de(bd, e, s)
@@ -1083,11 +1333,24 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         # (Diego, 29 oct: con la IA «dice cosas muy genéricas»)
         e.explicacion, e.explicacion_ia = explicacion_simple(s, e.puntaje, e.color, e.confianza, factores, peso, fuera,
                                                                     bool(oportunidad)), False
+        e.explicacion = (dictamen(s, e.color, factores, parecidos, margen_minimo(bd, s.departamento)[0],
+                                  revision.rechazo) + "\n\n" + e.explicacion)
         if mismo:
             e.explicacion = (f"Ojo: ya vendemos este mismo producto ({mismo.sku} {mismo.descripcion}). Los números son los de "
                              f"ese producto.\n\n{e.explicacion}")
         if r := revision.rechazo:
-            e.explicacion = f"Rechazo directo por la regla «{r['titulo']}» de Compras: {r['motivo']}\n\n{e.explicacion}"
+            e.explicacion = (f"Rechazo directo por la regla «{r['titulo']}» de Compras: {r['motivo']} (dato: "
+                             f"{r.get('dato')})\n\n{e.explicacion}")
+        # Lo que ya decidió el comité con un producto parecido (no con este mismo)
+        if (caso := next((c for c in revision.casos if c.get("similitud", 0) >= 0.4
+                          and _norm(c.get("producto")).strip() != _norm(s.nombre).strip()), None)):
+            e.explicacion += (f"\n\nAntecedente: «{caso['producto']}» quedó {caso['decision']}"
+                              + (f" ({caso['motivo']})" if caso.get("motivo") else "") + ".")
+        e.explicacion += nota_quitados(quitados)
+        if not revision.rechazo and revision.avisos:
+            titulos = ", ".join(f"«{x['titulo']}»" for x in revision.avisos[:2])
+            e.explicacion = (f"Aviso: podría caer en la regla {titulos} de Compras, pero no hay un dato del producto que "
+                             f"lo pruebe. No cambia el color; que Compras lo confirme.\n\n{e.explicacion}")
         e.estado, e.avance = "lista", None
     except Exception as ex:  # noqa: BLE001
         log.exception("Radar de productos: falló la evaluación %s", evaluacion_id)
@@ -1101,6 +1364,62 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
 
         busquedas.despues_de_evaluar(bd, e)
     return e
+
+
+DICTAMEN = "Dictamen: "
+
+
+def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list[tuple[Producto, Decimal]],
+             minimo: Decimal | None, rechazo: dict | None = None) -> str:
+    """Lectura de comprador en una línea: meter, negociar o no meter, con el precio o costo meta y contra qué se compara.
+    Sale de los números del semáforo, no de la IA (Diego, 11 nov 2026: «que actúe como experto en compras»)."""
+    if rechazo:
+        return f"{DICTAMEN}No meter: cae en la regla «{rechazo.get('titulo')}» de Compras."
+    pts = {f: x.puntaje for f, x in factores.items()}
+    demanda, precio, rent = pts.get("demanda"), pts.get("precio"), pts.get("rentabilidad")
+    bajo_margen = s.margen is not None and minimo is not None and s.margen < minimo
+    partes = []
+    if color == "verde":
+        veredicto = "Meter"
+    elif demanda is not None and demanda < 40 and color == "rojo":
+        veredicto = "No meter: lo parecido casi no se vende en nuestras tiendas"
+    elif bajo_margen or (precio is not None and precio < 60):
+        veredicto = "Negociar"
+    elif color == "rojo":
+        debiles = [NOMBRES[f].lower() for f, p in sorted(pts.items(), key=lambda x: x[1] if x[1] is not None else 101)
+                   if p is not None and p < 60][:2]
+        veredicto = "No meter por ahora" + (f": débil en {' y '.join(debiles)}" if debiles else "")
+    else:
+        veredicto = "Se puede meter, a prueba"
+    if bajo_margen and s.precio and s.margen is not None:
+        base = s.precio / (1 + IVA_SUPUESTO / 100)
+        costo = s.costo or base * (1 - s.margen / 100)
+        costo_meta = base * (1 - minimo / 100)
+        precio_meta = costo / (1 - minimo / 100) * (1 + IVA_SUPUESTO / 100)
+        ref = factores["precio"].meta if "precio" in factores else None
+        if precio is not None and precio < 60 and ref:
+            # Ya está caro: el precio tiene que bajar a lo que cuestan los demás y el costo, con ese precio, dar el mínimo
+            costo_ref = ref / (1 + IVA_SUPUESTO / 100) * (1 - minimo / 100)
+            partes.append(f"para competir tendría que venderse en unos {_pesos(ref)} (hoy {_pesos(s.precio)}), y con ese "
+                          f"precio el costo tendría que bajar a {_pesos(costo_ref)} sin IVA (hoy {_pesos(costo)}) para "
+                          f"dejar {_n(minimo)} %")
+        elif precio is not None and precio < 60:
+            partes.append(f"pedir costo de {_pesos(costo_meta)} sin IVA (hoy {_pesos(costo)}); subirle el precio no "
+                          "conviene porque ya está caro")
+        else:
+            partes.append(f"pedir costo de {_pesos(costo_meta)} sin IVA (hoy {_pesos(costo)}) o venderlo en "
+                          f"{_pesos(precio_meta)} para dejar {_n(minimo)} %")
+    elif precio is not None and precio < 60 and (m := factores.get("precio")) and m.meta and s.precio:
+        partes.append(f"para competir tendría que venderse en unos {_pesos(m.meta)} (hoy {_pesos(s.precio)})")
+    con_precio = [(p, sim) for p, sim in parecidos if p.precio_lista_con_impuestos][:2]
+    if con_precio:
+        partes.append("se compara con " + " y ".join(f"{p.descripcion} ({_pesos(p.precio_lista_con_impuestos)})"
+                                                     for p, _ in con_precio))
+    resto = "; ".join(partes)
+    if partes and ":" in veredicto:  # «No meter: lo parecido casi no se vende. Pedir costo…» (con mayúscula)
+        resto = resto[0].upper() + resto[1:]
+    texto = veredicto + (": " if partes and ":" not in veredicto else ". " if partes else "") + resto
+    return f"{DICTAMEN}{texto.rstrip('.')}."
 
 
 def _sesion() -> Session:

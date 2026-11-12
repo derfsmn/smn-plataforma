@@ -123,23 +123,20 @@ export function AFondo({ evaluacionId }: { evaluacionId: number }) {
             </div>
           )}
           {QUE_MIDE[f.factor] && <p className="mt-2 text-[13px] text-smn-gris-500">{QUE_MIDE[f.factor]}</p>}
-          <dl className="mt-2 space-y-1.5 text-[15px]">
-            {(
-              [
-                ["Dato", f.valor],
-                ["De dónde salió", f.detalle],
-                ["Cómo se calculó", f.calculo],
-                ["Qué lo subiría", f.mejora],
-              ] as const
-            )
-              .filter(([, v]) => v)
-              .map(([t, v]) => (
-                <div key={t}>
-                  <dt className="inline font-semibold">{t}: </dt>
-                  <dd className="inline">{v}</dd>
-                </div>
-              ))}
-          </dl>
+          {f.valor && <p className="mt-2 text-[15px] font-semibold">{f.valor}</p>}
+          {f.detalle && <p className="mt-1 text-[15px] text-smn-gris-700">{f.detalle}</p>}
+          {f.mejora && (
+            <p className="mt-1.5 text-[15px]">
+              <span className="font-semibold">Qué lo subiría: </span>
+              {f.mejora}
+            </p>
+          )}
+          {f.calculo && (
+            <details className="mt-1.5 text-[13px] text-smn-gris-500">
+              <summary className="cursor-pointer select-none">Cómo se calculó</summary>
+              <p className="mt-1 text-smn-gris-700">{f.calculo}</p>
+            </details>
+          )}
           {f.provisional && <Insignia className="mt-2 bg-smn-gris-100 text-smn-gris-700">Regla provisional, falta que Compras la confirme</Insignia>}
         </section>
       ))}

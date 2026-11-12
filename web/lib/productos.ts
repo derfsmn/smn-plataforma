@@ -134,7 +134,9 @@ export type OpcionClasificacion = { rama: string; subcategoria: string; segmento
 export type ProductoCatalogo = { producto_id: number; sku: string; descripcion: string | null; marca: string | null; subcategoria: string | null; precio: string | null };
 
 export const RUTA = "/api/compras/productos";
-export const urlFoto = (idea: number, archivo: number) => `${urlApi()}${RUTA}/ideas/${idea}/fotos/${archivo}`;
+/** Con `ancho`, la API manda la foto reducida (la original pesa varios MB y por la VPN tarda). */
+export const urlFoto = (idea: number, archivo: number, ancho?: number) =>
+  `${urlApi()}${RUTA}/ideas/${idea}/fotos/${archivo}${ancho ? `?ancho=${ancho}` : ""}`;
 
 export const ESTADOS_IDEA: Record<EstadoIdea, string> = {
   nueva: "Nueva",
