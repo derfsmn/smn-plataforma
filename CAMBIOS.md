@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.3.1 · 2026-11-12
+
+Radar más inteligente y comité más rápido
+
+**Cambios guardados:**
+- Radar: parecidos limpios y revisados por IA, precio por unidad, margen gradual, dictamen de comprador, duplicados, fotos ligeras, casos de los 100
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.3 · 2026-11-11
 
 DIOT con reglas de Fiscal, radar recalibrado con IA local, tipos de cliente y busqueda de proveedores
