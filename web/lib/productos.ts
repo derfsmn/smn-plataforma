@@ -100,6 +100,10 @@ export type Evaluacion = EvaluacionResumen & {
   precio_visto: string | null;
   donde_se_vio: string | null;
   costo_estimado: string | null;
+  precio_nuestro?: string | null;
+  codigo_barras?: string | null;
+  activo_g_porcion?: string | null;
+  porciones?: number | null;
   historial: { id: number; creada_en: string; estado: EstadoEvaluacion; puntaje: number | null; color: Color | null; color_final: Color | null }[];
   mercado: MercadoInternet | null;
   politicas: RevisionPoliticas | null;

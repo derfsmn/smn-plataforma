@@ -10,6 +10,10 @@ Table compras.producto_idea {
   forma nvarchar(60)
   contenido nvarchar(60) [note: 'texto libre: «60 cápsulas», «500 g»']
   precio_visto decimal(12,2) [note: 'con impuestos, donde se vio']
+  precio_nuestro decimal(12,2) [note: 'migración 0046: al que lo venderíamos, con impuestos; sin él, precio_visto cuenta como nuestro precio']
+  codigo_barras nvarchar(20) [note: 'migración 0046: para buscarlo afuera']
+  activo_g_porcion decimal(10,3) [note: 'migración 0046: gramos del activo principal por porción']
+  porciones int [note: 'migración 0046: porciones por envase']
   donde_se_vio nvarchar(300)
   costo_estimado decimal(12,2) [note: 'sin IVA']
   estado nvarchar(20) [not null, note: 'nueva / buscar_proveedor / vigilar / descartada']

@@ -5,7 +5,7 @@ y el comité decide Aceptado, Denegado o En espera. Lo que queda en espera pasa 
 """
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Unicode, UnicodeText
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Unicode, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from nucleo.modelos import Base, ahora
@@ -63,6 +63,8 @@ class ComiteProducto(Base):
     decision_puntaje: Mapped[int | None] = mapped_column(Integer)
     decision_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
     decision_en: Mapped[datetime | None] = mapped_column(DateTime)
+    # Reporte PDF que se guarda al aceptarlo (migración 0046): queda como se presentó aunque luego se recalcule
+    reporte_archivo_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("nucleo.archivo.archivo_id"))
 
     revisiones: Mapped[list["ComiteRevision"]] = relationship(cascade="all, delete-orphan")
 

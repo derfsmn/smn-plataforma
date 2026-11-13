@@ -4,6 +4,7 @@ Registro de decisiones tomadas por Diego. La más reciente arriba. No se cambian
 
 | Fecha | Decisión | Motivo / nota |
 |---|---|---|
+| 2026-11-13 | Cada producto evaluado tiene su reporte PDF para Compras (semáforo, dictamen, 8 preguntas del comité, acciones), sin IA y sin notas de método; al aceptarlo en el comité se guarda como se presentó. El precio meta nunca se propone arriba del precio del mercado: si no alcanza, la salida es el costo. En la idea, «nuestro precio» va aparte del precio visto afuera | Diego aprobó el plan («a ver dale, empecemos»); regla de reportes para Compras del 13 nov |
 | 2026-11-05 | Se programa y prueba en el equipo de Diego; al servidor SMNIASRV solo llega una versión cerrada con número (vX.Y) desde Git, con respaldo previo y regreso automático. Los datos van solo del servidor a local (copia para pruebas); nunca se sube una base local encima de producción | Diego: «seguiré trabajando desde local y luego allá publicaré cuando ya esté probado» |
 | 2026-11-05 | En el servidor la base es SQL Server **Express** (Developer no está permitido en producción); smn_td pesaba 2.82 GB de 10 GB | Medición de Diego en SSMS |
 | 2026-11-05 | Diego administra el servidor él mismo (solo SSH, sin portal de Azure); acceso por VPN en https://172.31.104.4 con certificado propio de Caddy | Diego: «yo soy sistemas ahorita» |

@@ -176,7 +176,8 @@ def _tiendas(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas:
 def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | None, referencia: str) -> Mercado:
     """Busca el producto en Google Shopping y en las tiendas clave. Nunca lanza: lo que falle queda en las notas."""
     m = Mercado(buscado_en=ahora().isoformat(), clave=clave_de(nombre, marca, codigo_barras))
-    consultas = co.consultas(nombre, marca, codigo_barras)
+    # Por código de barras primero, como el radar de precios (ajuste precios_barras_primero; 13 nov 2026)
+    consultas = co.consultas(nombre, marca, codigo_barras, barras_primero=configuracion().precios_barras_primero)
     if not consultas:
         m.notas.append("No hay nombre ni código de barras para buscarlo.")
         return m

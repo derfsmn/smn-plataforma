@@ -152,7 +152,14 @@ def test_ciclo_completo_del_comite(admin: TestClient, sincrono):  # noqa: F811
     assert reunion["estado"] == "prefiltro" and item_de(reunion, id=i_cap["id"])["decision"] is None
     assert admin.post(f"{R}/reuniones/{rid}/estado", json={"estado": "comite"}).json()["estado"] == "comite"
     admin.put(f"{R}/productos/{i_cap['id']}/decision", json={"decision": "aceptado", "motivo": "Se alinea al surtido"})
-    admin.put(f"{R}/productos/{i_idea['id']}/decision", json={"decision": "en_espera", "motivo": "Ver en el siguiente ciclo"})
+    reunion = admin.put(f"{R}/productos/{i_idea['id']}/decision", json={"decision": "en_espera", "motivo": "Ver en el siguiente ciclo"}).json()
+    # 13 nov 2026: al aceptarlo se guarda su reporte PDF; el de los demás sale con la evaluación de hoy
+    assert item_de(reunion, id=i_cap["id"])["reporte_guardado"] is True
+    assert item_de(reunion, id=i_idea["id"])["reporte_guardado"] is False
+    for item_id in (i_cap["id"], i_idea["id"]):
+        r = admin.get(f"{R}/productos/{item_id}/reporte")
+        assert r.status_code == 200 and r.content.startswith(b"%PDF"), r.text[:300]
+        assert "Radar producto nuevo" in r.headers["content-disposition"]
     # 12 nov 2026: lo que decide el comité (y el pre-filtro que no pasa) queda como antecedente en la Base de conocimiento
     from sqlalchemy import select
 

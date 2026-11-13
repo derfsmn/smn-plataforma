@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, Bot, Check, CircleHelp, Gavel, History, PackageSearch, Palette, Pencil, Plus, RefreshCw, Search, Tag, Trash2, TrendingUp, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
+import { BotonReporte } from "@/componentes/boton-reporte";
 import { Modal } from "@/componentes/modal";
 import { InsigniaColor, Semaforo } from "@/componentes/semaforo-producto";
 import { useSesion } from "@/componentes/sesion";
@@ -135,6 +136,7 @@ export default function DetalleEvaluacion() {
             <Bot className="h-4 w-4" /> Pregúntale a la IA
           </Boton>
         )}
+        {lista && <BotonReporte ruta={`${RUTA}/evaluaciones/${e.id}/reporte`} nombre={e.sujeto.nombre} />}
         {e.sujeto.tipo === "propuesta" ? (
           <Link href={`/compras/propuestas/${e.sujeto.id}`} className="text-sm font-semibold text-naranja-tinta hover:underline">Ver la propuesta</Link>
         ) : evalua ? (
@@ -415,9 +417,18 @@ export default function DetalleEvaluacion() {
                 )}
                 {e.descripcion && <p className="mb-2 text-sm">{e.descripcion}</p>}
                 <dl className="space-y-1 text-sm">
-                  <div><dt className="inline text-smn-gris-500">Precio visto: </dt><dd className="inline font-semibold">{e.precio_visto ? pesos(e.precio_visto) : "—"}</dd></div>
+                  {e.precio_nuestro && (
+                    <div><dt className="inline text-smn-gris-500">Nuestro precio: </dt><dd className="inline font-semibold">{pesos(e.precio_nuestro)}</dd></div>
+                  )}
+                  <div><dt className="inline text-smn-gris-500">{e.precio_nuestro ? "Precio visto afuera: " : "Precio visto: "}</dt><dd className="inline font-semibold">{e.precio_visto ? pesos(e.precio_visto) : "—"}</dd></div>
                   <div><dt className="inline text-smn-gris-500">Dónde: </dt><dd className="inline font-semibold">{e.donde_se_vio ?? "—"}</dd></div>
                   <div><dt className="inline text-smn-gris-500">Costo estimado: </dt><dd className="inline font-semibold">{e.costo_estimado ? pesos(e.costo_estimado) : "—"}</dd></div>
+                  {e.codigo_barras && (
+                    <div><dt className="inline text-smn-gris-500">Código de barras: </dt><dd className="inline font-semibold tabular-nums">{e.codigo_barras}</dd></div>
+                  )}
+                  {e.activo_g_porcion && e.porciones && (
+                    <div><dt className="inline text-smn-gris-500">Activo: </dt><dd className="inline font-semibold">{Number(e.activo_g_porcion)} g por porción × {e.porciones} porciones</dd></div>
+                  )}
                 </dl>
               </section>
             )}

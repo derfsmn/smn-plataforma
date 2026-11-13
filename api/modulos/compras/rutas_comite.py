@@ -7,6 +7,7 @@ siguiente reunión. Se registran los asistentes con su puesto y lo que pidió ca
 Una sola reunión sin cerrar a la vez. Nada se borra al cerrar: el ciclo queda de solo lectura.
 """
 import json
+import logging
 import re
 from datetime import date, datetime
 from decimal import Decimal
@@ -33,6 +34,7 @@ from nucleo.archivos import _raiz
 from nucleo.bitacora import registrar
 from nucleo.modelos import Archivo, Modulo, OrganizacionExterna, Usuario, ahora
 
+log = logging.getLogger("smn.compras.comite")
 router = APIRouter(prefix="/api/compras/comite", tags=["compras · comité de producto nuevo"])
 VER = "compras.comite.ver"
 SUBIR = "compras.comite.subir"
@@ -160,6 +162,7 @@ class ItemSalida(BaseModel):
     # «Listo para presentar» (Diego, 2026-11-06): lo que le falta para que la diapositiva salga completa
     faltantes: list[str] = []
     llego_solo: bool = False  # la mandó el proveedor por el portal durante el ciclo y entró sola
+    reporte_guardado: bool = False  # el reporte PDF que se guardó al aceptarlo (migración 0046)
     duplicado: str | None = None  # el mismo producto está otra vez en la reunión, quizá en otra presentación
     evaluacion: SemaforoSalida | None
     prefiltro: str | None
@@ -417,7 +420,7 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
             revisiones=[RevisionSalida(tipo=r.tipo, nombre=REVISIONES[r.tipo], resultado=r.resultado, nota=r.nota,
                                        por=usuarios.get(r.actualizada_por), en=r.actualizada_en)
                         for r in sorted(i.revisiones, key=lambda r: list(REVISIONES).index(r.tipo))],
-            faltantes=_faltantes(e, base), **base))
+            faltantes=_faltantes(e, base), reporte_guardado=bool(i.reporte_archivo_id), **base))
     _marcar_duplicados(salida)
     return salida
 
@@ -905,6 +908,34 @@ def evaluar(item_id: int, request: Request, ctx: Contexto = Depends(requiere(SUB
     return _salida(bd, _reunion(bd, r.reunion_id))
 
 
+@router.get("/productos/{item_id}/reporte")
+def reporte(item_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> Response:
+    """Reporte de producto nuevo en PDF: el que se guardó al aceptarlo o, si no, el de la evaluación de hoy."""
+    from urllib.parse import quote
+
+    from modulos.compras import reporte_producto
+    from modulos.compras.rutas_productos import _ascii
+
+    i = _item(bd, item_id)
+    if i.reporte_archivo_id and (a := bd.get(Archivo, i.reporte_archivo_id)):
+        raiz = _raiz()
+        ruta = (raiz / a.ruta_almacenamiento).resolve()
+        if raiz in ruta.parents and ruta.is_file():
+            pdf, nombre = ruta.read_bytes(), a.nombre_original
+        else:
+            pdf = None
+    else:
+        pdf = None
+    if pdf is None:
+        e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
+        if not e or e.estado != "lista":
+            raise HTTPException(status.HTTP_409_CONFLICT, "El reporte sale cuando el semáforo termina de evaluar.")
+        pdf, nombre = reporte_producto.pdf_de(bd, e, datetime.now(ZoneInfo("America/Mexico_City")).replace(tzinfo=None))
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_ascii(nombre)}"; '
+                             f"filename*=UTF-8''{quote(nombre)}"})
+
+
 @router.get("/productos/{item_id}/fotos/{n}")
 def foto(item_id: int, n: int, ancho: int | None = Query(None, ge=32, le=2000), _: Contexto = Depends(requiere(VER)),
          bd: Session = Depends(obtener_bd)) -> FileResponse:
@@ -999,6 +1030,16 @@ def decidir(item_id: int, datos: Decision, request: Request, ctx: Contexto = Dep
     i.decision_por, i.decision_en = ctx.usuario.usuario_id, ahora()
     if datos.decision != "aceptado":
         i.revisiones.clear()
+        i.reporte_archivo_id = None  # el archivo se queda; solo deja de ser «el reporte con que se aceptó»
+    elif e and e.estado == "lista":
+        # Al aceptarlo se guarda el reporte PDF tal como se presentó (plan del 13 nov 2026). Si falla, la decisión sigue
+        try:
+            from modulos.compras import reporte_producto
+
+            pdf, nombre = reporte_producto.pdf_de(bd, e, datetime.now(ZoneInfo("America/Mexico_City")).replace(tzinfo=None))
+            i.reporte_archivo_id = reporte_producto.guardar(bd, pdf, nombre, ctx.usuario.usuario_id, i.item_id).archivo_id
+        except Exception:  # noqa: BLE001
+            log.exception("Comité: no se pudo guardar el reporte del producto %s", i.item_id)
     _bitacora(bd, "decision", ctx, request, "comite_producto", i.item_id,
               {"reunion": r.reunion_id, "decision": datos.decision, "semaforo": i.decision_color})
     antecedente(bd, i, r, {"aceptado": "aprobado", "denegado": "rechazado"}.get(datos.decision),

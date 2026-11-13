@@ -8,6 +8,8 @@ Reglas del motor en radar_productos.py.
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -186,6 +188,10 @@ class EvaluacionDetalle(EvaluacionResumen):
     precio_visto: Decimal | None
     donde_se_vio: str | None
     costo_estimado: Decimal | None
+    precio_nuestro: Decimal | None = None
+    codigo_barras: str | None = None
+    activo_g_porcion: Decimal | None = None
+    porciones: int | None = None
     historial: list[HistorialSalida]
     mercado: MercadoSalida | None
     politicas: PoliticasSalida | None
@@ -263,6 +269,8 @@ def _detalle(bd: Session, e: ProductoEvaluacion) -> EvaluacionDetalle:
                      for c in e.comparables if c.producto_id in productos],
         fotos=fotos, descripcion=idea.descripcion if idea else None, precio_visto=idea.precio_visto if idea else None,
         donde_se_vio=idea.donde_se_vio if idea else None, costo_estimado=idea.costo_estimado if idea else None,
+        precio_nuestro=idea.precio_nuestro if idea else None, codigo_barras=idea.codigo_barras if idea else None,
+        activo_g_porcion=idea.activo_g_porcion if idea else None, porciones=idea.porciones if idea else None,
         historial=historial,
     )
 
@@ -306,6 +314,28 @@ def evaluaciones(tipo: Literal["propuesta", "idea"] | None = None, color: Color 
         filas = [e for e in filas if (e.color_final or e.color) == color]
     sujetos = _sujetos(bd, filas)
     return [_resumen(e, sujetos[e.evaluacion_id]) for e in filas]
+
+
+@router.get("/evaluaciones/{evaluacion_id}/reporte")
+def reporte(evaluacion_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)):
+    """Reporte de producto nuevo en PDF con la evaluación de hoy, para mandarlo a Compras (13 nov 2026)."""
+    from fastapi.responses import Response
+
+    from modulos.compras import reporte_producto
+
+    e = _evaluacion(bd, evaluacion_id)
+    if e.estado != "lista":
+        raise HTTPException(status.HTTP_409_CONFLICT, "El reporte sale cuando la evaluación termina.")
+    pdf, nombre = reporte_producto.pdf_de(bd, e, datetime.now(ZoneInfo("America/Mexico_City")).replace(tzinfo=None))
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_ascii(nombre)}"; '
+                             f"filename*=UTF-8''{quote(nombre)}"})
+
+
+def _ascii(nombre: str) -> str:
+    import unicodedata
+
+    return unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode().replace('"', "")
 
 
 @router.get("/evaluaciones/{evaluacion_id}", response_model=EvaluacionDetalle)
@@ -449,6 +479,11 @@ class IdeaEntrada(BaseModel):
     precio_visto: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
     donde_se_vio: str | None = Field(None, max_length=300)
     costo_estimado: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
+    # Reporte por producto (13 nov 2026): nuestro precio aparte del que se vio, código de barras y activo por porción
+    precio_nuestro: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
+    codigo_barras: str | None = Field(None, max_length=20, pattern=r"^\s*\d{6,14}\s*$")
+    activo_g_porcion: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=3)
+    porciones: int | None = Field(None, gt=0, le=10000)
     fotos: list[int] = Field(default_factory=list, max_length=MAX_FOTOS)  # archivo_id subidos con /api/archivos
     # Captura corta con proveedor (Diego, 2026-11-04): clave de Intelisis, o el nombre de un proveedor nuevo
     proveedor_codigo: str | None = Field(None, max_length=10)
@@ -481,6 +516,8 @@ def capturar_idea(datos: IdeaEntrada, request: Request, ctx: Contexto = Depends(
                      departamento=_texto(datos.departamento), ingrediente=_texto(datos.ingrediente),
                      forma=_texto(datos.forma), contenido=_texto(datos.contenido), precio_visto=datos.precio_visto,
                      donde_se_vio=_texto(datos.donde_se_vio), costo_estimado=datos.costo_estimado, estado="nueva",
+                     precio_nuestro=datos.precio_nuestro, codigo_barras=_texto(datos.codigo_barras),
+                     activo_g_porcion=datos.activo_g_porcion, porciones=datos.porciones,
                      proveedor_intelisis=codigo, proveedor_nuevo=nuevo,
                      creada_por=ctx.usuario.usuario_id, creada_en=ahora(), actualizada_en=ahora())
     i.fotos = [ProductoIdeaFoto(archivo_id=f) for f in fotos]

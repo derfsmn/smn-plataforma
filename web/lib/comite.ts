@@ -82,6 +82,7 @@ export type Item = {
   faltantes: string[]; // lo que le falta para presentarse completo
   llego_solo: boolean;
   duplicado?: string | null; // el mismo producto está otra vez en la reunión
+  reporte_guardado?: boolean; // su reporte PDF se guardó al aceptarlo (13 nov 2026)
   evaluacion: Semaforo | null;
   prefiltro: "pasa" | "no_pasa" | null;
   prefiltro_motivo: string | null;

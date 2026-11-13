@@ -18,6 +18,7 @@ import { SEMAFORO } from "@/lib/precios";
 import { Miniatura } from "../../../../precios/piezas";
 import { AgregarAsistente, FormDecision, Foto, ListaPeticiones, NuevaPeticion } from "../../piezas";
 import { AFondo, Asistente, BotonAsistente, Panel, type Modo, type Turno } from "./asistente";
+import { BotonReporte } from "@/componentes/boton-reporte";
 
 export default function Presentar() {
   const { id } = useParams<{ id: string }>();
@@ -389,7 +390,7 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
         <Numeros i={i} minimo={e?.ejecutivo?.margen_minimo ?? null} />
         {i.duplicado && <p className="rounded-2xl bg-aviso-fondo px-4 py-2 text-[15px] text-aviso-texto">{i.duplicado}</p>}
 
-        {e ? <Veredicto e={e} abrir={abrir} /> : (
+        {e ? <Veredicto e={e} abrir={abrir} i={i} /> : (
           <section className="rounded-3xl border border-smn-gris-100 p-5">
             <p className="text-lg text-smn-gris-500">Este producto no tiene semáforo.</p>
             <div className="mt-3"><BotonAsistente onClick={() => abrir("ia")} /></div>
@@ -462,7 +463,7 @@ function Numeros({ i, minimo }: { i: Item; minimo: string | null }) {
 const TONO = (p: number | null) => (p == null ? "bg-smn-gris-300" : p > 80 ? "bg-green-600" : p >= 60 ? "bg-yellow-500" : "bg-red-600");
 
 /** El semáforo para un comité: color y calificación, una frase, a favor y en contra, y qué lo subiría. */
-function Veredicto({ e, abrir }: { e: NonNullable<Item["evaluacion"]>; abrir: (modo: "fondo" | "ia") => void }) {
+function Veredicto({ e, abrir, i }: { e: NonNullable<Item["evaluacion"]>; abrir: (modo: "fondo" | "ia") => void; i: Item }) {
   const color = e.color;
   const x = e.ejecutivo;
   const factores = e.factores.filter((f) => !(e.modelo === "sin_proveedor" && f.factor === "proveedor" && f.puntaje == null));
@@ -533,6 +534,9 @@ function Veredicto({ e, abrir }: { e: NonNullable<Item["evaluacion"]>; abrir: (m
             <Layers className="h-4 w-4" /> Ver a fondo
           </Boton>
           <BotonAsistente onClick={() => abrir("ia")} />
+          {e.estado === "lista" && (
+            <BotonReporte ruta={`${RUTA}/productos/${i.id}/reporte`} nombre={i.nombre} guardado={i.reporte_guardado} />
+          )}
         </div>
       </div>
     </section>

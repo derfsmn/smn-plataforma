@@ -18,6 +18,7 @@ type TipoProveedor = "ninguno" | "actual" | "nuevo";
 const VACIO = {
   nombre: "", marca: "", descripcion: "", departamento: "", ingrediente: "", forma: "", contenido: "",
   precio_visto: "", donde_se_vio: "", costo_estimado: "",
+  precio_nuestro: "", codigo_barras: "", activo_g_porcion: "", porciones: "",
 };
 
 type Foto = { clave: string; nombre: string; vista: string; id?: number; avance: number; error?: string };
@@ -70,6 +71,9 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
           ...Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.trim() || null])),
           precio_visto: numero(d.precio_visto),
           costo_estimado: numero(d.costo_estimado),
+          precio_nuestro: numero(d.precio_nuestro),
+          activo_g_porcion: numero(d.activo_g_porcion),
+          porciones: d.porciones.trim() ? Number(d.porciones) : null,
           fotos: fotos.filter((f) => f.id).map((f) => f.id),
           proveedor_codigo: tipo === "actual" ? elegido?.codigo : null,
           proveedor_nuevo: tipo === "nuevo" ? nuevo.trim() : null,
@@ -168,9 +172,27 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
             opciones={[{ valor: "", texto: "Sin elegir" }, ...FORMAS.map((x) => ({ valor: x, texto: x }))]}
           />
           <Campo etiqueta="Contenido" value={d.contenido} onChange={poner("contenido")} maxLength={60} placeholder="Ej. 60 cápsulas, 500 g" />
-          <Campo etiqueta="Precio que viste (con IVA)" value={d.precio_visto} onChange={poner("precio_visto")} inputMode="decimal" placeholder="$" />
-          <Campo etiqueta="¿Dónde lo viste?" value={d.donde_se_vio} onChange={poner("donde_se_vio")} maxLength={300} />
+          <Campo etiqueta="Nuestro precio de venta (con IVA)" value={d.precio_nuestro} onChange={poner("precio_nuestro")} inputMode="decimal" placeholder="$ al que lo venderíamos" />
           <Campo etiqueta="Costo estimado sin IVA (si lo sabes)" value={d.costo_estimado} onChange={poner("costo_estimado")} inputMode="decimal" placeholder="$" />
+          <Campo etiqueta="Precio que viste afuera (con IVA)" value={d.precio_visto} onChange={poner("precio_visto")} inputMode="decimal" placeholder="$ en otra tienda" />
+          <Campo etiqueta="¿Dónde lo viste?" value={d.donde_se_vio} onChange={poner("donde_se_vio")} maxLength={300} placeholder="Ej. Chedraui, su página" />
+          <Campo
+            etiqueta="Código de barras"
+            value={d.codigo_barras}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, codigo_barras: e.target.value.replace(/\D/g, "").slice(0, 14) })}
+            inputMode="numeric"
+            placeholder="Para buscarlo afuera"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Campo etiqueta="Activo por porción (g)" value={d.activo_g_porcion} onChange={poner("activo_g_porcion")} inputMode="decimal" placeholder="Ej. 5" />
+            <Campo
+              etiqueta="Porciones"
+              value={d.porciones}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, porciones: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+              inputMode="numeric"
+              placeholder="Ej. 30"
+            />
+          </div>
         </div>
         <label className="block">
           <span className="mb-1.5 block text-sm font-semibold text-smn-gris-700">Descripción</span>

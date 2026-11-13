@@ -40,6 +40,7 @@ Table compras.comite_producto {
   decision_puntaje int
   decision_por int [ref: > nucleo.usuario.usuario_id]
   decision_en datetime
+  reporte_archivo_id bigint [ref: > nucleo.archivo.archivo_id, note: 'migración 0046: reporte PDF guardado al aceptarlo']
 
   indexes {
     (reunion_id, propuesta_id) [unique, note: 'donde propuesta_id no es nulo']

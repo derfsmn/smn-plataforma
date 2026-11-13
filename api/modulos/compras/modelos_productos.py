@@ -30,6 +30,12 @@ class ProductoIdea(Base):
     forma: Mapped[str | None] = mapped_column(Unicode(60))
     contenido: Mapped[str | None] = mapped_column(Unicode(60))  # texto libre: «60 cápsulas», «500 g»
     precio_visto: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # con impuestos, donde lo vio
+    # Migración 0046 (reporte por producto, 13 nov 2026): nuestro precio aparte del que se vio afuera, código de barras
+    # para buscarlo afuera y el activo por porción para comparar el precio por gramo de activo
+    precio_nuestro: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # con impuestos, al que lo venderíamos
+    codigo_barras: Mapped[str | None] = mapped_column(Unicode(20))
+    activo_g_porcion: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))  # gramos del activo principal por porción
+    porciones: Mapped[int | None] = mapped_column(Integer)  # porciones por envase
     donde_se_vio: Mapped[str | None] = mapped_column(Unicode(300))
     costo_estimado: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # sin IVA, si alguien lo sabe
     # Captura corta con proveedor (migración 0041): su clave en Intelisis, o el nombre si es nuevo
