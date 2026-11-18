@@ -27,11 +27,11 @@ if [ -d /datos/plataforma ]; then
   echo "[permisos] /datos/plataforma compartida con el grupo docker"
 fi
 
-# 3. Firewall local: solo SSH, web y SQL Server (Docker abre aparte los puertos que publica)
+# 3. Firewall local: solo SSH y web (SQL Server solo escucha dentro del servidor; Docker abre aparte los puertos que publica)
 sudo ufw allow 22/tcp >/dev/null
 sudo ufw allow 80/tcp >/dev/null
 sudo ufw allow 443/tcp >/dev/null
-sudo ufw allow 1433/tcp >/dev/null
+sudo ufw delete allow 1433/tcp >/dev/null 2>&1 || true
 sudo ufw default deny incoming >/dev/null
 sudo ufw --force enable
 sudo ufw status verbose | head -20

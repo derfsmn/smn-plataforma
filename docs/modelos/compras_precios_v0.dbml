@@ -10,9 +10,14 @@ Table compras.precio_vigilado {
   activo bit [not null, default: 1]
   consulta nvarchar(300) [note: 'Búsqueda a mano; vacío = se arma sola (código de barras y marca + descripción)']
   limite_pct decimal(5,2) [note: 'Semáforo: rojo arriba de este % sobre la mediana; vacío = el general de Configuración (migración 0011)']
-  origen nvarchar(20) [not null, note: 'pantalla / migracion']
+  origen nvarchar(20) [not null, note: 'pantalla / migracion / nocturna (lo agregó la revisión de noche; «Correr ahora» no lo toma)']
   agregado_por int [ref: > nucleo.usuario.usuario_id]
   creado_en datetime [not null]
+  validacion nvarchar(20) [note: 'Cómo quedó la última revisión: validado / dudoso / sin_referencia (migración 0050)']
+  validado_en datetime [note: 'Última vez que quedó con precios validados']
+  revisado_en datetime
+  proxima_revision datetime [note: 'Validado: +7 días AA, +12 el resto; dudoso o sin referencia: la noche siguiente']
+  noches_sin_validar int
   Note: 'Qué productos del catálogo se vigilan. Cada uno cuesta créditos de DataForSEO por corrida.'
 }
 
@@ -143,4 +148,44 @@ Table compras.precio_vendedor {
   activo bit [not null, default: 1]
   creado_en datetime [not null]
   Note: 'Une los nombres con que aparece cada vendedor. Si es propio no cuenta como competencia.'
+}
+
+Table compras.precio_validacion {
+  observacion_id int [pk, ref: - compras.precio_observacion.observacion_id]
+  corrida_id int [not null, ref: > compras.precio_corrida.corrida_id]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  resultado nvarchar(20) [not null, note: 'validado / dudoso / no_cuenta. Solo lo validado cuenta para la mediana']
+  motivo nvarchar(400)
+  comprobaciones nvarchar(max) [note: 'JSON: código, marca, variante/sabor, contenido, piezas, foto (ok / no / sin_dato / no_aplica)']
+  sello nvarchar(max) [note: 'JSON: liga, disponible, moneda, promoción, tipo de vendedor, salto contra la semana anterior']
+  huella nvarchar(64) [note: 'SHA-256 de título, código e imagen: la foto ya revisada no se vuelve a pedir a Ollama']
+  creado_en datetime [not null]
+  Note: 'Validación automática de cada precio (migración 0050). Compras no valida: solo marca «Está mal».'
+}
+
+Table compras.precio_marca_mal {
+  marca_id int [pk, increment]
+  producto_id int [not null, ref: > datos.producto.producto_id]
+  observacion_id int [ref: > compras.precio_observacion.observacion_id]
+  vendedor nvarchar(200) [not null]
+  dominio nvarchar(200)
+  liga nvarchar(800)
+  titulo nvarchar(400)
+  precio decimal(12,2)
+  motivo nvarchar(30) [not null, note: 'otro_producto / otro_sabor / otro_tamano / precio_equivocado / otro']
+  nota nvarchar(400)
+  activo bit [not null, default: 1, note: 'Solo un administrador lo deshace']
+  usuario_id int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime [not null]
+  Note: '«Está mal» de Compras: sale al momento, no se vuelve a elegir (misma liga o mismo vendedor y título) y queda como caso de prueba.'
+}
+
+Table compras.precio_seleccion {
+  seleccion_id int [pk, increment]
+  nombre nvarchar(120) [not null]
+  contenido nvarchar(max) [not null, note: 'JSON: producto_ids, marcas, categorias, hojas']
+  usuario_id int [ref: > nucleo.usuario.usuario_id]
+  creado_en datetime [not null]
+  usado_en datetime
+  Note: 'Selecciones guardadas del reporte a Excel, de cada persona.'
 }

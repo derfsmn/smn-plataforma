@@ -5,7 +5,9 @@ y el comité decide Aceptado, Denegado o En espera. Lo que queda en espera pasa 
 """
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Unicode, UnicodeText
+from decimal import Decimal
+
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, Numeric, Unicode, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from nucleo.modelos import Base, ahora
@@ -57,7 +59,7 @@ class ComiteProducto(Base):
     prefiltro_puntaje: Mapped[int | None] = mapped_column(Integer)
     prefiltro_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
     prefiltro_en: Mapped[datetime | None] = mapped_column(DateTime)
-    decision: Mapped[str | None] = mapped_column(Unicode(12))  # aceptado / denegado / en_espera
+    decision: Mapped[str | None] = mapped_column(Unicode(12))  # aceptado / a_prueba / denegado / en_espera
     decision_motivo: Mapped[str | None] = mapped_column(Unicode(1000))
     decision_color: Mapped[str | None] = mapped_column(Unicode(10))
     decision_puntaje: Mapped[int | None] = mapped_column(Integer)
@@ -65,6 +67,16 @@ class ComiteProducto(Base):
     decision_en: Mapped[datetime | None] = mapped_column(DateTime)
     # Reporte PDF que se guarda al aceptarlo (migración 0046): queda como se presentó aunque luego se recalcule
     reporte_archivo_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("nucleo.archivo.archivo_id"))
+    # Memoria del comité (migración 0049): qué indicador pesó y si el radar se equivocó
+    indicadores: Mapped[str | None] = mapped_column(UnicodeText)  # JSON [{factor, sentido, motivo}]
+    radar_error_factor: Mapped[str | None] = mapped_column(Unicode(20))
+    radar_error_motivo: Mapped[str | None] = mapped_column(Unicode(500))
+    # «Aceptado a prueba» en pocas tiendas (migración 0049)
+    prueba_tiendas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON [clave de tienda]
+    prueba_precio: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    prueba_revision: Mapped[date | None] = mapped_column(Date)
+    prueba_condicion: Mapped[str | None] = mapped_column(Unicode(500))
+    sku: Mapped[str | None] = mapped_column(Unicode(80))  # el SKU con que se dio de alta, para el seguimiento
 
     revisiones: Mapped[list["ComiteRevision"]] = relationship(cascade="all, delete-orphan")
 
@@ -110,3 +122,23 @@ class ComitePeticion(Base):
     atendida_en: Mapped[datetime | None] = mapped_column(DateTime)
     creada_por: Mapped[int] = mapped_column(ForeignKey(USUARIO))
     creada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class ProductoSeguimiento(Base):
+    """Revisión a 4, 8 y 12 semanas de un producto aceptado: pronóstico contra lo vendido (migración 0049)."""
+    __tablename__ = "producto_seguimiento"
+    __table_args__ = {"schema": ESQUEMA}
+
+    seguimiento_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey(ITEM))
+    semana: Mapped[int] = mapped_column(Integer)
+    fecha: Mapped[date] = mapped_column(Date)
+    pronostico_bajo: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    pronostico_medio: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    pronostico_alto: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    real: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    tiendas: Mapped[int | None] = mapped_column(Integer)
+    resultado: Mapped[str] = mapped_column(Unicode(12))
+    propuesta: Mapped[str | None] = mapped_column(Unicode(12))
+    texto: Mapped[str | None] = mapped_column(Unicode(1000))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)

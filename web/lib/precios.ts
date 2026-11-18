@@ -237,6 +237,7 @@ export type ProductoCatalogo = {
   dif_pct: string | null; // última corrida: nuestro lista contra la mediana
   color: Color | null;
   ultima_fecha: string | null;
+  clasificacion: string | null; // AA, A, B, C, D, E
 };
 
 export const TEXTO_FILA: Record<EstadoFila, string> = {
@@ -357,3 +358,151 @@ export type Avance = {
   hechos: number | null;
   total: number | null;
 };
+
+// ---------------------------------------------------------------- pantalla nueva (2026-11-17): validación, noche, evaluación y reporte
+
+export type Accion = "bajar" | "bajar_y_negociar" | "negociar" | "subir" | "mantener" | "sin_referencia";
+export type Cuadro = Color | "sin_referencia";
+
+export type FilaTablero = {
+  producto_id: number;
+  sku: string;
+  descripcion: string | null;
+  marca: string | null;
+  categoria: string | null;
+  imagen: string | null;
+  clase: string | null;
+  venta_importe: string;
+  venta_piezas: string;
+  nuestro: string | null;
+  mercado: string | null;
+  dif_pct: string | null;
+  indice: string | null;
+  color: Color | null;
+  membresia: string | null; // precio membresía con impuestos
+  dif_membresia_pct: string | null;
+  color_membresia: Color | null;
+  limite_pct: string;
+  tiendas: Record<string, string>;
+  otras: number;
+  accion: Accion;
+  accion_texto: string;
+  detalle: string;
+  precio_sugerido: string | null;
+  margen: string | null;
+  margen_minimo: string;
+  tendencia: "sube" | "baja" | "estable" | null;
+  tendencia_pct: string | null;
+  validacion: "validado" | "dudoso" | "sin_referencia" | null;
+  revisado_en: string | null;
+};
+
+export type AvanceNoche = {
+  total: number;
+  validados: number;
+  dudosos: number;
+  sin_referencia: number;
+  sin_revisar: number;
+  al_dia: number;
+  por_clase: Record<string, { total: number; validados: number }>;
+  ritmo_noche: number;
+  noches_faltan: number | null;
+  activo: boolean;
+  desde: number;
+  hasta: number;
+  lote: number;
+  texto: string;
+};
+
+export type TiendaContra = { nombre: string; productos: number; mas_caros: number; parejos: number; mas_baratos: number; frase: string };
+
+export type Tablero = {
+  actualizado: string | null;
+  en_curso: boolean;
+  avance: AvanceNoche;
+  alerta_pct: number;
+  cuadros: Record<Cuadro, number>;
+  acciones: Record<string, number>;
+  tiendas: TiendaContra[];
+  clases: string[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  filas: FilaTablero[];
+};
+
+export type GrupoTablero = "accion" | "rojo" | "amarillo" | "verde" | "sin_referencia" | "subir" | "todos";
+
+export type Comprobacion = { clave: string; nombre: string; estado: "ok" | "no" | "sin_dato" | "no_aplica"; texto: string };
+export type PrecioValidado = {
+  observacion_id: number;
+  vendedor: string;
+  tienda_clave: string | null;
+  titulo: string | null;
+  liga: string | null;
+  precio: string;
+  cuenta: boolean;
+  resultado: "validado" | "dudoso" | "no_cuenta" | null;
+  motivo: string | null;
+  comprobaciones: Comprobacion[];
+  vendedor_tipo: "oficial" | "marketplace" | "tienda" | null;
+  promocion: boolean;
+  marcado_mal: boolean;
+};
+export type MarcaMal = {
+  id: number;
+  vendedor: string;
+  titulo: string | null;
+  liga: string | null;
+  precio: string | null;
+  motivo: string;
+  motivo_texto: string;
+  nota: string | null;
+  usuario: string | null;
+  creado_en: string;
+  activo: boolean;
+};
+export type ValidacionProducto = {
+  producto_id: number;
+  validacion: string | null;
+  validado_en: string | null;
+  revisado_en: string | null;
+  proxima_revision: string | null;
+  precios: PrecioValidado[];
+  marcas: MarcaMal[];
+};
+
+export const MOTIVOS_MAL = [
+  { valor: "otro_producto", texto: "Es otro producto" },
+  { valor: "otro_sabor", texto: "Es otro sabor" },
+  { valor: "otro_tamano", texto: "Es otro tamaño" },
+  { valor: "precio_equivocado", texto: "El precio está equivocado" },
+  { valor: "otro", texto: "Otra cosa" },
+] as const;
+
+export type ModoReporte = "producto" | "marca" | "categoria";
+export type OpcionReporte = { clave: string; nombre: string; detalle: string | null; cuenta: string };
+export type HojaReporte = "resumen" | "tiendas" | "accion" | "historial";
+export type SeleccionReporte = { producto_ids: number[]; marcas: string[]; categorias: string[]; hojas: HojaReporte[]; fecha?: string | null };
+export type SeleccionGuardada = { id: number; nombre: string; seleccion: SeleccionReporte; productos: number; creado_en: string; usado_en: string | null };
+
+/** Descarga un archivo que la API arma con lo que se le manda (POST). */
+export async function descargarPost(ruta: string, cuerpo: unknown, nombre: string): Promise<void> {
+  const r = await fetch(`${urlApi()}${ruta}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  });
+  if (!r.ok) {
+    const c = await r.json().catch(() => null);
+    throw new ErrorApi(r.status, typeof c?.detail === "string" ? c.detail : "No se pudo descargar.");
+  }
+  const disp = r.headers.get("content-disposition") ?? "";
+  const liga = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = liga;
+  a.download = /filename="([^"]+)"/.exec(disp)?.[1] ?? nombre;
+  a.click();
+  URL.revokeObjectURL(liga);
+}

@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from collections import Counter
 from statistics import median
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -38,6 +39,7 @@ from modulos.compras import coincidencia as co
 from modulos.compras import dataforseo as dfs
 from modulos.compras import imagenes as img
 from modulos.compras import tiendas as td
+from modulos.compras import validacion_precios as val
 from modulos.compras.modelos_precios import (VIGENTES, PrecioCoincidencia, PrecioCorrida, PrecioCorridaProducto,
                                              PrecioObservacion, PrecioTiendaCoincidencia, PrecioVendedor, PrecioVigilado)
 from nucleo.modelos import Modulo, Permiso, RolPermiso, Usuario, UsuarioRol, ahora
@@ -288,6 +290,7 @@ def detener(bd: Session, c: PrecioCorrida, quien: str) -> None:
 PRUEBA = "prueba"  # corrida con una lista de SKU de un Excel: no cuenta como la última del radar ni para el programa
 PRODUCTO = "producto"  # búsqueda de un producto nuevo que lanzó el radar de productos: solo cuenta para el gasto
 OPORTUNIDAD = "oportunidad"  # búsqueda de lo que vende la competencia («Buscar oportunidades»): solo cuenta para el gasto
+NOCTURNA = "nocturna"  # lote de la noche (2026-11-17): cuenta como corrida del radar, solo con los productos de su lista
 REGULAR = PrecioCorrida.origen.not_in((PRUEBA, PRODUCTO, OPORTUNIDAD))
 
 
@@ -343,7 +346,8 @@ def de_lista(bd: Session, corrida: PrecioCorrida) -> list[tuple[PrecioVigilado, 
 
 def _vigilados(bd: Session) -> list[tuple[PrecioVigilado, Producto]]:
     return list(bd.execute(select(PrecioVigilado, Producto).join(Producto, Producto.producto_id == PrecioVigilado.producto_id)
-                           .where(PrecioVigilado.activo == true(), Producto.activo == true())
+                           .where(PrecioVigilado.activo == true(), Producto.activo == true(),
+                                  PrecioVigilado.origen != NOCTURNA)  # los que entraron solos de noche no van a «Correr ahora»
                            .order_by(Producto.descripcion)).all())
 
 
@@ -467,11 +471,12 @@ def _igual(c: co.Candidato) -> dict:
             **{k: str(c.datos[k]) for k in ("product_id", "data_docid") if c.datos.get(k)}}
 
 
-def sin_repetir(observaciones: list[PrecioObservacion]) -> list[PrecioObservacion]:
-    """Una tienda que aparece en varias publicaciones cuenta una vez, con su precio más bajo."""
-    def orden(o: PrecioObservacion):  # primero lo disponible en pesos, luego lo más barato
+def sin_repetir(observaciones: list[PrecioObservacion], buena=None) -> list[PrecioObservacion]:
+    """Una tienda que aparece en varias publicaciones cuenta una vez, con su precio más bajo.
+    `buena(o)`: con la validación, primero el precio validado de esa tienda aunque haya uno más barato dudoso."""
+    def orden(o: PrecioObservacion):  # primero lo validado, luego lo disponible en pesos, luego lo más barato
         agotado = any(t in (o.disponibilidad or "").lower() for t in NO_DISPONIBLE)
-        return (agotado or o.moneda != "MXN", o.precio_comparable)
+        return (bool(buena) and not buena(o), agotado or o.moneda != "MXN", o.precio_comparable)
 
     def claves(o: PrecioObservacion) -> set[str]:
         # Por nombre y por dominio: en la búsqueda viene «Mercado Libre» sin dominio y en vendedores mercadolibre.com.mx
@@ -506,6 +511,9 @@ class Corrida:
         self.de_busqueda: dict[int, list[dict]] = {}
         self.variante_dudosa: set[int] = set()  # Google trajo varias variantes y no se supo cuál es la nuestra
         self.sin_tamano: dict[int, set[str]] = {}  # publicaciones que la IA no vio porque no dicen nuestra presentación
+        # Validación automática (2026-11-17): solo cuenta lo validado; vistos = precios encontrados por producto
+        self.validador = val.Validador(bd, corrida) if self.cfg.precios_validar else None
+        self.vistos: dict[int, int] = {}
 
     # ---- coincidencia
 
@@ -1110,15 +1118,28 @@ class Corrida:
             # Si Google trae una tienda que ya se leyó en su propio sitio, se queda el precio del sitio
             leidas = [o.vendedor for o in propias]
             de_google = [o for o in de_google if not tienda_clave(o.vendedor, o.dominio, leidas)]
-            observaciones = sin_repetir(propias + de_google)
+            producto = self.bd.get(Producto, pid)
+            evals = {id(o): self.validador.evaluar(producto, o) for o in propias + de_google} if self.validador and producto else {}
+            buena = (lambda o: evals[id(o)][0] == val.VALIDADO) if evals else None
+            observaciones = sin_repetir(propias + de_google, buena)
             nuevas = [o for o in observaciones if o.observacion_id is None]
             if observaciones:
                 self.bd.add_all(nuevas)
                 self.bd.flush()
                 if m and nuevas:
                     m.fallos_seguidos, m.verificado_en = 0, ahora()
-                producto = self.bd.get(Producto, pid)
-                self.calcular(fila, observaciones, producto.descripcion if producto else None)
+                cuentan = observaciones
+                if evals:
+                    for o in observaciones:
+                        self.validador.guardar(o, evals[id(o)])
+                    cuentan = [o for o in observaciones if buena(o)]
+                    self.vistos[pid] = len(observaciones)
+                self.calcular(fila, cuentan, producto.descripcion if producto else None)
+                if evals and not cuentan:
+                    motivos = Counter(evals[id(o)][1] for o in observaciones if evals[id(o)][1])
+                    fila.estado = "sin_precios"
+                    fila.mensaje = (f"{len(observaciones)} precios encontrados, ninguno pasó la validación"
+                                    + (f": {motivos.most_common(1)[0][0]}" if motivos else "") + ". Se revisa otra noche.")[:400]
                 if not m and fila.estado == "con_precios":
                     fila.mensaje = "Sin coincidencia en Google: solo cuentan los precios de los sitios de las tiendas"
                 if m and respuestas and not nuevas:
@@ -1143,7 +1164,7 @@ class Corrida:
     def correr(self) -> PrecioCorrida:
         bd, c = self.bd, self.c
         c.tope_usd = Decimal(str(self.cfg.precios_tope_corrida_usd)) if self.cfg.precios_tope_corrida_usd else None
-        vigilados = de_lista(bd, c) if c.origen == PRUEBA else _vigilados(bd)
+        vigilados = de_lista(bd, c) if c.origen in (PRUEBA, NOCTURNA) else _vigilados(bd)
         filas: dict[int, PrecioCorridaProducto] = {
             f.producto_id: f for f in bd.scalars(select(PrecioCorridaProducto).where(PrecioCorridaProducto.corrida_id == c.corrida_id))}
         pendientes, procesados = [], []
@@ -1189,6 +1210,12 @@ class Corrida:
         _olvidar(self.c.corrida_id)
         bd, c, cfg = self.bd, self.c, self.cfg
         caros = contar(bd, c, list(filas.values()))
+        if c.origen != PRUEBA and self.validador:
+            for pid, f in filas.items():
+                p = bd.get(Producto, pid)
+                if p:
+                    val.actualizar_producto(bd, p, f.estado, f.vendedores if f.estado == "con_precios" else 0,
+                                            self.vistos.get(pid, 0) or (1 if f.coincidencia_id else 0))
         c.avisos = json.dumps(self.avisos, ensure_ascii=False) if self.avisos else None
         c.terminado_en = ahora()
         bd.commit()
@@ -1298,7 +1325,8 @@ def recalcular(bd: Session, producto_id: int) -> None:
     fila.minimo = fila.maximo = fila.promedio = fila.mediana = None
     fila.dif_lista_mediana_pct = fila.dif_membresia_mediana_pct = fila.dif_lista_minimo_pct = None
     p = bd.get(Producto, producto_id)
-    Corrida.calcular(fila, sin_repetir(obs), p.descripcion if p else None)
+    Corrida.calcular(fila, sin_repetir(val.cuentan(bd, obs) if configuracion().precios_validar else obs),
+                     p.descripcion if p else None)
     if not fila.coincidencia_id and fila.estado == "sin_precios":
         fila.estado, fila.mensaje = "sin_coincidencia", "Sin coincidencia en Google y sin precios de los sitios de las tiendas"
     contar(bd, bd.get(PrecioCorrida, fila.corrida_id),
@@ -1418,7 +1446,7 @@ def revisar_programa(bd: Session) -> PrecioCorrida | None:
     """Lo llama el programador cada minuto. Si la plataforma estuvo apagada a la hora, corre al volver (tardía).
     Si falla, reintenta cada 30 minutos hasta 3 veces. Sin credenciales, tope o productos vigilados no hace nada."""
     cfg = configuracion()
-    if not cfg.precios_activo or dfs.configurado():
+    if not cfg.precios_activo or dfs.configurado() or cfg.precios_nocturno_activo:  # de noche corren los lotes
         return None
     ahora_local = datetime.now(zona())
     if ahora_local.hour < cfg.precios_hora:

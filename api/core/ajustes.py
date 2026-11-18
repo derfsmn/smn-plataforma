@@ -187,6 +187,25 @@ CATALOGO = [
     Ajuste("precios_tiendas_directas", "precios", "Tiendas que se buscan en su propio sitio", "texto",
            "Separadas por coma; vacío = ninguna. Hoy se puede: Walmart, Chedraui, San Pablo, Soriana. Cada corrida busca cada "
            "producto en su página (sin costo de DataForSEO) y su precio cuenta como un vendedor más."),
+    Ajuste("precios_validar", "precios", "Validar cada precio antes de contarlo", "booleano",
+           "Encendido: cada precio pasa 6 comprobaciones (código de barras, marca, variante, contenido, piezas y foto) y el sello "
+           "de precio (liga, disponible, en pesos, sin brinco raro). Lo dudoso no cuenta y se vuelve a revisar la noche siguiente."),
+    Ajuste("precios_nocturno_activo", "precios", "Revisar de noche por lotes", "booleano",
+           "Encendido: de la hora de inicio a la hora de fin se corren lotes seguidos, primero lo nunca validado (AA, A, B… y "
+           "por venta) y luego la rotación. Sustituye la corrida programada de arriba. Se detiene al llegar al tope de DataForSEO."),
+    Ajuste("precios_nocturno_desde", "precios", "Noche: empieza a las (0 a 23)", "entero", "Hora local.", 0, 23),
+    Ajuste("precios_nocturno_hasta", "precios", "Noche: ya no empieza lotes después de las (0 a 23)", "entero",
+           "Hora local. Un lote que ya empezó termina.", 0, 23),
+    Ajuste("precios_nocturno_lote", "precios", "Productos por lote", "entero",
+           "Lotes chicos detienen más rápido al llegar al tope o a la hora de fin.", 5, 300),
+    Ajuste("precios_nocturno_catalogo", "precios", "Revisar todo el catálogo activo", "booleano",
+           "Encendido: de noche entran todos los productos activos, no solo los que se agregaron a mano."),
+    Ajuste("precios_rotacion_aa_dias", "precios", "Rotación: productos AA cada (días)", "entero", "", 1, 60),
+    Ajuste("precios_rotacion_dias", "precios", "Rotación: los demás cada (días)", "entero", "", 1, 90),
+    Ajuste("precios_salto_pct", "precios", "Un precio que brinca más de (%) se vuelve a revisar", "decimal",
+           "Contra el último precio validado de esa misma tienda. Esa noche no cuenta.", 5, 200),
+    Ajuste("precios_fotos_por_lote", "precios", "Comparaciones de foto por lote", "entero",
+           "Solo para precios dudosos con foto. Usa la tarea «compras.precios_imagenes» (Ollama).", 0, 300),
     Ajuste("radar_productos_margen_minimo", "productos", "Margen mínimo provisional (%)", "decimal",
            "Se usa solo mientras la Base de conocimiento de Compras no tenga una regla de margen. Provisional: "
            "no es una política de Compras.", 0, 100),

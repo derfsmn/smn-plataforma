@@ -21,8 +21,8 @@ MARGEN = 46
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre",
          "diciembre")
 DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
-DECISION = {"aceptado": "Aceptado", "denegado": "Denegado", "en_espera": "En espera"}
-COLOR_DECISION = {"aceptado": "#15803D", "denegado": "#B91C1C", "en_espera": diagrama.GRIS}
+DECISION = {"aceptado": "Aceptado", "a_prueba": "Aceptado a prueba", "denegado": "Denegado", "en_espera": "En espera"}
+COLOR_DECISION = {"aceptado": "#15803D", "a_prueba": "#15803D", "denegado": "#B91C1C", "en_espera": diagrama.GRIS}
 SEMAFORO = {"verde": ("Verde", "#16A34A"), "amarillo": ("Amarillo", "#CA8A04"), "rojo": ("Rojo", "#DC2626")}
 
 E = {

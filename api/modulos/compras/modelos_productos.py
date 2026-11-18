@@ -79,6 +79,8 @@ class ProductoEvaluacion(Base):
     explicacion: Mapped[str | None] = mapped_column(UnicodeText)
     explicacion_ia: Mapped[bool] = mapped_column(Boolean, default=False)
     mercado: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de mercado_producto.Mercado
+    investigacion: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de investigar.Investigacion (0049)
+    pronostico: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de pronostico.Pronostico (0049)
     politicas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de politicas_producto.Revision
     color_final: Mapped[str | None] = mapped_column(Unicode(10))  # el que puso Compras, con motivo
     motivo_cambio: Mapped[str | None] = mapped_column(Unicode(1000))

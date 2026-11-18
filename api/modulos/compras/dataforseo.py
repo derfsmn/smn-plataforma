@@ -30,8 +30,10 @@ log = logging.getLogger("smn.compras.precios")
 POR_ENVIO = 100  # DataForSEO acepta hasta 100 tareas por POST
 ESPERA = 10  # segundos entre revisiones de tareas listas
 LIMITE = 900  # segundos máximos esperando resultados
-RUTA = {"productos": "products", "vendedores": "sellers"}
-BLOQUE = {"productos": 40, "vendedores": 10}  # se cobra por cada bloque de resultados
+RUTA = {"productos": "merchant/google/products", "vendedores": "merchant/google/sellers",
+        "organico": "serp/google/organic"}  # organico: búsqueda normal de Google para investigar afuera (17 nov 2026)
+BLOQUE = {"productos": 40, "vendedores": 10, "organico": 10}  # se cobra por cada bloque de resultados
+TARIFA = {"organico": Decimal("0.0006")}  # USD por bloque; las demás usan la tarifa de Configuración
 
 
 class ErrorDataForSEO(Exception):
@@ -97,7 +99,7 @@ def _peticion(metodo: str, ruta: str, cuerpo=None) -> dict:
 # ---------------------------------------------------------------- gasto
 
 def maximo_tarea(tipo: str, profundidad: int) -> Decimal:
-    tarifa = Decimal(str(configuracion().precios_tarifa_usd))
+    tarifa = TARIFA.get(tipo) or Decimal(str(configuracion().precios_tarifa_usd))
     bloques = (profundidad + BLOQUE[tipo] - 1) // BLOQUE[tipo]
     return tarifa * bloques
 
@@ -123,6 +125,10 @@ def _gastado(bd: Session, filtro) -> Decimal:
 
 def gasto_mes(bd: Session) -> Decimal:
     return _gastado(bd, PrecioEnvio.creado_en >= inicio_de_mes())
+
+
+def gasto_mes_tipo(bd: Session, tipo: str) -> Decimal:
+    return _gastado(bd, (PrecioEnvio.creado_en >= inicio_de_mes()) & (PrecioEnvio.tipo == tipo))
 
 
 def gasto_corrida(bd: Session, corrida_id: int) -> Decimal:
@@ -154,7 +160,7 @@ def enviar(bd: Session, corrida: PrecioCorrida, tipo: str, tareas: list[dict]) -
         bd.add(envio)
         bd.commit()
         try:
-            respuesta = _peticion("POST", f"/v3/merchant/google/{RUTA[tipo]}/task_post", lote)
+            respuesta = _peticion("POST", f"/v3/{RUTA[tipo]}/task_post", lote)
         except EnvioIncierto:
             envio.estado = "incierto"
             bd.commit()
@@ -179,7 +185,7 @@ def enviar(bd: Session, corrida: PrecioCorrida, tipo: str, tareas: list[dict]) -
 
 
 def _ids_listos(tipo: str) -> set[str]:
-    datos = _peticion("GET", f"/v3/merchant/google/{RUTA[tipo]}/tasks_ready")
+    datos = _peticion("GET", f"/v3/{RUTA[tipo]}/tasks_ready")
     return {str(r.get("id")) for t in datos.get("tasks") or [] for r in (t.get("result") or []) if isinstance(r, dict) and r.get("id")}
 
 
@@ -204,7 +210,7 @@ def recoger(tipo: str, ids: dict[str, str], detenida: Callable[[], bool] = lambd
             listos, directo = set(pendientes), time.monotonic() + 30
         for id_ in listos:
             try:
-                datos = _peticion("GET", f"/v3/merchant/google/{RUTA[tipo]}/task_get/advanced/{id_}")
+                datos = _peticion("GET", f"/v3/{RUTA[tipo]}/task_get/advanced/{id_}")
             except ErrorDataForSEO as e:
                 if "error 404" in str(e) or "40400" in str(e):
                     continue

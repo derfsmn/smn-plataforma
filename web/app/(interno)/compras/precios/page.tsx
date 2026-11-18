@@ -1,480 +1,440 @@
 "use client";
-// Radar de precios · Productos: un renglón por producto de la última corrida (filtrado y paginado por la API, pensado para 4,000);
-// al picarle se abre la página del producto.
+// Radar de precios · Resumen (Diego, 2026-11-17: «quiero que ese radar de precios sea muy fácil de ver»).
+// Banda de avance de la noche, 4 cuadros de color, cómo estamos contra cada tienda y lo que pide acción, ordenado por venta.
+// Compras no valida nada: si ve un precio que no es, lo marca con «Está mal».
 
-import { AnimatePresence, motion } from "motion/react";
-import { ChevronRight, CircleSlash, Clock, Download, FlaskConical, Play, Search, Settings, Square, Tags, TriangleAlert } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag, Moon, Search, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { api, dolares, haceCuanto, mensajeDe } from "@/lib/api";
-import { SEMAFORO, TEXTO_FILA, csvTabla, dia, hora, nuestroPrecio, textoCorrida, type Color, type Fila, type Grupo, type Lista, type Orden, type Resumen, type TablaPrecios } from "@/lib/precios";
-import { useAvisos } from "@/componentes/avisos";
-import { Modal } from "@/componentes/modal";
-import { useSesion } from "@/componentes/sesion";
-import { Boton, Entrada, Esqueleto, Insignia, Selector } from "@/componentes/ui";
-import { Diferencia, ICONO_COINCIDENCIA, Miniatura, precio } from "./piezas";
-import { PruebaExcel, UltimaPrueba } from "./prueba";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { api, haceCuanto, mensajeDe, pesos } from "@/lib/api";
+import { SEMAFORO, pct, type Cuadro, type FilaTablero, type GrupoTablero, type Tablero } from "@/lib/precios";
 
-// Ligas viejas de avisos y de la pantalla anterior
-const ALIAS: Record<string, Grupo> = { caros: "rojo", baratos: "verde", sin_coincidencia: "revisar" };
-const GRUPOS: Grupo[] = ["todos", "verde", "amarillo", "rojo", "revisar", "sin_precios"];
-const POR_PAGINA = 50;
+type PrecioComparado = "lista" | "membresia";
+import { useAvisos } from "@/componentes/avisos";
+import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
+import { EstaMal } from "./esta-mal";
+import { Miniatura, precio } from "./piezas";
+
+const GRUPOS: GrupoTablero[] = ["accion", "rojo", "amarillo", "verde", "sin_referencia", "subir", "todos"];
+// Ligas viejas (avisos de la campana)
+const ALIAS: Record<string, GrupoTablero> = { caros: "rojo", baratos: "verde", revisar: "sin_referencia", sin_precios: "sin_referencia" };
+const CUADROS: { clave: Cuadro; titulo: string; texto: string; clase: string; punto: string }[] = [
+  { clave: "rojo", titulo: "Más caros que el mercado", texto: "Conviene bajar o negociar", clase: "border-red-600/30 bg-red-600/[0.06]", punto: "bg-red-600" },
+  { clave: "amarillo", titulo: "Un poco más caros", texto: "Vigilar", clase: "border-yellow-500/40 bg-yellow-500/[0.08]", punto: "bg-yellow-500" },
+  { clave: "verde", titulo: "Igual o más baratos", texto: "Bien", clase: "border-green-600/30 bg-green-600/[0.06]", punto: "bg-green-600" },
+  { clave: "sin_referencia", titulo: "Sin referencia", texto: "Todavía sin precios validados", clase: "border-smn-gris-100 bg-smn-gris-100/40", punto: "bg-smn-gris-300" },
+];
+const TITULO_GRUPO: Record<GrupoTablero, string> = {
+  accion: "Lo que pide acción",
+  rojo: "Más caros que el mercado",
+  amarillo: "Un poco más caros",
+  verde: "Igual o más baratos",
+  sin_referencia: "Sin referencia",
+  subir: "Se podrían subir",
+  todos: "Todos los productos",
+};
+const CLASE_ACCION: Record<string, string> = {
+  bajar: "text-red-700 dark:text-red-400",
+  bajar_y_negociar: "text-red-700 dark:text-red-400",
+  negociar: "text-naranja-tinta",
+  subir: "text-green-700 dark:text-green-400",
+  mantener: "text-smn-gris-700",
+  sin_referencia: "text-smn-gris-500",
+};
+const POR_PAGINA = 25;
+const n = (v: number) => v.toLocaleString("es-MX");
 
 export default function Pagina() {
   return (
     <Suspense fallback={<Esqueleto className="h-72" />}>
-      <Productos />
+      <Resumen />
     </Suspense>
   );
 }
 
-function Productos() {
-  const { puede } = useSesion();
+function Resumen() {
   const avisar = useAvisos();
   const parametros = useSearchParams();
-  const administra = puede("compras.precios.administrar");
   const router = useRouter();
   const ruta = usePathname();
-  const [r, setR] = useState<Resumen | null>(null);
-  const [l, setL] = useState<Lista | null>(null);
-  // Filtros en la dirección: al regresar del detalle de un producto se conserva la página y el grupo
-  const crudo = parametros.get("grupo") ?? parametros.get("filtro") ?? "todos";
-  const grupo: Grupo = ALIAS[crudo] ?? (GRUPOS.includes(crudo as Grupo) ? (crudo as Grupo) : "todos");
+  const crudo = parametros.get("grupo") ?? "accion";
+  const grupo: GrupoTablero = ALIAS[crudo] ?? (GRUPOS.includes(crudo as GrupoTablero) ? (crudo as GrupoTablero) : "accion");
+  const clase = parametros.get("clase") ?? "";
   const q = parametros.get("q") ?? "";
-  const marca = parametros.get("marca") ?? "";
-  const orden = (parametros.get("orden") ?? "diferencia") as Orden;
-  const num = Math.max(1, Number(parametros.get("p")) || 1);
+  const pagina = Math.max(1, Number(parametros.get("p")) || 1);
+  const conPrecio: PrecioComparado = parametros.get("precio") === "membresia" ? "membresia" : "lista";
+  const [t, setT] = useState<Tablero | null>(null);
   const [texto, setTexto] = useState(q);
-  const [descargando, setDescargando] = useState(false);
-  const [lanzando, setLanzando] = useState(false);
-  const [deteniendo, setDeteniendo] = useState(false);
-  const [preguntaDetener, setPreguntaDetener] = useState(false);
-  const [probando, setProbando] = useState(false);
-  const enCursoAntes = useRef(false);
-  const eraPrueba = useRef(false);
+  const [mal, setMal] = useState<FilaTablero | null>(null);
 
-  const cargar = useCallback(() => {
-    api<Resumen>("/api/compras/precios/resumen").then(setR).catch((e) => avisar(mensajeDe(e), "info"));
-  }, [avisar]);
-  useEffect(cargar, [cargar]);
-
-  const poner = useCallback(
-    (cambios: Record<string, string | number | null>) => {
+  const cambiar = useCallback(
+    (cambios: Record<string, string>) => {
       const p = new URLSearchParams(parametros.toString());
-      p.delete("filtro");
-      for (const [k, v] of Object.entries(cambios)) {
-        if (v === null || v === "" || (k === "grupo" && v === "todos") || (k === "orden" && v === "diferencia") || (k === "p" && v === 1)) p.delete(k);
-        else p.set(k, String(v));
-      }
-      const t = p.toString();
-      router.replace(t ? `${ruta}?${t}` : ruta, { scroll: false });
+      for (const [k, v] of Object.entries(cambios)) (v ? p.set(k, v) : p.delete(k));
+      if (!("p" in cambios)) p.delete("p");
+      router.replace(`${ruta}${p.size ? `?${p}` : ""}`, { scroll: false });
     },
     [parametros, router, ruta],
   );
 
-  const cargarLista = useCallback(() => {
-    const p = new URLSearchParams({ grupo, orden, pagina: String(num), por_pagina: String(POR_PAGINA) });
+  const cargar = useCallback(() => {
+    const p = new URLSearchParams({ grupo, pagina: String(pagina), por_pagina: String(POR_PAGINA) });
+    if (clase) p.set("clase", clase);
     if (q) p.set("q", q);
-    if (marca) p.set("marca", marca);
-    api<Lista>(`/api/compras/precios/lista?${p}`).then(setL).catch((e) => avisar(mensajeDe(e), "info"));
-  }, [grupo, orden, num, q, marca, avisar]);
-  useEffect(cargarLista, [cargarLista]);
+    if (conPrecio === "membresia") p.set("precio", "membresia");
+    api<Tablero>(`/api/compras/precios/tablero?${p}`).then(setT).catch((e) => avisar(mensajeDe(e), "info"));
+  }, [grupo, clase, q, pagina, conPrecio, avisar]);
+  useEffect(cargar, [cargar]);
 
-  // La búsqueda se manda a la API al dejar de escribir
   useEffect(() => {
-    if (texto.trim() === q) return;
-    const t = setTimeout(() => poner({ q: texto.trim(), p: 1 }), 350);
-    return () => clearTimeout(t);
-  }, [texto, q, poner]);
+    const id = setTimeout(() => texto !== q && cambiar({ q: texto }), 350);
+    return () => clearTimeout(id);
+  }, [texto, q, cambiar]);
 
-  const enCurso = r?.en_curso;
-  useEffect(() => {
-    if (enCurso) {
-      enCursoAntes.current = true;
-      eraPrueba.current = enCurso.origen === "prueba";
-      const t = setTimeout(cargar, 4000);
-      return () => clearTimeout(t);
-    }
-    if (enCursoAntes.current && eraPrueba.current) {
-      enCursoAntes.current = false;
-      avisar("La prueba con Excel terminó; ya puedes descargar el resultado", "exito");
-      return;
-    }
-    if (enCursoAntes.current && r?.ultima) {
-      enCursoAntes.current = false;
-      cargarLista();
-      avisar(r.ultima.estado === "completa" ? "Corrida terminada" : "La corrida terminó incompleta; revisa Corridas y gasto", r.ultima.estado === "completa" ? "exito" : "info");
-    }
-  }, [enCurso, r, cargar, cargarLista, avisar]);
-
-  const detener = async () => {
-    setPreguntaDetener(false);
-    if (!enCurso) return;
-    setDeteniendo(true);
-    try {
-      await api(`/api/compras/precios/corridas/${enCurso.id}/detener`, { metodo: "POST" });
-      enCursoAntes.current = false;
-      avisar("Corrida detenida", "exito");
-      cargar();
-    } catch (e) {
-      avisar(mensajeDe(e), "info");
-    } finally {
-      setDeteniendo(false);
-    }
-  };
-
-  const correr = async () => {
-    setLanzando(true);
-    try {
-      await api("/api/compras/precios/corridas", { metodo: "POST" });
-      avisar("Corrida iniciada", "exito");
-      cargar();
-    } catch (e) {
-      avisar(mensajeDe(e), "info");
-    } finally {
-      setLanzando(false);
-    }
-  };
-
-  const alerta = r?.alerta_pct ?? 10;
-  const descargar = async () => {
-    setDescargando(true);
-    try {
-      const t = await api<TablaPrecios>("/api/compras/precios/tabla");
-      const liga = URL.createObjectURL(new Blob([csvTabla(t.renglones)], { type: "text/csv;charset=utf-8" }));
-      const a = document.createElement("a");
-      a.href = liga;
-      a.download = `precios-${t.corrida?.fecha ?? "radar"}.csv`;
-      a.click();
-      URL.revokeObjectURL(liga);
-    } catch (e) {
-      avisar(mensajeDe(e), "info");
-    } finally {
-      setDescargando(false);
-    }
-  };
-
-  if (!r) return <Esqueleto className="h-72" />;
-
-  const tarjetas: { id: Grupo; texto: string; icono?: typeof Tags; color?: Color }[] = [
-    { id: "todos", texto: "Todos", icono: Tags },
-    { id: "verde", texto: "Igual o más baratos", color: "verde" },
-    { id: "amarillo", texto: "Más caros, dentro del límite", color: "amarillo" },
-    { id: "rojo", texto: "Más caros, arriba del límite", color: "rojo" },
-    { id: "revisar", texto: "Necesitan revisión", icono: CircleSlash },
-    { id: "sin_precios", texto: "Sin precios", icono: TriangleAlert },
-  ];
-  const paginas = l ? Math.max(1, Math.ceil(l.total / l.por_pagina)) : 1;
-  const abrir = (id: number) => router.push(`/compras/precios/producto/${id}`);
-  const proxima = r.proxima ? new Date(r.proxima).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }) : null;
+  if (!t) return <Esqueleto className="h-96" />;
+  const paginas = Math.max(1, Math.ceil(t.total / t.por_pagina));
 
   return (
-    <>
-      <Entrada className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl text-sm text-smn-gris-500">
-          <p>
-            Nuestro precio lista con impuestos contra la mediana de la competencia en Google Shopping y en los sitios de las tiendas clave. Todo corre solo: lo que no tiene una coincidencia confiable se deja fuera de
-            la comparación.
-          </p>
-          <p className="mt-1">
-            <Clock className="mr-1 inline h-3.5 w-3.5" />
-            {(r.automatico ? `${r.frecuencia} a las ${r.hora}:00.${proxima ? ` Próxima: ${proxima}` : ""}` : "La corrida automática está apagada").replace(/\.?$/, ".")} Gasto del mes{" "}
-            <b className="text-tinta">{dolares(r.gasto_mes_usd, 3)}</b> de {dolares(r.tope_mes_usd)} · siguiente corrida hasta {dolares(r.estimado_usd, 3)}.
-          </p>
-        </div>
-        {administra && (
-          <div className="flex flex-wrap gap-2">
-            <Boton variante="secundario" onClick={() => setProbando(true)} disabled={!!enCurso}>
-              <FlaskConical className="h-4 w-4" /> Prueba con Excel
-            </Boton>
-            <Boton onClick={correr} cargando={lanzando || !!enCurso} disabled={r.falta_configurar.length > 0 || !r.vigilados}>
-              <Play className="h-4 w-4" /> Correr ahora
-            </Boton>
-          </div>
-        )}
-      </Entrada>
+    <div className="space-y-6">
+      <BandaAvance t={t} />
 
-      {r.falta_configurar.length > 0 && (
-        <Entrada className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-smn-naranja bg-aviso-fondo px-4 py-3 text-sm text-aviso-texto">
-          <Settings className="h-5 w-5 shrink-0" />
-          <p className="min-w-0 flex-1">
-            Para correr el radar falta capturar en Configuración, sección «Radar de precios»: <b>{r.falta_configurar.join(", ")}</b>.
-          </p>
-          {puede("nucleo.configuracion.administrar") && (
-            <Link href="/admin/configuracion" className="font-semibold underline underline-offset-2">
-              Ir a Configuración
-            </Link>
-          )}
-        </Entrada>
-      )}
-      {!r.vigilados && (
-        <Entrada className="mb-5 rounded-2xl border border-dashed border-smn-gris-300 bg-superficie px-4 py-4 text-sm">
-          Todavía no se vigila ningún producto.{" "}
-          <Link href="/compras/precios/productos" className="font-semibold underline underline-offset-2">
-            Elige qué productos vigilar
-          </Link>
-          .
-        </Entrada>
-      )}
-
-      <AnimatePresence>
-        {enCurso && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mb-5 overflow-hidden">
-            <div className="rounded-2xl border border-smn-gris-100 bg-superficie p-4">
-              <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 text-sm">
-                  <p className="font-semibold">
-                    {enCurso.origen === "prueba" ? `Corriendo la prueba con Excel${enCurso.archivo ? ` (${enCurso.archivo})` : ""}.` : `Corriendo el radar con ${enCurso.productos || r.vigilados} productos.`} Puedes salir de esta pantalla.
-                  </p>
-                  {enCurso.avance?.paso && (
-                    <p className="mt-2 font-semibold text-naranja-tinta">
-                      Paso {enCurso.avance.paso} de {enCurso.avance.pasos}: {enCurso.avance.titulo}
-                    </p>
-                  )}
-                  <p className="text-tinta">{enCurso.avance?.texto ?? enCurso.fase ?? "Preparando"}</p>
-                  <p className="mt-1 text-[13px] text-smn-gris-500">
-                    Inició {haceCuanto(enCurso.iniciado_en).toLowerCase()}.
-                    {(enCurso.avance?.paso === 1 || enCurso.avance?.paso === 3) && " DataForSEO suele tardar unos minutos en contestar; cada espera tiene un límite de 15 minutos."}
-                  </p>
-                </div>
-                {administra && (
-                  <Boton variante="secundario" onClick={() => setPreguntaDetener(true)} cargando={deteniendo} className="px-3 py-1.5">
-                    <Square className="h-4 w-4" /> Detener
-                  </Boton>
-                )}
-              </div>
-              {(() => {
-                const a = enCurso.avance;
-                const pct = a?.total ? Math.min(100, Math.round(((a.hechos ?? 0) / a.total) * 100)) : null;
-                return (
-                  <>
-                    <div className="h-2 overflow-hidden rounded-full bg-smn-gris-100">
-                      {pct === null ? (
-                        <div className="h-full w-1/3 animate-pulse rounded-full bg-smn-naranja" />
-                      ) : (
-                        <div className="h-full rounded-full bg-smn-naranja transition-all duration-700" style={{ width: `${Math.max(pct, 2)}%` }} />
-                      )}
-                    </div>
-                    {a?.total ? (
-                      <p className="mt-1 text-right text-[13px] text-smn-gris-500 tabular-nums">
-                        {a.hechos ?? 0} de {a.total} en este paso
-                      </p>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {!enCurso && r.ultima_prueba && <UltimaPrueba c={r.ultima_prueba} />}
-
-      <AnimatePresence>{probando && <PruebaExcel cerrar={() => setProbando(false)} lanzada={cargar} />}</AnimatePresence>
-
-      <AnimatePresence>
-        {preguntaDetener && (
-          <Modal titulo="¿Detener la corrida?" cerrar={() => setPreguntaDetener(false)}>
-            <p className="text-sm">Los productos que faltan quedan sin precios en esta corrida. Lo que ya se pagó a DataForSEO no se recupera.</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Boton variante="fantasma" onClick={() => setPreguntaDetener(false)}>
-                Seguir corriendo
-              </Boton>
-              <Boton onClick={detener}>Detener</Boton>
-            </div>
-          </Modal>
-        )}
-      </AnimatePresence>
-
-      {r.ultima && (
-        <>
-          <p className="mb-3 text-sm text-smn-gris-500">
-            Última corrida: <b className="text-tinta">{dia(r.ultima.fecha)}, {hora(r.ultima.iniciado_en)}</b>
-            {r.ultima.estado !== "completa" && <Insignia className="ml-2 bg-aviso-fondo text-aviso-texto">{textoCorrida(r.ultima)}</Insignia>}
-          </p>
-          <div className="mb-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible" role="group" aria-label="Grupos">
-            {tarjetas.map(({ id, texto: t, icono: Icono, color }) => (
+      <Entrada retraso={0.05}>
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-[14px] font-medium text-smn-gris-700">Comparar nuestro</span>
+          <div className="flex rounded-lg bg-smn-gris-100 p-0.5 text-[14px]" role="group" aria-label="Precio que se compara">
+            {(["lista", "membresia"] as PrecioComparado[]).map((v) => (
               <button
-                key={id}
-                onClick={() => poner({ grupo: id, p: 1 })}
-                aria-pressed={grupo === id}
-                className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${grupo === id ? "border-smn-naranja bg-smn-naranja/10 text-tinta" : "border-smn-gris-100 bg-superficie text-smn-gris-700 hover:border-smn-gris-300"}`}
+                key={v}
+                type="button"
+                onClick={() => cambiar({ precio: v === "lista" ? "" : v })}
+                aria-pressed={conPrecio === v}
+                className={`rounded-md px-3 py-1.5 ${conPrecio === v ? "bg-tinta text-superficie" : "text-smn-gris-700"}`}
               >
-                {color ? <span className={`h-2.5 w-2.5 rounded-full ${SEMAFORO[color].punto}`} aria-hidden /> : Icono && <Icono className="h-4 w-4" />}
-                {t}
-                <span className="tabular-nums text-smn-gris-500">{l ? l.conteos[id].toLocaleString("es-MX") : "…"}</span>
+                {v === "lista" ? "Precio lista" : "Precio membresía"}
               </button>
             ))}
           </div>
+          <span className="text-[13px] text-smn-gris-500">contra el mercado</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {CUADROS.map((c) => {
+            const activo = grupo === c.clave;
+            return (
+              <button
+                key={c.clave}
+                type="button"
+                onClick={() => cambiar({ grupo: activo ? "accion" : c.clave })}
+                aria-pressed={activo}
+                className={`rounded-xl border p-4 text-left transition hover:-translate-y-0.5 ${c.clase} ${activo ? "ring-2 ring-tinta" : ""}`}
+              >
+                <span className="flex items-center gap-2 text-[15px] font-medium">
+                  <span className={`h-2.5 w-2.5 rounded-full ${c.punto}`} aria-hidden />
+                  {c.titulo}
+                </span>
+                <span className="mt-2 block text-3xl font-semibold tabular-nums">{n(t.cuadros[c.clave] ?? 0)}</span>
+                <span className="mt-0.5 block text-[13px] text-smn-gris-700">{c.texto}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Entrada>
 
-          <div className="mb-4 grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
-            <label className="col-span-2 block sm:col-span-1">
-              <span className="sr-only">Buscar</span>
-              <span className="relative block">
-                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-smn-gris-500" />
+      {t.tiendas.length > 0 && (
+        <Entrada retraso={0.1}>
+          <section className="rounded-xl border border-smn-gris-100 bg-superficie p-4 sm:p-5">
+            <h2 className="text-lg font-semibold">Contra cada tienda</h2>
+            <p className="mb-4 text-[13px] text-smn-gris-500">En los productos que tenemos en común. Parejos = ±2 %.</p>
+            <ul className="grid gap-x-8 gap-y-4 md:grid-cols-2">
+              {t.tiendas.map((s) => (
+                <li key={s.nombre}>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[15px]">
+                    <b className="font-medium">{s.nombre}</b>
+                    <span className="text-[13px] text-smn-gris-700">
+                      {s.frase}
+                      {s.productos > 0 && <span className="text-smn-gris-500"> · {n(s.productos)} productos</span>}
+                    </span>
+                  </div>
+                  <Barra s={s} />
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 flex flex-wrap gap-4 text-[13px] text-smn-gris-500">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-red-600" /> Estamos más caros</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-smn-gris-300" /> Parejos</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green-600" /> Estamos más baratos</span>
+            </p>
+          </section>
+        </Entrada>
+      )}
+
+      <Entrada retraso={0.15}>
+        <section className="rounded-xl border border-smn-gris-100 bg-superficie">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-smn-gris-100 p-4 sm:p-5">
+            <div>
+              <h2 className="text-lg font-semibold">{TITULO_GRUPO[grupo]}</h2>
+              <p className="text-[13px] text-smn-gris-500">
+                {n(t.total)} productos · ordenados por lo que venden
+                {grupo === "accion" && " · bajar, negociar costo o revisar si se suben"}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex rounded-lg bg-smn-gris-100 p-0.5 text-[13px]">
+                {(["accion", "subir", "todos"] as GrupoTablero[]).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => cambiar({ grupo: g })}
+                    className={`rounded-md px-2.5 py-1.5 ${grupo === g ? "bg-tinta text-superficie" : "text-smn-gris-700"}`}
+                  >
+                    {g === "accion" ? "Pide acción" : g === "subir" ? "Se podrían subir" : "Todos"}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={clase}
+                onChange={(e) => cambiar({ clase: e.target.value })}
+                aria-label="Clase"
+                className="h-9 rounded-lg border border-smn-gris-100 bg-superficie px-2 text-[14px]"
+              >
+                <option value="">Todas las clases</option>
+                {t.clases.map((c) => (
+                  <option key={c} value={c}>
+                    Clase {c}
+                  </option>
+                ))}
+              </select>
+              <label className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-smn-gris-500" />
                 <input
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
-                  placeholder="Buscar por SKU, descripción o marca"
-                  className="w-full rounded-xl border border-smn-gris-300 bg-superficie py-2.5 pr-3 pl-9 outline-none placeholder:text-smn-gris-300 focus:border-smn-naranja focus:ring-4 focus:ring-smn-naranja/20"
+                  placeholder="Buscar SKU, nombre o marca"
+                  aria-label="Buscar"
+                  className="h-9 w-64 rounded-lg border border-smn-gris-100 bg-superficie pr-2 pl-8 text-[14px] outline-none focus:border-smn-naranja"
                 />
-              </span>
-            </label>
-            <Selector
-              etiqueta="Marca"
-              valor={marca}
-              cambiar={(v) => poner({ marca: v, p: 1 })}
-              opciones={[{ valor: "", texto: "Todas" }, ...(l?.marcas ?? []).map((m) => ({ valor: m, texto: m }))]}
-              className="min-w-0 sm:w-52"
-            />
-            <Selector
-              etiqueta="Ordenar"
-              valor={orden}
-              cambiar={(v) => poner({ orden: v, p: 1 })}
-              opciones={[
-                { valor: "diferencia", texto: "Más caros primero" },
-                { valor: "nombre", texto: "Por nombre" },
-                { valor: "vendedores", texto: "Más vendedores" },
-              ]}
-              className="min-w-0 sm:w-48"
-            />
-            <Boton variante="secundario" onClick={descargar} cargando={descargando} className="col-span-2 py-2.5 sm:col-span-1">
-              <Download className="h-4 w-4" /> Excel
-            </Boton>
+              </label>
+            </div>
           </div>
-        </>
-      )}
 
-      {l && l.tiendas.length > 0 && l.conteos.todos > 0 && (
-        <p className="mb-3 text-[13px] text-smn-gris-500">
-          Tiendas clave en estos {l.conteos.todos.toLocaleString("es-MX")} productos:{" "}
-          {l.tiendas.map((t, i) => (
-            <span key={t}>
-              {i > 0 && " · "}
-              <b className="text-tinta">{t}</b> {(l.cobertura[t] ?? 0).toLocaleString("es-MX")}
-            </span>
-          ))}
-        </p>
-      )}
-      {r.ultima && !l && <Esqueleto className="h-60" />}
-      {l && !l.filas.length && r.ultima && (
-        <p className="rounded-2xl border border-dashed border-smn-gris-300 bg-superficie px-4 py-8 text-center text-sm text-smn-gris-500">Ningún producto con estos filtros.</p>
-      )}
-      {l && l.filas.length > 0 && (
-        <>
-          <div className="hidden overflow-hidden rounded-2xl border border-smn-gris-100 bg-superficie md:block">
-            <table className="w-full text-sm">
-              <thead className="bg-smn-gris-100/60 text-left text-[13px] font-medium text-smn-gris-500">
-                <tr>
-                  <th className="px-4 py-3">Producto</th>
-                  <th className="px-4 py-3 text-right">Nuestro precio</th>
-                  <th className="px-4 py-3 text-right">Mediana</th>
-                  <th className="px-4 py-3 text-right">Diferencia</th>
-                  <th className="hidden px-4 py-3 text-right lg:table-cell">Vendedores</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-smn-gris-100">
-                {l.filas.map((f) => (
-                  <tr key={f.producto_id} onClick={() => abrir(f.producto_id)} className="cursor-pointer transition-colors hover:bg-smn-gris-100/50">
-                    <td className="px-4 py-2">
-                      <Link href={`/compras/precios/producto/${f.producto_id}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-3">
-                        <Miniatura liga={f.imagen} />
-                        <div className="min-w-0">
-                          <p className="font-semibold">{f.descripcion ?? f.sku}</p>
-                          <p className="text-[13px] text-smn-gris-500">
-                            {f.sku} · {f.marca ?? "Sin marca"}
-                            <EstadoFila f={f} />
-                          </p>
-                          <Tiendas t={f.tiendas} />
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
-                      {precio(nuestroPrecio(f))}
-                      {f.base === "tienda" && <span className="block text-[13px] text-smn-gris-500">tienda en línea</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">{precio(f.mediana)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Diferencia valor={f.dif_lista_mediana_pct} alerta={Number(f.limite_pct)} />
-                    </td>
-                    <td className="hidden px-4 py-3 text-right tabular-nums lg:table-cell">{f.vendedores || "—"}</td>
-                    <td className="pr-3 text-smn-gris-500">
-                      <ChevronRight className="h-4 w-4" />
-                    </td>
+          {t.filas.length === 0 ? (
+            <p className="px-4 py-10 text-center text-smn-gris-500">
+              {grupo === "accion" ? "Nada pide acción con estos filtros." : "No hay productos con estos filtros."}
+            </p>
+          ) : (
+            <>
+              {/* Escritorio */}
+              <table className="hidden w-full text-[14px] lg:table">
+                <thead className="text-left text-[13px] text-smn-gris-500">
+                  <tr className="border-b border-smn-gris-100">
+                    <th className="px-4 py-2.5 font-medium">Producto</th>
+                    <th className="px-2 py-2.5 text-right font-medium">Nuestro</th>
+                    <th className="px-2 py-2.5 text-right font-medium">Mercado</th>
+                    <th className="px-2 py-2.5 font-medium">Diferencia</th>
+                    <th className="px-2 py-2.5 font-medium">Qué conviene</th>
+                    <th className="px-4 py-2.5" />
                   </tr>
+                </thead>
+                <tbody className="divide-y divide-smn-gris-100">
+                  {t.filas.map((f) => (
+                    <tr key={f.producto_id} className="align-top hover:bg-smn-gris-100/30">
+                      <td className="px-4 py-3">
+                        <Producto f={f} />
+                      </td>
+                      <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">
+                        <span className="block font-semibold">{precio(f.nuestro)}</span>
+                        {f.membresia && <span className="block text-[13px] text-smn-gris-500">Memb. {precio(f.membresia)}</span>}
+                      </td>
+                      <td className="px-2 py-3 text-right tabular-nums">
+                        <span className="whitespace-nowrap">{precio(f.mercado)}</span>
+                        <Tiendas f={f} />
+                      </td>
+                      <td className="px-2 py-3">
+                        <Difs f={f} />
+                      </td>
+                      <td className="max-w-[340px] px-2 py-3">
+                        <Accion f={f} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <BotonMal f={f} abrir={setMal} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* Celular y tableta: tarjetas */}
+              <ul className="divide-y divide-smn-gris-100 lg:hidden">
+                {t.filas.map((f) => (
+                  <li key={f.producto_id} className="space-y-2.5 p-4">
+                    <Producto f={f} />
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px]">
+                      <span>Nuestro <b className="tabular-nums">{precio(f.nuestro)}</b></span>
+                      {f.membresia && <span>Membresía <b className="tabular-nums">{precio(f.membresia)}</b></span>}
+                      <span>Mercado <b className="tabular-nums">{precio(f.mercado)}</b></span>
+                      <Difs f={f} />
+                    </div>
+                    <Accion f={f} />
+                    <div className="flex items-center justify-between gap-2">
+                      <Tiendas f={f} />
+                      <BotonMal f={f} abrir={setMal} />
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <ul className="space-y-2 md:hidden">
-            {l.filas.map((f) => (
-              <li key={f.producto_id}>
-                <Link href={`/compras/precios/producto/${f.producto_id}`} className="flex w-full gap-3 rounded-2xl border border-smn-gris-100 bg-superficie p-4 text-left">
-                  <Miniatura liga={f.imagen} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold">{f.descripcion ?? f.sku}</span>
-                    <span className="block text-[13px] text-smn-gris-500">
-                      {f.sku} · {f.marca ?? "Sin marca"}
-                      <EstadoFila f={f} />
-                    </span>
-                    <Tiendas t={f.tiendas} />
-                    <span className="mt-2 flex items-center justify-between gap-2 text-sm tabular-nums">
-                      <span>
-                        {precio(nuestroPrecio(f))}
-                        {f.base === "tienda" && " (tienda)"} <span className="text-smn-gris-500">vs {precio(f.mediana)}</span>
-                      </span>
-                      <Diferencia valor={f.dif_lista_mediana_pct} alerta={Number(f.limite_pct)} />
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <span className="text-smn-gris-500">
-              {l.total.toLocaleString("es-MX")} productos{paginas > 1 && ` · página ${num} de ${paginas}`}
-            </span>
-            {paginas > 1 && (
+              </ul>
+            </>
+          )}
+
+          {paginas > 1 && (
+            <div className="flex items-center justify-between border-t border-smn-gris-100 px-4 py-3 text-[14px]">
+              <span className="text-smn-gris-500">
+                Página {pagina} de {paginas}
+              </span>
               <div className="flex gap-2">
-                <Boton variante="secundario" onClick={() => poner({ p: num - 1 })} disabled={num <= 1}>
-                  Anterior
+                <Boton variante="secundario" disabled={pagina <= 1} onClick={() => cambiar({ p: String(pagina - 1) })} aria-label="Página anterior">
+                  <ChevronLeft className="h-4 w-4" />
                 </Boton>
-                <Boton variante="secundario" onClick={() => poner({ p: num + 1 })} disabled={num >= paginas}>
-                  Siguiente
+                <Boton variante="secundario" disabled={pagina >= paginas} onClick={() => cambiar({ p: String(pagina + 1) })} aria-label="Página siguiente">
+                  <ChevronRight className="h-4 w-4" />
                 </Boton>
               </div>
-            )}
-          </div>
-          <p className="mt-3 text-[13px] text-smn-gris-500">{`Diferencia = nuestro precio lista con impuestos contra la mediana del mercado (si no hay precio lista, el de la tienda en línea). Positivo = estamos más caros. Verde: igual o más baratos; amarillo: más caros hasta el límite (${alerta} % general o el propio del producto); rojo: arriba del límite. «Necesitan revisión»: Google no trajo una coincidencia confiable. Debajo de cada producto, el precio de cada tienda clave donde apareció (de su sitio o de Google). «Excel» descarga todos los precios por vendedor.`}</p>
-        </>
-      )}
-    </>
+            </div>
+          )}
+        </section>
+      </Entrada>
+
+      {mal && <EstaMal productoId={mal.producto_id} nombre={mal.descripcion ?? mal.sku} cerrar={() => setMal(null)} listo={cargar} />}
+    </div>
   );
 }
 
-function Tiendas({ t }: { t: Record<string, string> }) {
-  const lista = Object.entries(t ?? {});
-  if (!lista.length) return null;
+function BandaAvance({ t }: { t: Tablero }) {
+  const a = t.avance;
+  const hecho = a.total ? Math.round((a.validados * 100) / a.total) : 0;
   return (
-    <span className="mt-1 flex flex-wrap gap-1">
-      {lista.map(([n, p]) => (
-        <span key={n} className="rounded-full bg-smn-gris-100 px-2 py-0.5 text-[13px] font-semibold whitespace-nowrap text-smn-gris-700 tabular-nums">
-          {n} {precio(p)}
+    <Entrada>
+      <section className="rounded-xl border border-smn-gris-100 bg-superficie p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-tinta text-superficie">
+              <Moon className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-[15px] font-medium">{a.texto}</p>
+              <p className="text-[13px] text-smn-gris-500">
+                {a.activo ? `Se revisa cada noche de ${a.desde}:00 a ${a.hasta}:00, primero los AA.` : "La revisión de noche está apagada en Configuración."}
+                {t.actualizado && ` Última actualización: ${haceCuanto(t.actualizado).toLowerCase()}.`}
+              </p>
+            </div>
+          </div>
+          <span className="text-2xl font-semibold tabular-nums">{hecho} %</span>
+        </div>
+        <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-smn-gris-100" role="img" aria-label={`${n(a.validados)} de ${n(a.total)} con precios validados`}>
+          <span className="bg-green-600" style={{ width: `${a.total ? (a.validados * 100) / a.total : 0}%` }} />
+          <span className="bg-yellow-500" style={{ width: `${a.total ? (a.dudosos * 100) / a.total : 0}%` }} />
+          <span className="bg-smn-gris-300" style={{ width: `${a.total ? (a.sin_referencia * 100) / a.total : 0}%` }} />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-smn-gris-700">
+          <span><b className="tabular-nums">{n(a.validados)}</b> validados</span>
+          <span><b className="tabular-nums">{n(a.dudosos)}</b> se revisan otra noche</span>
+          <span><b className="tabular-nums">{n(a.sin_referencia)}</b> sin referencia en internet</span>
+          <span><b className="tabular-nums">{n(a.sin_revisar)}</b> por revisar</span>
+        </div>
+        {Object.keys(a.por_clase).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {Object.entries(a.por_clase).map(([c, v]) => (
+              <Insignia key={c} className="bg-smn-gris-100 text-smn-gris-700 tabular-nums">
+                {c} {n(v.validados)}/{n(v.total)}
+              </Insignia>
+            ))}
+          </div>
+        )}
+      </section>
+    </Entrada>
+  );
+}
+
+function Barra({ s }: { s: Tablero["tiendas"][number] }) {
+  if (!s.productos) return <div className="h-2.5 rounded-full bg-smn-gris-100" />;
+  const w = (v: number) => `${(v * 100) / s.productos}%`;
+  return (
+    <div className="flex h-2.5 overflow-hidden rounded-full" role="img" aria-label={`${s.mas_caros} más caros, ${s.parejos} parejos, ${s.mas_baratos} más baratos`}>
+      <span className="bg-red-600" style={{ width: w(s.mas_caros) }} />
+      <span className="bg-smn-gris-300" style={{ width: w(s.parejos) }} />
+      <span className="bg-green-600" style={{ width: w(s.mas_baratos) }} />
+    </div>
+  );
+}
+
+function Producto({ f }: { f: FilaTablero }) {
+  return (
+    <Link href={`/compras/precios/producto/${f.producto_id}`} className="group flex min-w-0 items-start gap-3">
+      <Miniatura liga={f.imagen} />
+      <span className="min-w-0">
+        <span className="block font-medium group-hover:underline">{f.descripcion ?? f.sku}</span>
+        <span className="block text-[13px] text-smn-gris-500">
+          {f.sku}
+          {f.clase && ` · ${f.clase}`}
+          {Number(f.venta_importe) > 0 && ` · vende ${pesos(f.venta_importe)} en 26 sem`}
+          {f.tendencia && f.tendencia !== "estable" && (
+            <span className="ml-1 inline-flex items-center gap-0.5">
+              · {f.tendencia === "sube" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />} mercado {pct(f.tendencia_pct)}
+            </span>
+          )}
         </span>
-      ))}
+      </span>
+    </Link>
+  );
+}
+
+function Tiendas({ f }: { f: FilaTablero }) {
+  const lista = Object.entries(f.tiendas);
+  if (!lista.length && !f.otras) return null;
+  return (
+    <span className="mt-1 block text-[12.5px] font-normal text-smn-gris-500">
+      {lista.map(([k, v]) => `${k} ${precio(v)}`).join(" · ")}
+      {f.otras > 0 && `${lista.length ? " · " : ""}+${f.otras} tiendas`}
     </span>
   );
 }
 
-function EstadoFila({ f }: { f: Fila }) {
-  if (f.estado !== "con_precios")
-    return <Insignia className="ml-2 bg-smn-gris-100 text-smn-gris-700">{TEXTO_FILA[f.estado]}</Insignia>;
-  const Icono = f.coincidencia ? ICONO_COINCIDENCIA[f.coincidencia] : null;
-  return Icono && f.coincidencia === "ia" ? (
-    <span className="ml-2 inline-flex items-center gap-0.5" title="La coincidencia la decidió la IA">
-      <Icono className="h-3 w-3" /> IA
+function Difs({ f }: { f: FilaTablero }) {
+  if (!f.color || f.dif_pct === null) return <span className="text-[13px] text-smn-gris-500">Sin referencia</span>;
+  return (
+    <span className="inline-flex flex-wrap gap-1.5 lg:flex-col lg:items-start">
+      <Dif color={f.color} valor={f.dif_pct} etiqueta="Lista" />
+      {f.color_membresia && f.dif_membresia_pct !== null && <Dif color={f.color_membresia} valor={f.dif_membresia_pct} etiqueta="Memb." />}
     </span>
-  ) : null;
+  );
+}
+
+function Dif({ color, valor, etiqueta }: { color: NonNullable<FilaTablero["color"]>; valor: string; etiqueta: string }) {
+  const s = SEMAFORO[color];
+  return (
+    <Insignia className={`gap-1.5 whitespace-nowrap tabular-nums ${s.insignia}`}>
+      <span className={`h-2 w-2 rounded-full ${s.punto}`} aria-hidden />
+      <span className="font-normal">{etiqueta}</span> {pct(valor)}
+    </Insignia>
+  );
+}
+
+function Accion({ f }: { f: FilaTablero }) {
+  return (
+    <div>
+      <b className={`font-semibold ${CLASE_ACCION[f.accion] ?? ""}`}>{f.accion_texto}</b>
+      {f.detalle && <p className="text-[13px] leading-snug text-smn-gris-700">{f.detalle}</p>}
+    </div>
+  );
+}
+
+function BotonMal({ f, abrir }: { f: FilaTablero; abrir: (f: FilaTablero) => void }) {
+  if (!f.mercado) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => abrir(f)}
+      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] whitespace-nowrap text-smn-gris-500 hover:bg-smn-gris-100 hover:text-tinta"
+    >
+      <Flag className="h-3.5 w-3.5" /> Está mal
+    </button>
+  );
 }

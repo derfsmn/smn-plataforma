@@ -117,7 +117,7 @@ class HistorialSalida(BaseModel):
 class PrecioInternet(BaseModel):
     precio: Decimal
     vendedor: str
-    fuente: Literal["google", "sitio"]
+    fuente: Literal["google", "sitio", "web"]
     titulo: str
     liga: str | None
 
@@ -141,12 +141,88 @@ def _mercado(texto: str | None) -> MercadoSalida | None:
                          costo_usd=m.costo_usd)
 
 
+class HallazgoWeb(BaseModel):
+    url: str
+    dominio: str
+    titulo: str
+    tipo: Literal["mismo", "misma_marca", "sustituto", "otro"]
+    producto: str | None
+    precio: Decimal | None
+    presentacion: str | None
+    dosis: str | None
+    afirmaciones: list[str]
+    citas: dict[str, str]
+
+
+class InvestigacionSalida(BaseModel):
+    """Lo que la IA local leyó en páginas de internet, cada dato con su cita (17 nov 2026)."""
+    hallazgos: list[HallazgoWeb]
+    consultas: list[str]
+    notas: list[str]
+    buscado_en: datetime | None
+    costo_usd: Decimal
+
+
+class GrupoPronostico(BaseModel):
+    grupo: int
+    nombre: str
+    tiendas: int
+    bajo: float
+    medio: float
+    alto: float
+
+
+class PronosticoSalida(BaseModel):
+    """¿Cuánto venderá y dónde? Piezas por tienda al mes, rango bajo / medio / alto (17 nov 2026)."""
+    base: float | None
+    base_de: str
+    tramos: dict[str, list[float]]
+    grupos: list[GrupoPronostico]
+    canibal_pct: float | None
+    lanzamientos: int
+    examen: dict
+    nota: str | None
+
+
+def _pronostico(texto: str | None) -> PronosticoSalida | None:
+    from modulos.compras import pronostico as pn
+
+    try:
+        p = pn.Pronostico.de_json(texto)
+    except (ValueError, TypeError, KeyError):
+        return None
+    if not p:
+        return None
+    return PronosticoSalida(base=p.base, base_de=p.base_de, tramos=p.tramos, canibal_pct=p.canibal_pct,
+                            lanzamientos=p.lanzamientos, examen=p.examen, nota=p.nota,
+                            grupos=[GrupoPronostico(**vars(g)) for g in p.grupos])
+
+
+def _investigacion(texto: str | None) -> InvestigacionSalida | None:
+    from modulos.compras import investigar as iv
+
+    try:
+        i = iv.Investigacion.de_json(texto)
+    except (ValueError, TypeError):
+        return None
+    if not i:
+        return None
+    return InvestigacionSalida(
+        hallazgos=[HallazgoWeb(url=h.url, dominio=h.dominio, titulo=h.titulo, tipo=h.tipo, producto=h.producto,
+                               precio=Decimal(str(h.precio)) if h.precio else None, presentacion=h.presentacion,
+                               dosis=h.dosis, afirmaciones=h.afirmaciones, citas=h.citas)
+                   for h in i.hallazgos if h.tipo != "otro"],
+        consultas=i.consultas, notas=i.notas, costo_usd=i.costo_usd,
+        buscado_en=datetime.fromisoformat(i.buscado_en) if i.buscado_en else None)
+
+
 class HallazgoPolitica(BaseModel):
     id: str  # R12 = regla, P3 = política
     tipo: Literal["rechazo", "umbral", "politica"]
     titulo: str
     resultado: Literal["cumple", "no_cumple", "sin_datos", "sin_revisar"]
     motivo: str
+    sin_prueba: bool = False  # rechazo que la IA dijo sin un dato que lo pruebe: solo aviso, no cambia el color
 
 
 class CasoParecido(BaseModel):
@@ -194,6 +270,8 @@ class EvaluacionDetalle(EvaluacionResumen):
     porciones: int | None = None
     historial: list[HistorialSalida]
     mercado: MercadoSalida | None
+    investigacion: InvestigacionSalida | None = None
+    pronostico: PronosticoSalida | None = None
     politicas: PoliticasSalida | None
 
 
@@ -254,7 +332,8 @@ def _detalle(bd: Session, e: ProductoEvaluacion) -> EvaluacionDetalle:
         **_resumen(e, sujeto).model_dump(), vigente=e.vigente, rama=e.rama, segmento=e.segmento,
         clasificacion_origen=e.clasificacion_origen, pesos_origen=e.pesos_origen, explicacion=e.explicacion,
         explicacion_ia=e.explicacion_ia, motivo_cambio=e.motivo_cambio, cambiado_por=quien.nombre if quien else None,
-        cambiado_en=e.cambiado_en, error=e.error, avance=e.avance, mercado=_mercado(e.mercado),
+        cambiado_en=e.cambiado_en, error=e.error, avance=e.avance, mercado=_mercado(e.mercado), investigacion=_investigacion(e.investigacion),
+        pronostico=_pronostico(e.pronostico),
         politicas=PoliticasSalida(**r.__dict__) if (r := pp.Revision.de_json(e.politicas)) else None,
         factores=[FactorSalida(factor=f.factor, nombre=rp.NOMBRES.get(f.factor, f.factor), peso=f.peso, puntaje=f.puntaje,
                                valor=f.valor, detalle=f.detalle, provisional=f.provisional,
@@ -342,6 +421,41 @@ def _ascii(nombre: str) -> str:
 def evaluacion(evaluacion_id: int, _: Contexto = Depends(requiere(VER)),
                bd: Session = Depends(obtener_bd)) -> EvaluacionDetalle:
     return _detalle(bd, _evaluacion(bd, evaluacion_id))
+
+
+def _ficha_fila(bd: Session, e: ProductoEvaluacion):
+    from datos.modelos import IdeaFicha
+
+    origen, oid = ("propuesta", e.propuesta_id) if e.propuesta_id else ("idea", e.idea_id)
+    return bd.scalar(select(IdeaFicha).where(IdeaFicha.origen == origen, IdeaFicha.origen_id == oid))
+
+
+@router.get("/evaluaciones/{evaluacion_id}/ficha")
+def ficha(evaluacion_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict | None:
+    """Ficha técnica estándar del producto (la llena la máquina; migración 0047)."""
+    from datos import fichas
+
+    return fichas.salida(_ficha_fila(bd, _evaluacion(bd, evaluacion_id)))
+
+
+class FichaMal(BaseModel):
+    motivo: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/evaluaciones/{evaluacion_id}/ficha/esta-mal")
+def ficha_esta_mal(evaluacion_id: int, cuerpo: FichaMal, ctx: Contexto = Depends(requiere(VER)),
+                   bd: Session = Depends(obtener_bd)) -> dict | None:
+    """«Está mal»: la ficha deja de usarse y se vuelve a leer, con el motivo, al recalcular el producto."""
+    from datos import fichas
+
+    fila = _ficha_fila(bd, _evaluacion(bd, evaluacion_id))
+    if fila is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Este producto todavía no tiene ficha")
+    fichas.marcar_mal(bd, fila, cuerpo.motivo, ctx.usuario.usuario_id)
+    registrar(bd, "ficha_esta_mal", usuario_id=ctx.usuario.usuario_id, entidad="idea_ficha", entidad_id=fila.ficha_id,
+              detalle={"motivo": cuerpo.motivo, "evaluacion_id": evaluacion_id})
+    bd.commit()
+    return fichas.salida(fila)
 
 
 @router.get("/propuestas/{propuesta_id}", response_model=EvaluacionDetalle | None)

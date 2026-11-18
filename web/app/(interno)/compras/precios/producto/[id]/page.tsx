@@ -2,7 +2,7 @@
 // Radar de precios · Página de un producto: los números arriba y el detalle en pestañas (vendedores, historial, coincidencia en Google, ajustes).
 
 import { motion } from "motion/react";
-import { ArrowLeft, ArrowUpRight, Check, CircleSlash, Loader2, Pencil, RefreshCw, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, CircleSlash, Flag, Loader2, Pencil, RefreshCw, Search, X } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { api, mensajeDe } from "@/lib/api";
@@ -10,6 +10,7 @@ import { TEXTO_FILA, dia, disponibilidad, hora, nuestroPrecio, type DetalleProdu
 import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Esqueleto, Insignia } from "@/componentes/ui";
+import { EstaMal } from "../../esta-mal";
 import { Dato, Diferencia, Grafica, Miniatura, TarjetaCoincidencia, precio } from "../../piezas";
 
 type Pestana = "vendedores" | "historial" | "coincidencia" | "ajustes";
@@ -36,6 +37,7 @@ function Producto() {
   const [consulta, setConsulta] = useState("");
   const [limite, setLimite] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [mal, setMal] = useState(false);
 
   const cargar = useCallback(() => {
     api<DetalleProducto>(`/api/compras/precios/productos/${id}`)
@@ -166,7 +168,11 @@ function Producto() {
           </p>
           {!d.vigilado && <Insignia className="mt-2 bg-smn-gris-100 text-smn-gris-700">Ya no se vigila</Insignia>}
         </div>
+        <Boton variante="secundario" onClick={() => setMal(true)} className="self-start px-3 py-2 sm:self-center">
+          <Flag className="h-4 w-4" /> Algo está mal
+        </Boton>
       </div>
+      {mal && <EstaMal productoId={d.producto_id} nombre={d.descripcion ?? d.sku} cerrar={() => setMal(false)} listo={cargar} />}
 
       {pendiente && (
         <div className="mb-4 flex items-center gap-3 rounded-2xl border border-smn-naranja bg-aviso-fondo px-4 py-3 text-sm text-aviso-texto">

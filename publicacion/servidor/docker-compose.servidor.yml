@@ -14,7 +14,7 @@ services:
       MSSQL_PID: Express          # gratuita y permitida en producción (límite 10 GB por base)
       TZ: America/Mexico_City
     ports:
-      - "1433:1433"               # para SSMS desde la VPN
+      - "127.0.0.1:1433:1433"     # solo dentro del servidor; SSMS entra por túnel SSH (ver LEEME)
     volumes:
       - /datos/sqlserver:/var/opt/mssql
       - /datos/respaldos:/respaldos
@@ -34,6 +34,8 @@ services:
     build: ../../api
     restart: unless-stopped
     env_file: /datos/plataforma/.env
+    # la IP real del usuario llega de Caddy (para la bitácora); la API no tiene puerto publicado
+    command: ["--proxy-headers", "--forwarded-allow-ips", "*"]
     environment:
       BD_SERVIDOR: sqlserver
       ARCHIVOS_RUTA: /datos/archivos

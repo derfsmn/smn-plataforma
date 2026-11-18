@@ -106,8 +106,36 @@ export type Evaluacion = EvaluacionResumen & {
   porciones?: number | null;
   historial: { id: number; creada_en: string; estado: EstadoEvaluacion; puntaje: number | null; color: Color | null; color_final: Color | null }[];
   mercado: MercadoInternet | null;
+  investigacion?: Investigacion | null;
+  pronostico?: Pronostico | null;
   politicas: RevisionPoliticas | null;
 };
+
+export type HallazgoWeb = {
+  url: string;
+  dominio: string;
+  titulo: string;
+  tipo: "mismo" | "misma_marca" | "sustituto";
+  producto: string | null;
+  precio: string | null;
+  presentacion: string | null;
+  dosis: string | null;
+  afirmaciones: string[];
+  citas: Record<string, string>;
+};
+
+export type Pronostico = {
+  base: number | null;
+  base_de: string;
+  tramos: Record<string, number[]>; // "4" | "8" | "12" -> [bajo, medio, alto] piezas por tienda al mes
+  grupos: { grupo: number; nombre: string; tiendas: number; bajo: number; medio: number; alto: number }[];
+  canibal_pct: number | null;
+  lanzamientos: number;
+  examen: { lanzamientos?: number; suficientes?: boolean; dentro_pct?: number; error_mediano_pct?: number };
+  nota: string | null;
+};
+
+export type Investigacion = { hallazgos: HallazgoWeb[]; consultas: string[]; notas: string[]; buscado_en: string | null; costo_usd: string };
 
 export type HallazgoPolitica = {
   id: string;
@@ -115,6 +143,7 @@ export type HallazgoPolitica = {
   titulo: string;
   resultado: "cumple" | "no_cumple" | "sin_datos" | "sin_revisar";
   motivo: string;
+  sin_prueba?: boolean;
 };
 
 export type RevisionPoliticas = {
@@ -126,7 +155,7 @@ export type RevisionPoliticas = {
 };
 
 export type MercadoInternet = {
-  precios: { precio: string; vendedor: string; fuente: "google" | "sitio"; titulo: string; liga: string | null }[];
+  precios: { precio: string; vendedor: string; fuente: "google" | "sitio" | "web"; titulo: string; liga: string | null }[];
   mediana: string | null;
   notas: string[];
   publicacion: string | null;

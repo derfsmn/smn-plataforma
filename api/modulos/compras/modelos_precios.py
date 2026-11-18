@@ -30,6 +30,12 @@ class PrecioVigilado(Base):
     origen: Mapped[str] = mapped_column(Unicode(20), default="pantalla")  # pantalla / migracion
     agregado_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+    # Validación automática (2026-11-17): el producto queda validado con al menos un precio que pasó las comprobaciones
+    validacion: Mapped[str | None] = mapped_column(Unicode(20))  # validado / dudoso / sin_referencia; vacío = nunca revisado
+    validado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    revisado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    proxima_revision: Mapped[datetime | None] = mapped_column(DateTime)
+    noches_sin_validar: Mapped[int | None] = mapped_column(Integer, default=0)
 
 
 class PrecioCoincidencia(Base):
@@ -177,3 +183,52 @@ class PrecioVendedor(Base):
     es_propio: Mapped[bool] = mapped_column(Boolean, default=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class PrecioValidacion(Base):
+    """Resultado de las 6 comprobaciones y el sello de precio de cada precio observado (uno por observación)."""
+    __tablename__ = "precio_validacion"
+    __table_args__ = {"schema": E}
+
+    observacion_id: Mapped[int] = mapped_column(ForeignKey(f"{E}.precio_observacion.observacion_id"), primary_key=True)
+    corrida_id: Mapped[int] = mapped_column(ForeignKey(f"{E}.precio_corrida.corrida_id"))
+    producto_id: Mapped[int] = mapped_column(ForeignKey(PRODUCTO))
+    resultado: Mapped[str] = mapped_column(Unicode(20))  # validado / dudoso / no_cuenta
+    motivo: Mapped[str | None] = mapped_column(Unicode(400))
+    comprobaciones: Mapped[str | None] = mapped_column(UnicodeText)
+    sello: Mapped[str | None] = mapped_column(UnicodeText)
+    huella: Mapped[str | None] = mapped_column(Unicode(64))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class PrecioMarcaMal(Base):
+    """«Está mal» de Compras: ese precio deja de contar al momento, nunca se vuelve a elegir y queda como caso de prueba."""
+    __tablename__ = "precio_marca_mal"
+    __table_args__ = {"schema": E}
+
+    marca_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    producto_id: Mapped[int] = mapped_column(ForeignKey(PRODUCTO))
+    observacion_id: Mapped[int | None] = mapped_column(ForeignKey(f"{E}.precio_observacion.observacion_id"))
+    vendedor: Mapped[str] = mapped_column(Unicode(200))
+    dominio: Mapped[str | None] = mapped_column(Unicode(200))
+    liga: Mapped[str | None] = mapped_column(Unicode(800))
+    titulo: Mapped[str | None] = mapped_column(Unicode(400))
+    precio: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    motivo: Mapped[str] = mapped_column(Unicode(30))
+    nota: Mapped[str | None] = mapped_column(Unicode(400))
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class PrecioSeleccion(Base):
+    """Selección guardada del reporte a Excel: productos, marcas y categorías; se baja con los precios del día."""
+    __tablename__ = "precio_seleccion"
+    __table_args__ = {"schema": E}
+
+    seleccion_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nombre: Mapped[str] = mapped_column(Unicode(120))
+    contenido: Mapped[str] = mapped_column(UnicodeText)
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+    usado_en: Mapped[datetime | None] = mapped_column(DateTime)

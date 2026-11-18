@@ -117,6 +117,20 @@ class CambioUsuario(BaseModel):
     roles: list[str] | None = None
 
 
+class CambioDatos(BaseModel):
+    """Datos de contacto que el administrador corrige. Lo que no se manda no cambia."""
+    nombre: str | None = Field(default=None, min_length=2, max_length=200)
+    correo: EmailStr | None = None
+    area: str | None = Field(default=None, max_length=120)
+    puesto: str | None = Field(default=None, max_length=120)
+
+
+class DatosCambiados(BaseModel):
+    usuario: UsuarioSalida
+    # Solo si la cuenta estaba invitada y cambió el correo: invitación nueva enviada al correo nuevo
+    liga: Liga | None = None
+
+
 class RolSalida(BaseModel):
     codigo: str
     nombre: str

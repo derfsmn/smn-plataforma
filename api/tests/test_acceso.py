@@ -126,6 +126,42 @@ def test_eliminar_usuario_libera_el_correo(admin: TestClient):
     assert admin.delete(f"/api/nucleo/usuarios/{yo}").status_code == 400
 
 
+def test_cambiar_correo_y_nombre_de_usuario(admin: TestClient, cliente: TestClient):
+    from main import app
+
+    viejo, c, uid = alta_usuario(admin)
+    nuevo = correo_nuevo().upper()
+    r = admin.patch(f"/api/nucleo/usuarios/{uid}/datos", json={"nombre": "  Nombre Corregido ", "correo": nuevo, "puesto": "Comprador"})
+    assert r.status_code == 200, r.text
+    u = r.json()["usuario"]
+    assert (u["nombre"], u["correo"], u["puesto"]) == ("Nombre Corregido", nuevo.lower(), "Comprador")
+    assert r.json()["liga"] is None
+    # Se cierran sus sesiones; entra con el correo nuevo y la misma contraseña, ya no con el viejo
+    assert c.get("/api/auth/yo").status_code == 401
+    assert cliente.post("/api/auth/iniciar", json={"correo": viejo, "contrasena": "Clave-Segura-123"}).status_code == 401
+    assert cliente.post("/api/auth/iniciar", json={"correo": nuevo.lower(), "contrasena": "Clave-Segura-123"}).status_code == 200
+    # El correo viejo queda libre y no se puede tomar uno que ya usa otra cuenta
+    r = admin.post("/api/nucleo/usuarios/invitar", json={"tipo": "interno", "nombre": "Otra persona", "correo": viejo, "rol": "compras_consulta"})
+    assert r.status_code == 201, r.text
+    assert admin.patch(f"/api/nucleo/usuarios/{uid}/datos", json={"correo": viejo}).status_code == 409
+    assert admin.patch(f"/api/nucleo/usuarios/{uid}/datos", json={"correo": "no-es-correo"}).status_code == 422
+
+    # Invitado: la invitación vieja deja de servir y llega una nueva al correo nuevo
+    r = admin.post("/api/nucleo/usuarios/invitar", json={"tipo": "interno", "nombre": "Pendiente", "correo": correo_nuevo(), "rol": "compras_consulta"})
+    token_viejo = r.json()["liga"].rsplit("/", 1)[1]
+    inv = r.json()["usuario"]["id"]
+    r = admin.patch(f"/api/nucleo/usuarios/{inv}/datos", json={"correo": correo_nuevo()})
+    assert r.status_code == 200 and r.json()["liga"], r.text
+    c2 = TestClient(app)
+    assert c2.post(f"/api/auth/invitacion/{token_viejo}", json={"contrasena": "Clave-Segura-123", "acepta_aviso_privacidad": True}).status_code != 200
+    token = r.json()["liga"]["liga"].rsplit("/", 1)[1]
+    assert c2.post(f"/api/auth/invitacion/{token}", json={"contrasena": "Clave-Segura-123", "acepta_aviso_privacidad": True}).status_code == 200
+
+    # Quien no administra usuarios no puede cambiar datos
+    _, c3, _ = alta_usuario(admin)
+    assert c3.patch(f"/api/nucleo/usuarios/{uid}/datos", json={"nombre": "Intruso"}).status_code == 403
+
+
 def test_inicio_cuenta_pendientes_segun_permisos(admin: TestClient, cliente: TestClient):
     d = admin.get("/api/nucleo/inicio").json()
     assert set(d) == {"pendientes", "pulso"} and len(d["pulso"]) <= 4

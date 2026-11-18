@@ -7,7 +7,7 @@ import { descargar, type Color } from "./precios";
 export const RUTA = "/api/compras/comite";
 
 export type EstadoReunion = "abierta" | "prefiltro" | "comite" | "cerrada";
-export type Decision = "aceptado" | "denegado" | "en_espera";
+export type Decision = "aceptado" | "a_prueba" | "denegado" | "en_espera";
 export type ValorCriterio = "bien" | "regular" | "mal";
 
 export type Embudo = { subidos: number; evaluados: number; pasan: number; no_pasan: number; aceptados: number; denegados: number; en_espera: number };
@@ -96,6 +96,16 @@ export type Item = {
   decision_por: string | null;
   decision_en: string | null;
   revisiones: Revision[];
+  // Memoria del comité y prueba en pocas tiendas (17 nov 2026)
+  indicadores?: Indicador[];
+  radar_error_factor?: string | null;
+  radar_error_motivo?: string | null;
+  prueba_tiendas?: string[];
+  prueba_precio?: string | null;
+  prueba_revision?: string | null;
+  prueba_condicion?: string | null;
+  sku?: string | null;
+  seguimiento?: Seguimiento[];
   agregado_por: string | null;
   agregado_en: string;
 };
@@ -143,6 +153,7 @@ export const PASOS: { estado: EstadoReunion; texto: string }[] = [
 
 export const DECISION: Record<Decision, { texto: string; boton: string; clase: string }> = {
   aceptado: { texto: "Aceptado", boton: "Aceptar", clase: "bg-green-600/10 text-green-700 dark:text-green-400" },
+  a_prueba: { texto: "Aceptado a prueba", boton: "A prueba", clase: "bg-green-600/10 text-green-700 dark:text-green-400" },
   denegado: { texto: "Denegado", boton: "Denegar", clase: "bg-red-600/10 text-red-700 dark:text-red-400" },
   en_espera: { texto: "En espera", boton: "En espera", clase: "bg-smn-gris-100 text-smn-gris-700" },
 };
@@ -224,3 +235,26 @@ export function dictamenCorto(d: string): { etiqueta: string; resto: string; sol
 /** Acta en PDF de la reunión (borrador si no está cerrada). */
 export const descargarActa = (r: Pick<Reunion, "id" | "fecha" | "estado">) =>
   descargar(`${RUTA}/reuniones/${r.id}/acta`, `Acta comite producto nuevo ${r.fecha}${r.estado === "cerrada" ? "" : " borrador"}.pdf`);
+
+export type Indicador = { factor: string; sentido: "a_favor" | "en_contra"; motivo?: string | null };
+export type Seguimiento = {
+  semana: number;
+  fecha: string;
+  resultado: "arriba" | "en_linea" | "abajo" | "sin_venta" | "sin_sku";
+  propuesta: "ampliar" | "mantener" | "retirar" | null;
+  texto: string | null;
+  real: number | null;
+  rango: number[] | null;
+};
+export type TiendaPrueba = { almacen: string; nombre: string; region: string | null; grupo: number; grupo_nombre: string; tipicidad: number; vende_parecidos: boolean };
+
+// Lo que puede pesar en una decisión (junta del 12 nov 2026: «saber el por qué» por indicador)
+export const INDICADORES: Record<string, string> = {
+  demanda: "Demanda", rentabilidad: "Margen", precio: "Precio", tendencia: "Tendencia", categoria: "Categoría",
+  proveedor: "Proveedor", sabor: "Sabor", registro: "Registro sanitario", ya_tenemos: "Ya tenemos uno igual",
+  empaque: "Empaque", otro: "Otro",
+};
+export const FACTORES_RADAR: Record<string, string> = {
+  color: "El color en general", demanda: "Demanda", rentabilidad: "Margen", precio: "Precio", tendencia: "Tendencia",
+  categoria: "Categoría", proveedor: "Proveedor",
+};

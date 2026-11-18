@@ -7,7 +7,7 @@ Fechas en UTC sin zona.
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Unicode, UnicodeText
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, Numeric, String, Unicode, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from nucleo.modelos import Base, ahora
@@ -380,3 +380,66 @@ class ClienteObjetivo(Base):
     descripcion: Mapped[str | None] = mapped_column(UnicodeText)  # la escriben Transformación Digital o Compras
     actualizado_por: Mapped[int | None] = mapped_column(ForeignKey("nucleo.usuario.usuario_id"))
     actualizado_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class _FichaCampos:
+    """Ficha técnica estándar (migración 0047). La llena el código (reglas) y la IA local leyendo el texto o la foto;
+    cada campo guarda de dónde salió y el pedazo de texto que lo prueba. Nadie la aprueba: Compras solo la marca
+    «Está mal» con motivo (Diego, 17 nov 2026: «ellos solo se informan y deberían marcar algún producto mal»)."""
+    tipo: Mapped[str | None] = mapped_column(Unicode(120))  # proteína en polvo, shampoo, cinta kinesiológica…
+    forma: Mapped[str | None] = mapped_column(Unicode(40))  # cápsulas, polvo, gotas, gomitas, líquido, sólido…
+    contenido_cantidad: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    contenido_unidad: Mapped[str | None] = mapped_column(Unicode(4))  # g / ml / pz / m
+    piezas: Mapped[int | None] = mapped_column(Integer)  # cápsulas, tabletas, sobres… por envase
+    porciones: Mapped[int | None] = mapped_column(Integer)
+    ingrediente_principal: Mapped[str | None] = mapped_column(Unicode(200))
+    activo_g_porcion: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))  # gramos del activo por porción
+    otros_ingredientes: Mapped[str | None] = mapped_column(Unicode(500))
+    sabor: Mapped[str | None] = mapped_column(Unicode(80))
+    variante: Mapped[str | None] = mapped_column(Unicode(80))  # Plus, Premier, Clásico, Kids…
+    uso: Mapped[str | None] = mapped_column(Unicode(300))  # para qué dice que sirve, tal como lo dice
+    registro_sanitario: Mapped[str | None] = mapped_column(Unicode(60))
+    iva_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))  # solo si viene del catálogo; nunca se adivina
+    origenes: Mapped[str | None] = mapped_column(UnicodeText)  # JSON {campo: reglas / texto / foto / catalogo}
+    citas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON {campo: pedazo de texto que lo prueba}
+    huella: Mapped[str | None] = mapped_column(String(64))  # SHA-256 de lo que se leyó; si cambia, se rehace
+    estado: Mapped[str] = mapped_column(Unicode(10), default="lista")  # lista / dudosa / fallida / mal
+    nota: Mapped[str | None] = mapped_column(Unicode(500))
+    intentos: Mapped[int] = mapped_column(Integer, default=0)
+    con_ia: Mapped[bool] = mapped_column(Boolean, default=False)
+    mal_motivo: Mapped[str | None] = mapped_column(Unicode(500))
+    mal_por: Mapped[int | None] = mapped_column(Integer)  # usuario de nucleo
+    mal_en: Mapped[datetime | None] = mapped_column(DateTime)
+    extraida_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
+
+
+class ProductoFicha(_FichaCampos, Base):
+    """Ficha de un producto del catálogo (uno por SKU)."""
+    __tablename__ = "producto_ficha"
+    __table_args__ = {"schema": ESQUEMA}
+
+    producto_id: Mapped[int] = mapped_column(ForeignKey(f"{ESQUEMA}.producto.producto_id"), primary_key=True)
+
+
+class IdeaFicha(_FichaCampos, Base):
+    """Ficha de un producto que todavía no vendemos: idea o propuesta de proveedor (origen + id, sin llave a compras
+    para no depender del esquema de un módulo)."""
+    __tablename__ = "idea_ficha"
+    __table_args__ = {"schema": ESQUEMA}
+
+    ficha_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    origen: Mapped[str] = mapped_column(Unicode(10))  # idea / propuesta
+    origen_id: Mapped[int] = mapped_column(Integer)
+
+
+class ProductoHuella(Base):
+    """Huella de significado (bge-m3, Ollama) de qué es y para qué sirve un producto, sacada de su ficha. Sirve para
+    encontrar sustitutos que no comparten palabras (migración 0049)."""
+    __tablename__ = "producto_huella"
+    __table_args__ = {"schema": ESQUEMA}
+
+    producto_id: Mapped[int] = mapped_column(ForeignKey(f"{ESQUEMA}.producto.producto_id"), primary_key=True)
+    modelo: Mapped[str] = mapped_column(Unicode(80))
+    vector: Mapped[bytes] = mapped_column(LargeBinary)
+    huella_texto: Mapped[str] = mapped_column(String(64))
+    calculada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)

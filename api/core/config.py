@@ -134,6 +134,17 @@ class Configuracion(BaseSettings):
     precios_dominios_propios: str = "supernaturista.com"
     precios_tiendas_clave: str = "Walmart, Chedraui, San Pablo, Soriana"  # se muestran aparte (Diego, 2026-10-20)
     precios_tiendas_directas: str = "Walmart, Chedraui, San Pablo, Soriana"  # se buscan en su propio sitio (Diego, 2026-10-20)
+    # Validación automática y corrida nocturna (Diego, 2026-11-17: «a partir de las 6 de la tarde hasta las 6 de la mañana»)
+    precios_validar: bool = True  # solo cuentan los precios que pasan las 6 comprobaciones; lo dudoso se reintenta
+    precios_nocturno_activo: bool = True  # lotes de noche hasta tener todos; sustituye la corrida semanal
+    precios_nocturno_desde: int = 18
+    precios_nocturno_hasta: int = 6
+    precios_nocturno_lote: int = 40  # productos por lote
+    precios_nocturno_catalogo: bool = True  # todo el catálogo activo, no solo los vigilados a mano
+    precios_rotacion_aa_dias: int = 7  # productos AA se revisan cada semana
+    precios_rotacion_dias: int = 12  # los demás, cada 10 a 15 días
+    precios_salto_pct: float = 25.0  # un precio que brinca más que esto contra el último validado de esa tienda no cuenta esa noche
+    precios_fotos_por_lote: int = 30  # comparaciones de foto con Ollama por lote (solo precios dudosos)
 
     # Radar de productos (Compras): margen mínimo provisional mientras Compras no captura su regla de margen.
     radar_productos_margen_minimo: float = 30.0

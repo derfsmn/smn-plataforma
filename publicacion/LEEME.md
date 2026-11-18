@@ -155,5 +155,5 @@ Tu base local se **reemplaza** completa y las tareas programadas quedan apagadas
 - **Errores de la API:** `docker logs --tail 100 smn-api-1`
 - **Respaldos y reinicios:** `tail -20 /datos/respaldos/respaldo.log`
 - **Correos de prueba (Mailpit):** desde la PC de la empresa, `ssh -L 8025:localhost:8025 smnnatural@172.31.104.4`, déjalo abierto y abre http://localhost:8025
-- **Contraseña de solo lectura** (SSMS a `172.31.104.4,1433`): `cat ~/clave_smn_lectura.txt`. No la pegues en el chat.
+- **SSMS a la base del servidor:** el 1433 ya no está abierto a la VPN. Desde la PC de la empresa abre un túnel y déjalo abierto: `ssh -L 14330:localhost:1433 smnnatural@172.31.104.4`. En SSMS conéctate a `localhost,14330` (marca «Confiar en el certificado del servidor»). Contraseña de solo lectura: `cat ~/clave_smn_lectura.txt`. No la pegues en el chat.
 - **Certificado** (para quitar el aviso del navegador): en el servidor corre `sudo cp /datos/caddy/data/caddy/pki/authorities/local/root.crt ~/smn-servidor.crt && sudo chown $USER ~/smn-servidor.crt`. En la PC de la empresa corre `scp smnnatural@172.31.104.4:smn-servidor.crt .`, abre el archivo → Instalar certificado → Usuario actual → **Entidades de certificación raíz de confianza** → Finalizar, y vuelve a abrir el navegador.

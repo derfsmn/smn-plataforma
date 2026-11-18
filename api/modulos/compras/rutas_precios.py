@@ -17,7 +17,7 @@ from datos.modelos import Producto
 from modulos.compras import dataforseo as dfs
 from modulos.compras import excel_precios as xl
 from modulos.compras import precios
-from modulos.compras.modelos_precios import (VIGENTES, PrecioCoincidencia, PrecioCorrida, PrecioCorridaProducto,
+from modulos.compras.modelos_precios import (VIGENTES, PrecioCoincidencia, PrecioValidacion, PrecioCorrida, PrecioCorridaProducto,
                                              PrecioEnvio, PrecioObservacion, PrecioTiendaCoincidencia, PrecioVigilado)
 from nucleo.bitacora import registrar
 from nucleo.modelos import Usuario
@@ -516,6 +516,7 @@ class ProductoCatalogo(BaseModel):
     dif_pct: Decimal | None = None  # última corrida: nuestro lista contra la mediana
     color: str | None = None
     ultima_fecha: date | None = None
+    clasificacion: str | None = None  # AA, A, B, C, D, E (tblArticulos.Clasificacion)
 
 
 class Vigilados(BaseModel):
@@ -523,8 +524,39 @@ class Vigilados(BaseModel):
     productos: list[ProductoCatalogo]
 
 
+SIN_CLASE = "SIN"  # en filtros: productos sin clasificación
+
+
+def _clase():
+    return func.upper(func.ltrim(func.rtrim(func.coalesce(Producto.clasificacion, ""))))
+
+
+def _de_clase(clase: str):
+    """Condición «el producto es de esa clase» (AA, A… o SIN para los que no tienen)."""
+    clase = clase.strip().upper()
+    return _clase() == ("" if clase == SIN_CLASE else clase)
+
+
+class ClaseCatalogo(BaseModel):
+    clase: str  # AA, A… o SIN
+    productos: int
+    vigilados: int
+
+
+@router.get("/vigilados/clases", response_model=list[ClaseCatalogo])
+def clases(_: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> list[ClaseCatalogo]:
+    """Cuántos productos activos hay de cada clase y cuántos ya se vigilan."""
+    base = (select(_clase().label("c"), PrecioVigilado.vigilado_id.label("v")).select_from(Producto)
+            .outerjoin(PrecioVigilado, (PrecioVigilado.producto_id == Producto.producto_id) & (PrecioVigilado.activo == true()))
+            .where(Producto.activo == true()).subquery())
+    filas = bd.execute(select(base.c.c, func.count(), func.count(base.c.v)).group_by(base.c.c)).all()
+    orden = ("AA", "A", "B", "C", "D", "E")
+    salida = [ClaseCatalogo(clase=k or SIN_CLASE, productos=n, vigilados=v) for k, n, v in filas]
+    return sorted(salida, key=lambda x: (orden.index(x.clase) if x.clase in orden else len(orden) + (x.clase == SIN_CLASE), x.clase))
+
+
 @router.get("/catalogo", response_model=Vigilados)
-def catalogo(q: str = "", marca: str = "", solo_vigilados: bool = False, _: Contexto = Depends(VER),
+def catalogo(q: str = "", marca: str = "", clase: str = "", solo_vigilados: bool = False, _: Contexto = Depends(VER),
              bd: Session = Depends(obtener_bd)) -> Vigilados:
     """Busca en el catálogo para elegir qué vigilar. Con solo_vigilados, la lista de lo que se vigila."""
     filtro = (select(Producto, PrecioVigilado.vigilado_id, PrecioVigilado.limite_pct)
@@ -537,6 +569,8 @@ def catalogo(q: str = "", marca: str = "", solo_vigilados: bool = False, _: Cont
         filtro = filtro.where(or_(Producto.sku.like(t), Producto.descripcion.like(t), Producto.marca.like(t), Producto.codigo_barras.like(t)))
     if marca:
         filtro = filtro.where(Producto.marca == marca)
+    if clase.strip():
+        filtro = filtro.where(_de_clase(clase))
     total = bd.scalar(select(func.count()).select_from(filtro.subquery())) or 0
     filas = bd.execute(filtro.order_by(Producto.descripcion).limit(500 if solo_vigilados else 60)).all()
     ultimas = _ultimas(bd, [p.producto_id for p, vid, _ in filas if vid is not None])
@@ -548,7 +582,8 @@ def catalogo(q: str = "", marca: str = "", solo_vigilados: bool = False, _: Cont
             producto_id=p.producto_id, sku=p.sku, descripcion=p.descripcion, marca=p.marca, imagen=p.liga_imagen,
             precio_lista_con_impuestos=p.precio_lista_con_impuestos, vigilado=vid is not None,
             limite_propio_pct=propio if vid is not None else None, limite_pct=precios.limite(propio) if vid is not None else None,
-            dif_pct=dif, color=precios.color(dif, propio), ultima_fecha=u[1] if u else None))
+            dif_pct=dif, color=precios.color(dif, propio), ultima_fecha=u[1] if u else None,
+            clasificacion=(p.clasificacion or "").strip().upper() or None))
     return Vigilados(total=total, productos=productos)
 
 
@@ -571,6 +606,7 @@ def _ultimas(bd: Session, ids: list[int]) -> dict[int, tuple[PrecioCorridaProduc
 class Agregar(BaseModel):
     producto_ids: list[int] = Field(default_factory=list, max_length=2000)
     marca: str | None = None  # agrega todos los productos activos de esa marca
+    clase: str | None = Field(default=None, max_length=10)  # agrega todos los productos activos de esa clase (AA, A… o SIN)
 
 
 @router.post("/vigilados")
@@ -578,6 +614,8 @@ def agregar(datos: Agregar, request: Request, ctx: Contexto = Depends(ADMIN), bd
     ids = set(datos.producto_ids)
     if datos.marca:
         ids |= set(bd.scalars(select(Producto.producto_id).where(Producto.marca == datos.marca, Producto.activo == true())))
+    if datos.clase and datos.clase.strip():
+        ids |= set(bd.scalars(select(Producto.producto_id).where(_de_clase(datos.clase), Producto.activo == true())))
     if not ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige al menos un producto.")
     existentes = {v.producto_id: v for v in bd.scalars(select(PrecioVigilado).where(PrecioVigilado.producto_id.in_(ids)))}
@@ -585,7 +623,11 @@ def agregar(datos: Agregar, request: Request, ctx: Contexto = Depends(ADMIN), bd
     nuevos = 0
     for pid in validos:
         v = existentes.get(pid)
-        if v and v.activo:
+        if v and v.activo and v.origen != "nocturna":
+            continue
+        if v and v.activo:  # entró solo de noche; ahora también va a «Correr ahora»
+            v.origen, v.agregado_por = "pantalla", ctx.usuario.usuario_id
+            nuevos += 1
             continue
         if v:
             v.activo = True
@@ -593,7 +635,7 @@ def agregar(datos: Agregar, request: Request, ctx: Contexto = Depends(ADMIN), bd
             bd.add(PrecioVigilado(producto_id=pid, origen="pantalla", agregado_por=ctx.usuario.usuario_id))
         nuevos += 1
     registrar(bd, "precios_vigilar", usuario_id=ctx.usuario.usuario_id, entidad="producto",
-              detalle={"agregados": nuevos, "marca": datos.marca}, ip=ip_de(request))
+              detalle={"agregados": nuevos, "marca": datos.marca, "clase": datos.clase}, ip=ip_de(request))
     bd.commit()
     return {"agregados": nuevos}
 
@@ -777,6 +819,8 @@ def diagnostico(corrida_id: int, _: Contexto = Depends(ADMIN), bd: Session = Dep
     for o in bd.scalars(select(PrecioObservacion).where(PrecioObservacion.corrida_id == corrida_id)
                         .order_by(PrecioObservacion.precio_comparable)):
         observaciones.setdefault(o.producto_id, []).append(o)
+    # Cómo se validó cada precio (comprobaciones y sello), para revisar el funcionamiento con casos reales
+    validaciones = {v.observacion_id: v for v in bd.scalars(select(PrecioValidacion).where(PrecioValidacion.corrida_id == corrida_id))}
     productos = []
     for f, p in filas:
         m = bd.get(PrecioCoincidencia, f.coincidencia_id) if f.coincidencia_id else None
@@ -796,6 +840,9 @@ def diagnostico(corrida_id: int, _: Contexto = Depends(ADMIN), bd: Session = Dep
                          "precio": o.precio_comparable, "envio": o.envio, "moneda": o.moneda,
                          "disponibilidad": o.disponibilidad, "es_propia": o.es_propia,
                          "no_cuenta": _no_cuenta(o, p.descripcion, base), "del_sitio_de_la_tienda": o.tienda_coincidencia_id is not None,
+                         "validacion": (v := validaciones.get(o.observacion_id)) and {
+                             "resultado": v.resultado, "motivo": v.motivo, "comprobaciones": _json(v.comprobaciones),
+                             "sello": _json(v.sello)},
                          "datos": _json(o.datos)}
                         for o in observaciones.get(p.producto_id, [])]})
     envios = [{"tipo": e.tipo, "tareas": e.tareas, "estado": e.estado, "estimado_usd": e.estimado_usd,

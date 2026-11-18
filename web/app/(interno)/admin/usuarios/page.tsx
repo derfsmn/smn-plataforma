@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, Link2, MoreHorizontal, Search, ShieldCheck, UserPlus, UserX, UserCheck, Send, MailCheck, Trash2 } from "lucide-react";
+import { Check, Copy, Link2, MoreHorizontal, Search, ShieldCheck, UserPlus, UserX, UserCheck, Send, MailCheck, Trash2, Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, haceCuanto, mensajeDe, type Liga, type Rol, type Usuario } from "@/lib/api";
 import { iniciales } from "@/componentes/marco-interno";
@@ -25,6 +25,7 @@ type Ventana =
   | { tipo: "invitar" }
   | { tipo: "liga"; titulo: string; liga: Liga; para: string; correo: string }
   | { tipo: "rol"; usuario: Usuario }
+  | { tipo: "datos"; usuario: Usuario }
   | { tipo: "eliminar"; usuario: Usuario };
 
 export default function AdminUsuarios() {
@@ -144,7 +145,7 @@ export default function AdminUsuarios() {
                     </div>
                   </div>
                   <div className="row-span-1 md:hidden">
-                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
+                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} editarDatos={() => setVentana({ tipo: "datos", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
                   </div>
                   <span className="col-span-2 text-sm text-smn-gris-700 md:col-span-1">{u.empresa ?? u.area ?? "—"}</span>
                   <span className="col-span-2 text-sm md:col-span-1">{u.roles.map((r) => r.nombre).join(", ")}</span>
@@ -154,7 +155,7 @@ export default function AdminUsuarios() {
                   </span>
                   <span className="hidden text-sm text-smn-gris-500 md:block">{haceCuanto(u.ultimo_acceso_en)}</span>
                   <div className="hidden md:block">
-                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
+                    <MenuAcciones usuario={u} esYo={u.id === yo.usuario.id} accion={accion} cambiarRol={() => setVentana({ tipo: "rol", usuario: u })} editarDatos={() => setVentana({ tipo: "datos", usuario: u })} eliminar={() => setVentana({ tipo: "eliminar", usuario: u })} />
                   </div>
                 </motion.li>
               ))}
@@ -194,6 +195,28 @@ export default function AdminUsuarios() {
             />
           </Modal>
         )}
+        {ventana?.tipo === "datos" && (
+          <Modal titulo="Editar datos" cerrar={() => setVentana(null)}>
+            <EditarDatos
+              usuario={ventana.usuario}
+              esYo={ventana.usuario.id === yo.usuario.id}
+              alGuardar={(u, liga) => {
+                const antes = ventana.usuario;
+                reemplazar(u);
+                if (liga) {
+                  setVentana({ tipo: "liga", titulo: "Invitación enviada al correo nuevo", liga, para: u.nombre, correo: u.correo });
+                } else {
+                  setVentana(null);
+                  avisar(
+                    u.correo !== antes.correo
+                      ? `Listo. ${u.nombre} ahora entra con ${u.correo} y su misma contraseña. El correo ${antes.correo} quedó libre.`
+                      : `Datos de ${u.nombre} actualizados.`,
+                  );
+                }
+              }}
+            />
+          </Modal>
+        )}
         {ventana?.tipo === "eliminar" && (
           <Modal titulo="Eliminar cuenta" cerrar={() => setVentana(null)}>
             <p className="text-sm">
@@ -216,12 +239,14 @@ function MenuAcciones({
   esYo,
   accion,
   cambiarRol,
+  editarDatos,
   eliminar,
 }: {
   usuario: Usuario;
   esYo: boolean;
   accion: (u: Usuario, que: "activar" | "desactivar" | "reenviar" | "liga") => void;
   cambiarRol: () => void;
+  editarDatos: () => void;
   eliminar: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -235,6 +260,7 @@ function MenuAcciones({
   const opciones = [
     u.estatus === "invitado" && { texto: "Reenviar invitación", icono: Send, hacer: () => accion(u, "reenviar") },
     u.estatus === "activo" && { texto: "Liga para cambiar contraseña", icono: Link2, hacer: () => accion(u, "liga") },
+    { texto: "Editar datos", icono: Pencil, hacer: editarDatos },
     { texto: "Cambiar rol", icono: ShieldCheck, hacer: cambiarRol },
     !esYo && u.estatus !== "inactivo" && { texto: "Desactivar", icono: UserX, hacer: () => accion(u, "desactivar") },
     u.estatus === "inactivo" && { texto: "Reactivar", icono: UserCheck, hacer: () => accion(u, "activar") },
@@ -395,5 +421,56 @@ function CambiarRol({ usuario, roles, alGuardar }: { usuario: Usuario; roles: Ro
       {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-700 dark:text-red-400">{error}</p>}
       <Boton onClick={guardar} cargando={cargando} className="w-full py-3">Guardar</Boton>
     </div>
+  );
+}
+
+function EditarDatos({ usuario, esYo, alGuardar }: { usuario: Usuario; esYo: boolean; alGuardar: (u: Usuario, liga: Liga | null) => void }) {
+  const [f, setF] = useState({ nombre: usuario.nombre, correo: usuario.correo, area: usuario.area ?? "", puesto: usuario.puesto ?? "" });
+  const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const poner = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const interno = usuario.tipo === "interno";
+  const cambiaCorreo = f.correo.trim().toLowerCase() !== usuario.correo.toLowerCase();
+  const valido = f.nombre.trim().length >= 2 && /^\S+@\S+\.\S+$/.test(f.correo.trim());
+
+  const guardar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valido) return;
+    setCargando(true);
+    setError(null);
+    try {
+      const r = await api<{ usuario: Usuario; liga: Liga | null }>(`/api/nucleo/usuarios/${usuario.id}/datos`, {
+        metodo: "PATCH",
+        cuerpo: { nombre: f.nombre, correo: f.correo.trim(), ...(interno ? { area: f.area, puesto: f.puesto } : {}) },
+      });
+      alGuardar(r.usuario, r.liga);
+    } catch (err) {
+      setError(mensajeDe(err));
+      setCargando(false);
+    }
+  };
+
+  return (
+    <form onSubmit={guardar} className="space-y-4">
+      <Campo etiqueta={interno ? "Nombre completo" : "Nombre del contacto"} value={f.nombre} onChange={poner("nombre")} />
+      <Campo etiqueta="Correo" type="email" value={f.correo} onChange={poner("correo")} />
+      {interno && (
+        <div className="grid grid-cols-2 gap-3">
+          <Campo etiqueta="Área" value={f.area} onChange={poner("area")} />
+          <Campo etiqueta="Puesto" value={f.puesto} onChange={poner("puesto")} />
+        </div>
+      )}
+      {cambiaCorreo && (
+        <p className="rounded-xl bg-aviso-fondo px-3 py-2.5 text-[13px] text-aviso-texto">
+          {usuario.estatus === "invitado"
+            ? "La invitación anterior deja de servir y le enviamos una nueva al correo nuevo."
+            : esYo
+              ? "Desde ahora entrarás con el correo nuevo y tu misma contraseña."
+              : "Se cierra su sesión. Entra con el correo nuevo y su misma contraseña. El correo anterior queda libre."}
+        </p>
+      )}
+      {error && <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-700 dark:text-red-400">{error}</p>}
+      <Boton type="submit" disabled={!valido} cargando={cargando} className="w-full py-3">Guardar</Boton>
+    </form>
   );
 }

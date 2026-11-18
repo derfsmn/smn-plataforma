@@ -1,6 +1,5 @@
 """Reporte de producto nuevo en PDF, uno por producto evaluado, para mandarlo a Compras (pedido de Diego, 2026-11-13:
 «este reporte ayudaría mucho a entregarlo para cada producto validado»; aprobó el plan con «a ver dale, empecemos»).
-
 Mismo formato que el reporte de Wonu Creatina + Inositol que se armó a mano ese día: semáforo con el número al inicio,
 dictamen, cuatro cifras, las 8 preguntas que hace el comité (qué es, cuánto ganamos, a cuánto se vende afuera, qué
 vendemos hoy parecido, marca y proveedor, regulación, tendencia, cuánto venderá) y lo que se propone a Compras.
@@ -10,6 +9,7 @@ Reglas de Diego para lo que va a Compras: sin notas de método ni pendientes; la
 decisión, en una línea; muchas recomendaciones concretas; diseño cuidado con los colores de la marca.
 """
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -212,9 +212,18 @@ def venta_skus(bd: Session, v: rr.Ventana, skus: list[str]) -> dict[str, dict]:
     return salida
 
 
+_METODO = ("La IA eligió", "Sin IA:", "se tomaron las señales", "provisional", "Provisional")
+
+
+def _sin_metodo(texto: str | None) -> str:
+    """Quita las frases que explican cómo se calculó (lo que va a Compras no lleva notas de método)."""
+    partes = re.split(r"(?<=[.;])\s+", (texto or "").strip())
+    return " ".join(x for x in partes if not any(m in x for m in _METODO)).rstrip(" .;:")
+
+
 def _fila(p: Producto, venta: dict, etiqueta: str = "") -> Fila:
     x = venta.get(p.sku) or {}
-    return Fila(p.sku, p.descripcion, p.clasificacion, x.get("al_mes"), x.get("tiendas"), x.get("por_tienda"),
+    return Fila(p.sku, rp.con_marca(p), p.clasificacion, x.get("al_mes"), x.get("tiendas"), x.get("por_tienda"),
                 x.get("precio") or p.precio_lista_con_impuestos, x.get("margen"), etiqueta)
 
 
@@ -333,7 +342,9 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         etiqueta = ("ya lo vendemos" if any(c.similitud == 1 and c.producto_id == p.producto_id for c in e.comparables)
                     else "mismo formato" if su and su == formato else "")
         filas.append(_fila(p, venta, etiqueta))
-    filas.sort(key=lambda f: -(f.al_mes or 0))
+    # Los dos con los que se compara en el dictamen van primero; los demás, de más a menos venta
+    citados = [f for f, p in zip(filas, productos) if p.precio_lista_con_impuestos][:2]
+    filas = citados + sorted((f for f in filas if f not in citados), key=lambda f: -(f.al_mes or 0))
     filas_marca = sorted((_fila(p, venta, "misma marca") for p in marca), key=lambda f: -(f.al_mes or 0))
     filas_marca = [f for f in filas_marca if f.al_mes][:4]
 
@@ -361,7 +372,13 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         por = rp._precio_unidad(precio / suyo[dim], dim) if dim and dim in suyo and suyo[dim] else None
         afuera.append((p.get("titulo") or s.nombre, p.get("vendedor") or "—", precio, por))
     for precio, donde in s.mercado:
-        afuera.append((s.nombre, f"{donde} (lo vio Compras)" if s.tipo == "idea" else donde, precio, None))
+        if s.activo_g:  # es el mismo producto que vio Compras: mismo contenido
+            por = f"{_pesos(precio / s.activo_g)} por gramo de {s.ingrediente.lower() if s.ingrediente else 'activo'}"
+        elif dim:
+            por = rp._precio_unidad(precio / tam[dim], dim)
+        else:
+            por = None
+        afuera.append((s.nombre, f"{donde} (lo vio Compras)" if s.tipo == "idea" else donde, precio, por))
 
     # Factores y cifras
     peso, _ = rp.pesos(bd)
@@ -392,8 +409,14 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
     q["proveedor"] = []
     if proveedor:
         q["proveedor"].append(f"Lo surtiría <b>{_t(proveedor)}</b>.")
-    if prov and prov.puntaje is not None and prov.valor:
-        q["proveedor"].append(_t(prov.valor) + (f": {_t(prov.detalle)}" if prov.detalle else "."))
+    if prov and prov.puntaje is not None and prov.valor and not prov.valor.startswith("Lo surtir"):
+        if prov.valor.startswith("Proveedor "):
+            q["proveedor"].append(f"Su calificación como proveedor es <b>{prov.puntaje} de 100</b> (cumplimiento, venta, "
+                                  "costo e inventario de lo que ya nos surte).")
+        elif prov.valor.startswith("Surte "):
+            q["proveedor"].append(f"{_t(prov.valor)} de las piezas que se le piden: califica <b>{prov.puntaje} de 100</b>.")
+        else:
+            q["proveedor"].append(f"{_t(prov.valor)}: califica <b>{prov.puntaje} de 100</b>.")
     elif not proveedor:
         q["proveedor"].append("Todavía no tiene proveedor: hay que conseguirlo antes del alta.")
     if filas_marca:
@@ -417,7 +440,7 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
                               f"{abs(cambio):.0f} % {'más' if cambio >= 0 else 'menos'} que en las 13 anteriores, con "
                               f"{tend[2]} productos con venta.")
     if t and t.puntaje is not None:
-        q["tendencia"].append(f"Afuera: {_t(t.detalle)}")
+        q["tendencia"].append(f"Afuera: {_t(_sin_metodo(t.detalle))}")
     elif t:
         q["tendencia"].append("Afuera: el radar de tendencias no tiene señales que hablen de este producto.")
     d = factores.get("demanda")
@@ -430,6 +453,19 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
                           f"{estimado['tiendas']} tiendas: <b>~{_n(estimado['piezas'])} piezas al mes</b>"
                           + (f", unos {_pesos(estimado['venta'])[:-3]} de venta sin IVA" if estimado["venta"] else "")
                           + (f" y {_pesos(estimado['margen'])[:-3]} de margen." if estimado["margen"] else "."))
+    try:
+        from modulos.compras import pronostico as pn
+
+        pron = pn.Pronostico.de_json(e.pronostico)
+    except (ValueError, TypeError, KeyError):
+        pron = None
+    if pron and (r12 := pron.rango(12)):
+        q["venta"].append(f"Pronóstico a 12 semanas: <b>{_n(r12[1])} piezas por tienda al mes</b>, entre {_n(r12[0])} "
+                          f"y {_n(r12[2])}, según cómo arrancaron los productos nuevos de 2026.")
+        if pron.grupos:
+            mejores = sorted(pron.grupos, key=lambda g: -g.medio)[:3]
+            q["venta"].append("Donde más venderá: " + "; ".join(
+                f"{_t(g.nombre)} ({_n(g.medio)} por tienda)" for g in mejores) + ".")
     cats = categorias_tienda(bd, v, [f.sku for f in filas if f.al_mes]) if v else []
     if cats:
         q["venta"].append(f"Tiendas: las de categoría {' y '.join(cats[:2])}, donde más se venden sus parecidos.")
@@ -628,8 +664,8 @@ def generar(r: Reporte) -> bytes:
         hay.append(_tabla(filas, [UTIL * 0.46, UTIL * 0.22, UTIL * 0.12, UTIL * 0.2]))
         if r.referencia and r.precio:
             dif = float((r.precio / r.referencia - 1) * 100)
-            lectura = ("igual que" if abs(dif) < 1 else f"{abs(dif):.0f} % {'arriba' if dif > 0 else 'abajo'} de")
-            hay.append(_p(f"<b>Lectura:</b> nuestro precio de {_pesos(r.precio)} queda {lectura} el precio de en medio "
+            lectura = ("igual que el" if abs(dif) < 1 else f"{abs(dif):.0f} % {'arriba' if dif > 0 else 'abajo'} del")
+            hay.append(_p(f"<b>Lectura:</b> nuestro precio de {_pesos(r.precio)} queda {lectura} precio de en medio "
                           f"del mercado ({_pesos(r.referencia)}).", "p"))
     else:
         hay.append(_p("No se encontró a la venta en las tiendas en línea que revisa el radar de precios: se compara contra "

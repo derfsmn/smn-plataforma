@@ -19,10 +19,10 @@ from nucleo import configuracion as configuracion_rutas
 from datos import etl, smnbi
 from datos import rutas as datos_rutas
 from datos import proveedores as datos_proveedores
-from datos import clientes, grupos_tiendas, rutas_centro, rutas_clientes, rutas_etl, rutas_grupos_tiendas, rutas_inventario, rutas_proveedores, rutas_tiendas
+from datos import clientes, grupos_tiendas, rutas_centro, rutas_clientes, rutas_etl, rutas_grupos_tiendas, rutas_inventario, rutas_fichas, rutas_proveedores, rutas_tiendas
 from modulos.compras import rutas_busquedas
 from modulos.compras import (
-    oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos,
+    oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos, rutas_tablero_precios,
     rutas_propuestas, rutas_radar,
 )
 from modulos.contraloria import diot, rutas_conocimiento_fiscal, rutas_diot
@@ -56,6 +56,14 @@ def _revisar_precios() -> None:
         revisar_programa(bd)
 
 
+def _revisar_precios_noche() -> None:
+    from core.bd import _fabrica
+    from modulos.compras.nocturno_precios import revisar_nocturno
+
+    with _fabrica()() as bd:
+        revisar_nocturno(bd)
+
+
 def _revisar_oportunidades() -> None:
     from core.bd import _fabrica
 
@@ -70,6 +78,22 @@ def _revisar_etl() -> None:
         etl.revisar_programa(bd)
 
 
+def _revisar_fichas() -> None:
+    from core.bd import _fabrica
+    from datos import fichas
+
+    with _fabrica()() as bd:
+        fichas.revisar_programa(bd)
+
+
+def _revisar_seguimiento() -> None:
+    from core.bd import _fabrica
+    from modulos.compras import seguimiento
+
+    with _fabrica()() as bd:
+        seguimiento.revisar_programa(bd)
+
+
 def _revisar_costos() -> None:
     from core.bd import _fabrica
     from ia.costos import revisar
@@ -82,8 +106,8 @@ async def programador() -> None:
     """Corre solo lo programado (Radar de tendencias, carga del catálogo, Radar de precios, Buscar oportunidades, ETL de ventas y costo real de la IA). Revisa cada minuto si ya toca.
     Vive dentro de la API, así que no depende de nadie: en el servidor corre mientras la API esté arriba."""
     while True:
-        for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_oportunidades, _revisar_etl,
-                      _revisar_costos):
+        for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_precios_noche, _revisar_oportunidades,
+                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_costos):
             try:
                 await asyncio.to_thread(tarea)
             except Exception:  # noqa: BLE001 - un error no debe detener el programador
@@ -158,12 +182,14 @@ app.include_router(datos_rutas.router)
 app.include_router(rutas_proveedores.router)
 app.include_router(rutas_centro.router)
 app.include_router(rutas_tiendas.router)
+app.include_router(rutas_fichas.router)
 app.include_router(rutas_inventario.router)
 app.include_router(rutas_grupos_tiendas.router)
 app.include_router(rutas_clientes.router)
 # Módulos (api/modulos/<nombre>)
 app.include_router(rutas_radar.router)
 app.include_router(rutas_precios.router)
+app.include_router(rutas_tablero_precios.router)
 app.include_router(rutas_conocimiento.router)
 app.include_router(rutas_propuestas.router)
 app.include_router(rutas_productos.router)

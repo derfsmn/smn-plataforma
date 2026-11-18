@@ -33,19 +33,23 @@ from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from core.config import configuracion
+from datos import fichas as fi
+from datos.fichas import GRUPO_FORMATO, NOMBRE_FORMATO, NOMBRE_UNIDAD, UNIDADES, formato, tamano  # noqa: F401
 from datos.modelos import Producto, Proveedor
 from ia import puerta
+from modulos.compras import investigar as inv_mod
 from modulos.compras import mercado_producto as mp
 from modulos.compras import politicas_producto as pp
+from modulos.compras import pronostico as pn
 from modulos.compras import realidad_producto as rr
 from modulos.compras import propuestas as pr
 from modulos.compras.modelos import RadarSenal
 from modulos.compras.modelos_conocimiento import ConocimientoPeso, ConocimientoRegla
 from modulos.compras.modelos_productos import (
-    EvaluacionComparable, EvaluacionFactor, Oportunidad, ProductoEvaluacion, ProductoIdea,
+    EvaluacionComparable, EvaluacionFactor, Oportunidad, ProductoEvaluacion, ProductoIdea, ProductoIdeaFoto,
 )
 from modulos.compras.modelos_propuestas import Propuesta
-from nucleo.modelos import OrganizacionExterna, ahora
+from nucleo.modelos import Archivo, OrganizacionExterna, ahora
 
 log = logging.getLogger("smn.compras.radar_productos")
 
@@ -154,6 +158,8 @@ class Sujeto:
     registro_sanitario: bool = False
     proveedor_intelisis: str | None = None  # clave en Intelisis si la empresa ya es proveedor nuestro
     activo_g: Decimal | None = None  # gramos del activo principal en todo el envase (por porción × porciones)
+    piezas_caja: int | None = None  # piezas por caja master (solo propuestas)
+    ficha: fi.Ficha | None = None  # ficha técnica estándar (migración 0047)
 
     def texto(self) -> set[str]:
         return palabras(self.nombre, self.ingrediente, self.descripcion if not self.ingrediente else None)
@@ -171,7 +177,7 @@ def sujeto_de_propuesta(p: Propuesta) -> Sujeto:
                   margen=pr.margen(principal), mercado=mercado, proveedor_smn=r.proveedor.es_proveedor_smn,
                   inscrito_gs1=r.proveedor.inscrito_gs1, apoyos=len([a for a in r.lanzamiento.apoyos if a.tipo]),
                   registro_sanitario=bool(principal.registro_sanitario), codigo_barras=principal.codigo_barras or None,
-                  contenido=principal.contenido_neto or None,
+                  contenido=principal.contenido_neto or None, piezas_caja=pr.entero(principal.piezas_caja_master),
                   proveedor_nombres=[x for x in (r.proveedor.razon_social, r.proveedor.nombre_comercial) if x])
 
 
@@ -331,40 +337,82 @@ def raices(ps: set[str]) -> set[str]:
 
 # Formato del producto (13 nov 2026, plan del reporte por producto aprobado por Diego: «sobre contra sobre»). Los del
 # mismo grupo se comparan (un sobre de creatina y un bote de creatina en polvo sí; orégano seco y cápsulas de orégano no)
-_FORMATOS = (
-    ("sobre", {"sobre", "sobres", "sob", "stick", "sticks", "sachet", "sachets"}),
-    ("capsula", {"cap", "caps", "capsula", "capsulas", "softgel", "softgels", "perlas"}),
-    ("tableta", {"tab", "tabs", "tableta", "tabletas", "comprimidos", "grageas", "pastillas", "efervescentes"}),
-    ("gomita", {"gomita", "gomitas", "gomas"}),
-    ("polvo", {"polvo"}),
-    ("liquido", {"liquido", "jarabe", "gotas", "bebida", "shot", "shots"}),
-)
-GRUPO_FORMATO = {"sobre": "polvo", "polvo": "polvo", "capsula": "solido", "tableta": "solido", "gomita": "gomita",
-                 "liquido": "liquido"}
-NOMBRE_FORMATO = {"sobre": "sobre", "polvo": "polvo", "capsula": "cápsulas", "tableta": "tabletas", "gomita": "gomitas",
-                  "liquido": "líquido"}
-
-
-def formato(*textos: str | None) -> str | None:
-    """sobre, polvo, cápsula, tableta, gomita o líquido; el primer texto que lo diga (por palabra o, si no, por la
-    unidad: solo mililitros es líquido y solo gramos es polvo)."""
-    for texto in textos:
-        if not texto:
-            continue
-        ps = set(re.findall(r"[a-zñ]+", _norm(texto)))
-        for nombre, claves in _FORMATOS:
-            if ps & claves:
-                return nombre
-        tam = tamano(texto)
-        if set(tam) == {"ml"}:
-            return "liquido"
-        if set(tam) == {"g"}:
-            return "polvo"
-    return None
-
-
 def formato_sujeto(s: Sujeto) -> str | None:
-    return formato(s.forma, s.contenido, s.nombre)
+    return formato(s.forma, s.contenido, s.nombre) or (formato(s.ficha.forma) if s.ficha else None)
+
+
+# ---------------------------------------------------------------- ficha contra ficha (17 nov 2026)
+
+def _primera_foto(bd: Session, idea_id: int | None) -> bytes | None:
+    """La primera foto de la idea (JPEG o PNG de hasta 3 MB), para que la IA lea la etiqueta."""
+    if not idea_id:
+        return None
+    a = bd.scalar(select(Archivo).join(ProductoIdeaFoto, ProductoIdeaFoto.archivo_id == Archivo.archivo_id).where(
+        ProductoIdeaFoto.idea_id == idea_id, Archivo.tipo_contenido.in_(("image/jpeg", "image/png")),
+        Archivo.tamano_bytes <= 3_000_000).order_by(Archivo.archivo_id))
+    if a is None:
+        return None
+    from nucleo.archivos import _raiz
+
+    raiz = _raiz()
+    ruta = (raiz / a.ruta_almacenamiento).resolve()
+    return ruta.read_bytes() if raiz in ruta.parents and ruta.is_file() else None
+
+
+def texto_sujeto(s: Sujeto) -> str:
+    return "\n".join(x for x in (s.nombre, s.marca and f"Marca: {s.marca}", s.contenido and f"Contenido: {s.contenido}",
+                                 s.forma and f"Forma: {s.forma}", s.ingrediente and f"Ingrediente: {s.ingrediente}",
+                                 s.descripcion) if x)
+
+
+def ficha_sujeto(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> None:
+    """Lee (o reusa) la ficha técnica del producto nuevo y llena con ella lo que Compras no capturó: contenido, forma,
+    ingrediente y gramos del activo. Lo capturado por Compras siempre gana. Si falla, se sigue sin ficha."""
+    origen, oid = ("propuesta", e.propuesta_id) if e.propuesta_id else ("idea", e.idea_id)
+    try:
+        s.ficha = fi.de_idea(bd, origen, oid, texto_sujeto(s), _primera_foto(bd, e.idea_id))
+    except Exception as ex:  # noqa: BLE001 - sin ficha se evalúa como antes
+        log.warning("Radar de productos: no se pudo leer la ficha de %s %s: %s", origen, oid, ex)
+        s.ficha = None
+    f = s.ficha
+    if f is None:
+        return
+    s.contenido = s.contenido or f.contenido_texto()
+    s.forma = s.forma or f.forma
+    s.ingrediente = s.ingrediente or f.ingrediente_principal
+    s.activo_g = s.activo_g or f.activo_total_g()
+
+
+def cargar_fichas(bd: Session, productos: list[Producto]) -> None:
+    """Pega a cada producto del catálogo su ficha técnica (si ya se leyó y se puede usar), para comparar ficha contra
+    ficha. Sin ficha se sigue leyendo la descripción, como antes."""
+    faltan = [p for p in productos if not hasattr(p, "_ficha")]
+    fichas = fi.de_productos(bd, [p.producto_id for p in faltan])
+    for p in faltan:
+        p._ficha = fichas.get(p.producto_id)
+
+
+def ficha_de(p: Producto) -> fi.Ficha | None:
+    return getattr(p, "_ficha", None)
+
+
+def tamano_de(p: Producto) -> dict[str, Decimal]:
+    """Tamaño del producto del catálogo: de su ficha y, si no tiene, de la descripción."""
+    return (f.tamano() if (f := ficha_de(p)) else {}) or tamano(p.descripcion)
+
+
+def formato_de(p: Producto) -> str | None:
+    return formato(p.descripcion) or (formato(f.forma) if (f := ficha_de(p)) else None)
+
+
+def mismo_tipo(a: fi.Ficha | None, b: fi.Ficha | None) -> bool | None:
+    """¿Las dos fichas dicen el mismo tipo de producto? None si alguna no lo dice."""
+    if not a or not b or not a.tipo or not b.tipo:
+        return None
+    pa, pb = raices(palabras(a.tipo)) - GENERICAS, raices(palabras(b.tipo)) - GENERICAS
+    if not pa or not pb:
+        return None
+    return bool(pa & pb)
 
 
 def _con_precio(p: Producto) -> bool:
@@ -391,10 +439,12 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
         return []
     marca = raices(palabras(s.marca))
     depto, forma = _norm(s.departamento).strip(), _norm(s.forma)
-    medidas = set(tamano(s.contenido, s.nombre))
+    medidas = set(tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {}))
     suyo_formato = formato_sujeto(s)
     calificados = []
-    for p in bd.scalars(select(Producto).where(Producto.activo == true())):
+    activos = list(bd.scalars(select(Producto).where(Producto.activo == true())))
+    cargar_fichas(bd, activos)
+    for p in activos:
         otras = raices(palabras(p.descripcion))
         if not otras:
             continue
@@ -424,20 +474,44 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
         suya = _clave_producto(p)
         if clave:  # nombre y presentación completos, con números: separa variantes de la misma marca
             sim += Decimal(len(clave & suya)) / Decimal(len(clave | suya)) * Decimal("0.25")
-        su_formato = formato(p.descripcion) if suyo_formato else None
+        su_formato = formato_de(p) if suyo_formato else None
         mismo_grupo = bool(su_formato) and GRUPO_FORMATO[suyo_formato] == GRUPO_FORMATO[su_formato]
         if su_formato == suyo_formato and su_formato:
             sim += Decimal("0.05")  # mismo formato, sobre contra sobre (13 nov 2026)
         # Del mismo grupo de formato no se descarta por la unidad: «30 sobres» y «sobre 5 g» o un bote de 348 g son la
         # misma forma de producto (13 nov 2026, caso Wonu: se quedaba sin parecidos)
-        if not mismo_grupo and medidas and (suyas := set(tamano(p.descripcion))) and not medidas & suyas:
+        # Ficha contra ficha (17 nov 2026): el mismo tipo de producto sube; otro tipo baja a la mitad
+        tipo = mismo_tipo(s.ficha, ficha_de(p))
+        if tipo is True:
+            sim += Decimal("0.1")
+        elif tipo is False and not su_sub:
+            sim /= 2
+        if not mismo_grupo and medidas and (suyas := set(tamano_de(p))) and not medidas & suyas:
             if not (su_sub or misma_marca):
                 continue  # otra forma de producto: orégano de 14 g no se parece a cápsulas de orégano (11 nov 2026)
             sim /= 2
         if sim >= MIN_SIMILITUD:
             calificados.append((p, min(sim, Decimal("0.99")).quantize(Decimal("0.001"))))
+    calificados += sustitutos_por_funcion(bd, s, activos, {p.producto_id for p, _ in calificados})
     calificados.sort(key=lambda x: (-x[1], x[0].sku))
     return _depurar(calificados, subcategoria, rama)[:MAX_COMPARABLES]
+
+
+def sustitutos_por_funcion(bd: Session, s: Sujeto, activos: list[Producto], ya: set[int]
+                           ) -> list[tuple[Producto, Decimal]]:
+    """Sustitutos que no comparten palabras pero hacen lo mismo, por el significado de su ficha (bge-m3 en Ollama;
+    17 nov 2026). Entran con un parecido de 0.2 a 0.7 según qué tan cerca están; después la IA los revisa como a los
+    demás parecidos. Sin ficha, huellas u Ollama no agrega nada."""
+    por_id = {p.producto_id: p for p in activos}
+    salida = []
+    for pid, cos in fi.cercanos_por_funcion(bd, s.ficha):
+        p = por_id.get(pid)
+        if p is None or pid in ya or not _con_precio(p) or es_mismo(s, p):
+            continue
+        sim = Decimal(str(round(min(max((cos - 0.5) * 2, 0.2), 0.7), 3)))
+        p._por_funcion = True
+        salida.append((p, sim))
+    return salida
 
 
 def _depurar(calificados: list[tuple[Producto, Decimal]], subcategoria: str | None,
@@ -697,45 +771,6 @@ def _fuera_texto(fuera: list[dict]) -> str:
     return f" Se descartaron {len(fuera)} precio(s) de internet fuera de rango ({lista}): no parecen la misma presentación."
 
 
-UNIDADES = {"kg": ("g", 1000), "kilo": ("g", 1000), "kilos": ("g", 1000), "g": ("g", 1), "gr": ("g", 1),
-            "grs": ("g", 1), "gramos": ("g", 1), "l": ("ml", 1000), "lt": ("ml", 1000), "lts": ("ml", 1000),
-            "litro": ("ml", 1000), "litros": ("ml", 1000), "ml": ("ml", 1), "mililitros": ("ml", 1),
-            "m": ("m", 1), "metros": ("m", 1)}
-UNIDADES.update({u: ("pz", 1) for u in (
-    "cap", "caps", "capsula", "capsulas", "softgel", "softgels", "tab", "tabs", "tableta", "tabletas", "comprimidos",
-    "sob", "sobre", "sobres", "pz", "pza", "pzas", "pzs", "pieza", "piezas", "tiras", "varitas", "toallitas",
-    "gomita", "gomitas", "gomas", "perlas", "grageas", "pastillas")})
-_CAPSULAS = {"cap", "caps", "capsula", "capsulas", "softgel", "softgels", "perlas"}  # ninguna pesa 3 g o más
-NOMBRE_UNIDAD = {"g": "gramo", "ml": "mililitro", "pz": "pieza", "m": "metro"}
-_TAMANO = re.compile(r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(UNIDADES, key=len, reverse=True)) + r")\b")
-
-
-def tamano(*textos: str | None) -> dict[str, Decimal]:
-    """Tamaño de la presentación por unidad: {"g": 120} para «120 g», {"pz": 15, "g": 79.5} para «15 tabletas de
-    5.3 g c/u». Toma el primer texto que diga algo (el contenido antes que el nombre). Los mg no cuentan: son dosis."""
-    for texto in textos:
-        t = _norm(texto)
-        salida: dict[str, Decimal] = {}
-        unidad_pz = None
-        for numero, unidad in _TAMANO.findall(t):
-            dim, factor = UNIDADES[unidad]
-            if dim == "pz" and "pz" not in salida:
-                unidad_pz = unidad
-            cantidad = Decimal(numero.replace(",", ".")) * factor
-            if cantidad > 0 and dim not in salida:
-                salida[dim] = cantidad
-        cada = "c/u" in t or " cada" in t or re.search(r"\d\s*[a-z]+\s+(?:de|con|x)\s+\d", t)
-        if "pz" in salida and cada:  # 15 tabletas de 5.3 g c/u = 79.5 g; 8 piezas de 100 g = 800 g
-            if unidad_pz in _CAPSULAS and salida.get("g", 0) >= 3:
-                salida.pop("g")  # «30 cápsulas de 346 g» es un error de captura (eran mg): solo cuentan las piezas
-            for dim in ("g", "ml"):
-                if dim in salida:
-                    salida[dim] *= salida["pz"]
-        if salida:
-            return salida
-    return {}
-
-
 def _por_unidad(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]
                 ) -> tuple[str, Decimal, list[tuple[Producto, Decimal]]] | None:
     """Precio por gramo, mililitro o pieza del producto y de los parecidos que dicen su tamaño en la misma unidad.
@@ -747,7 +782,7 @@ def _por_unidad(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]
     mejores = None
     for dim, cantidad in suyo.items():
         con_tam = [(p, tam[dim]) for p, _ in parecidos
-                   if p.precio_lista_con_impuestos and dim in (tam := tamano(p.descripcion))]
+                   if p.precio_lista_con_impuestos and dim in (tam := tamano_de(p))]
         cercanos = [(p, x) for p, x in con_tam if cantidad / 2 <= x <= cantidad * 2]
         lista = [(p, p.precio_lista_con_impuestos / x) for p, x in (cercanos or con_tam)]
         if lista and (mejores is None or len(lista) > len(mejores[2])):
@@ -869,7 +904,23 @@ def datos_para_politicas(s: Sujeto, e: ProductoEvaluacion, factores: dict[str, F
         "ya_es_proveedor_smn": s.proveedor_smn, "inscrito_gs1": s.inscrito_gs1,
         "mediana_precio_internet": internet.mediana() if internet else None,
         "factores": {NOMBRES[f]: {"puntaje": x.puntaje, "dato": x.valor, "detalle": x.detalle} for f, x in factores.items()},
+        "piezas_por_caja": s.piezas_caja,
+        "venta_esperada": venta_esperada(e),
     }
+
+
+def venta_esperada(e: ProductoEvaluacion) -> dict | None:
+    """Piezas por tienda al mes que se esperan: el pronóstico a 12 semanas (rango medio) o, sin él, lo que venden los
+    parecidos. Para que las reglas de piezas las calcule el sistema y no la IA."""
+    try:
+        p = pn.Pronostico.de_json(e.pronostico)
+    except (ValueError, TypeError, KeyError):
+        p = None
+    if p and (r := p.rango(12)):
+        return {"piezas_por_tienda_mes": r[1], "de": "el pronóstico a 12 semanas"}
+    if p and p.base:
+        return {"piezas_por_tienda_mes": round(p.base, 2), "de": p.base_de or "sus parecidos"}
+    return None
 
 
 def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | None:
@@ -885,6 +936,56 @@ def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | No
         return previo
     referencia = f"propuesta {e.propuesta_id}" if e.propuesta_id else f"idea {e.idea_id}"
     return mp.buscar(bd, nombre, s.marca, s.codigo_barras, referencia)
+
+
+def skus_para_pronostico(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], mismo: Producto | None) -> list[str]:
+    """Los mismos parecidos que usa Demanda: de precio cercano si los hay; si ya lo vendemos, ese mismo."""
+    if mismo:
+        return [mismo.sku]
+    todos = [p for p, _ in parecidos]
+    if s.precio:
+        cerca = [p for p in todos if p.precio_lista_con_impuestos
+                 and RANGO_PRECIO[0] <= s.precio / p.precio_lista_con_impuestos <= RANGO_PRECIO[1]]
+        todos = cerca or todos
+    return [p.sku for p in todos]
+
+
+def investigacion_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> inv_mod.Investigacion | None:
+    """Investiga afuera con Google y la IA local, o reusa lo de una evaluación de la última semana (17 nov 2026)."""
+    if not configuracion().radar_productos_buscar_mercado:
+        return None
+    clave = inv_mod.clave_de(s.nombre, s.marca, s.contenido)
+    q = select(ProductoEvaluacion.investigacion).where(ProductoEvaluacion.evaluacion_id != e.evaluacion_id,
+                                                       ProductoEvaluacion.investigacion.is_not(None))
+    q = q.where(ProductoEvaluacion.propuesta_id == e.propuesta_id) if e.propuesta_id else q.where(ProductoEvaluacion.idea_id == e.idea_id)
+    try:
+        if (previo := inv_mod.Investigacion.de_json(bd.scalar(q.order_by(ProductoEvaluacion.evaluacion_id.desc())))) \
+                and previo.vigente(clave):
+            return previo
+    except (ValueError, TypeError):
+        pass
+    referencia = f"propuesta {e.propuesta_id}" if e.propuesta_id else f"idea {e.idea_id}"
+    try:
+        return inv_mod.investigar(bd, nombre=s.nombre, marca=s.marca, contenido=s.contenido, ingrediente=s.ingrediente,
+                                  forma=s.forma, codigo_barras=s.codigo_barras, referencia=referencia)
+    except Exception as ex:  # noqa: BLE001 - investigar nunca detiene la evaluación
+        log.warning("Radar de productos: no se pudo investigar afuera %s: %s", referencia, ex)
+        return None
+
+
+def con_web(internet: mp.Mercado | None, inv: inv_mod.Investigacion | None) -> mp.Mercado | None:
+    """Suma a los precios de Google Shopping y las tiendas clave los del mismo producto que la IA local encontró en
+    páginas de internet (con cita de la página)."""
+    extra = inv.precios_mismo() if inv else []
+    if not extra:
+        return internet
+    m = internet or mp.Mercado(buscado_en=inv.buscado_en, clave="")
+    vistos = {(p["vendedor"], p["precio"]) for p in m.precios}
+    nuevos = [p for p in extra if (p["vendedor"], p["precio"]) not in vistos]
+    if nuevos:
+        m.precios = [*m.precios, *nuevos][:mp.MAX_PRECIOS + len(nuevos)]
+        m.notas = [*m.notas, f"{len(nuevos)} precio(s) más de páginas de internet que leyó la IA local."]
+    return m
 
 
 INSTRUCCIONES_TENDENCIA = """Eres analista de Compras de una cadena de tiendas naturistas en México.
@@ -923,6 +1024,11 @@ def f_tendencia(bd: Session, s: Sujeto, hoy: date, subcategoria: str | None = No
         return Factor(None, None, "Sin datos: el radar de tendencias no tiene señales de los últimos 6 meses.")
     con = _senales_ia(bd, s, list(senales), subcategoria)
     como = "La IA eligió las señales que hablan del producto."
+    if con:
+        # La IA a veces elige una señal que no habla del producto (13 nov 2026: Wonu Creatina + Inositol sacó 100 por
+        # «Menos azúcar y más nutrición… snacks»). Solo cuenta si comparte una palabra propia del producto.
+        suyas = raices(palabras(s.ingrediente, s.nombre, subcategoria) - GENERICAS - presentacion(s.marca))
+        con = [x for x in con if suyas & raices(palabras(x.titulo, x.descripcion))]
     if con is None:
         clave = palabras(s.ingrediente) or palabras(s.nombre)
         con = [x for x in senales if clave & palabras(x.titulo, x.descripcion)]
@@ -1022,6 +1128,13 @@ def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
         depto = None
         ritmo = {sku: x.por_tienda_mes for sku, x in rr.venta_por_sku(bd, v).items()}
     suyos = rr.venta_por_sku(bd, v, [p.sku for p, _ in parecidos])
+    # Solo los de precio cercano: un sobre de $25 o un bote de $200 no dicen cuánto venderá uno de $599 (13 nov 2026,
+    # Wonu salía con 93 por las creatinas más vendidas y baratas). Si ninguno tiene precio cercano, cuentan todos.
+    if s.precio and not mismo:
+        precio_de = {p.sku: p.precio_lista_con_impuestos for p, _ in parecidos}
+        cerca = {k: x for k, x in suyos.items() if precio_de.get(k)
+                 and RANGO_PRECIO[0] <= s.precio / precio_de[k] <= RANGO_PRECIO[1]}
+        suyos = cerca or suyos
     # Si ya lo vendemos, cuenta su propia venta y no el promedio de la línea
     propio = mismo is not None and mismo.sku in suyos
     if propio:
@@ -1034,7 +1147,7 @@ def f_demanda(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
     percentil = sum(1 for r in ritmo.values() if r <= promedio) / len(ritmo) * 100
     con, total = rr.tiendas_con_venta(bd, v, list(suyos))
     quien = (f"Ya vendemos este mismo producto ({mismo.sku} {mismo.descripcion}): en la {v.texto()}"
-             if propio else f"Promedio de {len(suyos)} parecido(s) en la {v.texto()}:")
+             if propio else f"Promedio de {len(suyos)} parecido(s) de precio cercano en la {v.texto()}:")
     detalle = (f"{quien} se vende{'n' if not propio else ''} en {con} de {total} tiendas, con {promedio:,.1f} piezas por "
                f"tienda al mes, y vende{'n' if not propio else ''} más que el {percentil:.0f} % de los {len(ritmo)} "
                f"productos con venta{' del departamento' if depto else ' de toda la cadena'}.")
@@ -1333,7 +1446,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         bd.commit()
 
     try:
-        paso(1, "clasificando el producto")
+        paso(1, "leyendo la ficha técnica y clasificando el producto")
         if e.propuesta_id:
             p = bd.get(Propuesta, e.propuesta_id)
             s = sujeto_de_propuesta(p)
@@ -1341,6 +1454,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
                 OrganizacionExterna.organizacion_id == p.organizacion_id))
         else:
             s = sujeto_de_idea(bd.get(ProductoIdea, e.idea_id))
+        ficha_sujeto(bd, e, s)
         e.departamento = s.departamento
         fijados = bool(e.comparables)
         vistos: dict[str, tuple[bool, str]] = {}
@@ -1354,6 +1468,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         paso(2, "buscando productos parecidos en el catálogo y revisándolos con la IA")
         if fijados:  # Compras los fijó: no se revisan
             parecidos = [(bd.get(Producto, c.producto_id), c.similitud) for c in e.comparables]
+            cargar_fichas(bd, [p for p, _ in parecidos])
         else:
             parecidos, quitados = revisar_parecidos(bd, s, buscar_parecidos(bd, s, e.subcategoria, e.rama), vistos)
         mismo = mismo_de(s, parecidos)
@@ -1370,8 +1485,12 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             if mismo and c.producto_id == mismo.producto_id:
                 c.similitud = Decimal(1)  # así la pantalla lo muestra como «Ya lo vendemos»
 
-        paso(3, "buscando precios en internet y en las tiendas")
+        paso(3, "buscando precios en internet y en las tiendas, y leyendo páginas con la IA local")
         internet = mercado_de(bd, e, s)
+        investigacion = investigacion_de(bd, e, s)
+        if investigacion:
+            e.investigacion = investigacion.a_json()
+        internet = con_web(internet, investigacion)
         if internet:
             e.mercado = internet.a_json()
         paso(4, "calculando demanda, margen, precio, surtido y proveedor con la venta de SMNBI")
@@ -1384,6 +1503,10 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             "categoria": f_categoria(bd, s, e.subcategoria, parecidos, v, mismo),
             "proveedor": f_proveedor(bd, s, parecidos),
         }
+        try:  # pronóstico por grupo de tiendas (17 nov 2026); si falla, la evaluación sigue
+            e.pronostico = pn.pronosticar(bd, skus_para_pronostico(s, parecidos, mismo), e.subcategoria).a_json()
+        except Exception as ex:  # noqa: BLE001
+            log.warning("Radar de productos: no se pudo pronosticar la evaluación %s: %s", evaluacion_id, ex)
         paso(5, "revisando las tendencias de internet")
         factores["tendencia"] = f_tendencia(bd, s, hoy, e.subcategoria)
         factores = {f: factores[f] for f in FACTORES}
@@ -1450,6 +1573,14 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
 DICTAMEN = "Dictamen: "
 
 
+def con_marca(p: Producto) -> str:
+    """La descripción con la marca al frente si no la trae (en SMNBI muchas descripciones vienen sin marca)."""
+    desc = p.descripcion or ""
+    if p.marca and not raices(palabras(p.marca)) <= raices(palabras(desc)):
+        return f"{p.marca} {desc}"
+    return desc
+
+
 def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list[tuple[Producto, Decimal]],
              minimo: Decimal | None, rechazo: dict | None = None) -> str:
     """Lectura de comprador en una línea: meter, negociar o no meter, con el precio o costo meta y contra qué se compara.
@@ -1500,7 +1631,7 @@ def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list
         partes.append(f"para competir tendría que venderse en unos {_pesos(m.meta)} (hoy {_pesos(s.precio)})")
     con_precio = [(p, sim) for p, sim in parecidos if p.precio_lista_con_impuestos][:2]
     if con_precio:
-        partes.append("se compara con " + " y ".join(f"{p.descripcion} ({_pesos(p.precio_lista_con_impuestos)})"
+        partes.append("se compara con " + " y ".join(f"{con_marca(p)} ({_pesos(p.precio_lista_con_impuestos)})"
                                                      for p, _ in con_precio))
     resto = "; ".join(partes)
     if partes and ":" in veredicto:  # «No meter: lo parecido casi no se vende. Pedir costo…» (con mayúscula)

@@ -19,7 +19,8 @@ from modulos.compras import imagenes as img
 from modulos.compras import precios
 from modulos.compras import tiendas as td
 from modulos.compras.modelos_precios import (PrecioCoincidencia, PrecioCorrida, PrecioCorridaProducto, PrecioEnvio,
-                                             PrecioObservacion, PrecioTiendaCoincidencia, PrecioVigilado)
+                                             PrecioMarcaMal, PrecioObservacion, PrecioSeleccion, PrecioTiendaCoincidencia,
+                                             PrecioValidacion, PrecioVigilado)
 from nucleo.modelos import Notificacion, ahora
 from tests.conftest import alta_usuario
 
@@ -60,7 +61,7 @@ class DataForSEOSimulado:
 @pytest.fixture
 def limpio(base_de_pruebas, monkeypatch):
     with Session(motor()) as bd:
-        for t in (PrecioObservacion, PrecioCorridaProducto, PrecioEnvio, PrecioCorrida, PrecioCoincidencia, PrecioTiendaCoincidencia,
+        for t in (PrecioValidacion, PrecioMarcaMal, PrecioSeleccion, PrecioObservacion, PrecioCorridaProducto, PrecioEnvio, PrecioCorrida, PrecioCoincidencia, PrecioTiendaCoincidencia,
                   PrecioVigilado):
             bd.execute(delete(t))
         bd.execute(delete(Notificacion).where(Notificacion.titulo.like("Radar de precios%")))
@@ -655,6 +656,7 @@ def test_junta_los_precios_de_todas_las_publicaciones_del_mismo_producto(limpio,
     p = next(x for x in d["productos"] if x["producto"]["descripcion"] == "PROTEINA VEGETAL EJ VAINILLA 510 G")
     assert {g["clave"] for g in p["lo_que_regreso_google"]} == {"G-A", "G-B", "G-CHOCO"}
     assert p["coincidencia"]["estado"] == "ia" and [x["vendedor"] for x in p["precios"]] == ["Liverpool", "Walmart", "Amazon"]
+    assert all(x["validacion"] and x["validacion"]["resultado"] == "validado" and x["validacion"]["comprobaciones"] for x in p["precios"])
     assert d["envios"] and admin.get("/api/compras/precios/corridas/999999/diagnostico").status_code == 404
 
 
@@ -1348,3 +1350,22 @@ def test_excel_precios_por_tienda_en_el_orden_de_diego():
     assert encabezados[20:] == ["Precio Otra EJ", "Dif. vs lista Otra EJ", "Dif. vs membresía Otra EJ",
                                 "URL Otra EJ"]  # la que no cuenta no sale
     assert fila["Precio lista"] == Decimal("100") and fila["Precio membresía"] == Decimal("90")
+
+
+def test_buscar_y_vigilar_por_clase(admin, limpio):
+    a = producto("ESPIRULINA EJ CLASE 100 TAB")
+    b = producto("ESPIRULINA EJ CLASE 200 TAB")
+    c = producto("ESPIRULINA EJ CLASE 300 TAB")
+    with Session(motor()) as bd:
+        bd.execute(update(Producto).where(Producto.producto_id.in_([a, b])).values(clasificacion=" aa "))
+        bd.execute(update(Producto).where(Producto.producto_id == c).values(clasificacion="B"))
+        bd.commit()
+    antes = {x["clase"]: x for x in admin.get("/api/compras/precios/vigilados/clases").json()}
+    r = admin.get("/api/compras/precios/catalogo", params={"clase": "AA", "q": "ESPIRULINA EJ CLASE"}).json()
+    assert {p["producto_id"] for p in r["productos"]} == {a, b} and all(p["clasificacion"] == "AA" for p in r["productos"])
+    assert admin.post("/api/compras/precios/vigilados", json={"clase": "aa"}).json()["agregados"] >= 2
+    despues = {x["clase"]: x for x in admin.get("/api/compras/precios/vigilados/clases").json()}
+    assert despues["AA"]["vigilados"] == despues["AA"]["productos"] >= 2
+    assert despues["B"]["vigilados"] == antes["B"]["vigilados"]
+    lista = admin.get("/api/compras/precios/catalogo", params={"solo_vigilados": True, "clase": "AA"}).json()
+    assert {a, b} <= {p["producto_id"] for p in lista["productos"]} and c not in {p["producto_id"] for p in lista["productos"]}

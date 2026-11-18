@@ -124,7 +124,7 @@ def pendientes(bd: Session, permisos: set[str], usuario_id: int | None = None) -
     agregar("compras.comite.prefiltrar", "comite_revisiones",
             lambda: _contar(bd, select(func.count()).select_from(ComiteRevision).join(
                 ComiteProducto, ComiteProducto.item_id == ComiteRevision.item_id).where(
-                ComiteRevision.resultado == "pendiente", ComiteProducto.decision == "aceptado")),
+                ComiteRevision.resultado == "pendiente", ComiteProducto.decision.in_(("aceptado", "a_prueba")))),
             modulo="compras", area="Compras", texto="Productos aceptados con revisión pendiente (inventario o regulación)",
             accion="Ver", href="/compras/propuestas/comite?vista=revisiones")
     from modulos.compras.modelos_busquedas import BusquedaProveedor

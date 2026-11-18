@@ -13,7 +13,7 @@ from nucleo.autenticacion import modulos_visibles
 from nucleo.bitacora import registrar
 from nucleo.notificaciones import correo
 from nucleo.esquemas import (
-    CambioModulo, CambioUsuario, InvitacionCreada, Liga, ModuloSalida, NuevaInvitacion, PermisoSalida, PermisosDeRol,
+    CambioDatos, CambioModulo, CambioUsuario, DatosCambiados, InvitacionCreada, Liga, ModuloSalida, NuevaInvitacion, PermisoSalida, PermisosDeRol,
     Resumen, RolSalida, UsuarioSalida,
 )
 from nucleo.modelos import (
@@ -213,6 +213,62 @@ def cambiar_usuario(
     bd.commit()
     return UsuarioSalida.de(usuario)
 
+
+
+@router.patch("/usuarios/{usuario_id}/datos", response_model=DatosCambiados)
+def cambiar_datos(
+    usuario_id: int, datos: CambioDatos, request: Request,
+    ctx: Contexto = Depends(requiere(USUARIOS)), bd: Session = Depends(obtener_bd),
+) -> DatosCambiados:
+    """Corrige nombre, correo, área o puesto. Si cambia el correo se invalidan las ligas que iban al anterior."""
+    usuario = _usuario(bd, usuario_id)
+    es_yo = usuario.usuario_id == ctx.usuario.usuario_id
+    antes = {"nombre": usuario.nombre, "correo": usuario.correo, "area": usuario.area, "puesto": usuario.puesto}
+
+    if datos.nombre is not None:
+        usuario.nombre = datos.nombre.strip()
+    if usuario.tipo == "interno":
+        if datos.area is not None:
+            usuario.area = datos.area.strip() or None
+        if datos.puesto is not None:
+            usuario.puesto = datos.puesto.strip() or None
+
+    cambio_correo = False
+    if datos.correo is not None:
+        correo_nuevo = datos.correo.strip().lower()
+        if correo_nuevo != usuario.correo.lower():
+            otro = bd.scalar(select(Usuario).where(func.lower(Usuario.correo) == correo_nuevo, Usuario.usuario_id != usuario_id))
+            if otro:
+                raise HTTPException(status.HTTP_409_CONFLICT, f"Ese correo ya lo usa la cuenta de {otro.nombre} ({otro.estatus}).")
+            usuario.correo = correo_nuevo
+            cambio_correo = True
+
+    despues = {"nombre": usuario.nombre, "correo": usuario.correo, "area": usuario.area, "puesto": usuario.puesto}
+    if despues == antes:
+        return DatosCambiados(usuario=UsuarioSalida.de(usuario))
+
+    liga: Liga | None = None
+    if cambio_correo:
+        # Las ligas de un solo uso iban al correo anterior: se anulan
+        for r in bd.scalars(select(RestablecimientoContrasena).where(
+                RestablecimientoContrasena.usuario_id == usuario_id, RestablecimientoContrasena.usado_en.is_(None))):
+            r.expira_en = ahora()
+        if usuario.estatus == "invitado" and usuario.roles:
+            liga = _crear_invitacion(bd, usuario, usuario.roles[0], ctx.usuario.usuario_id)
+        elif not es_yo:
+            revocar_sesiones(bd, usuario.usuario_id)  # vuelve a entrar con el correo nuevo y su misma contraseña
+    try:
+        bd.flush()
+    except IntegrityError:
+        bd.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ese correo ya lo usa otra cuenta.") from None
+    registrar(bd, "cambiar_datos", usuario_id=ctx.usuario.usuario_id, entidad="usuario", entidad_id=usuario_id,
+              detalle={"antes": antes, "despues": despues}, ip=ip_de(request))
+    bd.commit()
+    if liga:
+        liga.correo_enviado = _correo_invitacion(bd, usuario, ctx.usuario.nombre, liga.liga)
+    bd.refresh(usuario)
+    return DatosCambiados(usuario=UsuarioSalida.de(usuario), liga=liga)
 
 
 @router.delete("/usuarios/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,7 +8,9 @@ import { ArrowLeft } from "lucide-react";
 import { useSesion } from "@/componentes/sesion";
 
 const PESTANAS = [
-  { href: "/compras/precios", texto: "Productos" },
+  { href: "/compras/precios", texto: "Resumen" },
+  { href: "/compras/precios/todos", texto: "Todos los productos" },
+  { href: "/compras/precios/reporte", texto: "Reporte a Excel" },
   { href: "/compras/precios/productos", texto: "Productos vigilados" },
   { href: "/compras/precios/corridas", texto: "Corridas y gasto" },
 ];
@@ -17,7 +19,8 @@ export default function LayoutPrecios({ children }: { children: React.ReactNode 
   const ruta = usePathname();
   const { puede } = useSesion();
   if (!puede("compras.precios.ver")) return <p className="text-smn-gris-500">No tienes acceso al Radar de precios.</p>;
-  const activa = (href: string) => (href === "/compras/precios" ? ruta === href || ruta.startsWith("/compras/precios/producto/") : ruta.startsWith(href));
+  const activa = (href: string) =>
+    href === "/compras/precios" ? ruta === href : href === "/compras/precios/todos" ? ruta.startsWith(href) || ruta.startsWith("/compras/precios/producto/") : ruta.startsWith(href);
 
   return (
     <>

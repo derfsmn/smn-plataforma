@@ -22,10 +22,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, ip_de, requiere
+from datos.modelos import Tienda
 from modulos.compras import miniaturas
 from modulos.compras import propuestas as pr
 from modulos.compras import radar_productos as rp
-from modulos.compras.modelos_comite import ComiteAsistente, ComitePeticion, ComiteProducto, ComiteReunion, ComiteRevision
+from modulos.compras.modelos_comite import (
+    ComiteAsistente, ComitePeticion, ComiteProducto, ComiteReunion, ComiteRevision, ProductoSeguimiento,
+)
 from modulos.compras.modelos_conocimiento import ConocimientoCaso, ConocimientoPolitica
 from modulos.compras.modelos_productos import Oportunidad, ProductoEvaluacion, ProductoIdea
 from modulos.compras.modelos_propuestas import Propuesta
@@ -45,7 +48,12 @@ ESTADOS = {"abierta": "Subiendo productos", "prefiltro": "Pre-filtro de Compras"
            "cerrada": "Cerrada"}
 # Se puede regresar un paso mientras no esté cerrada (por si se avanzó antes de tiempo)
 PASOS = {"abierta": {"prefiltro"}, "prefiltro": {"abierta", "comite"}, "comite": {"prefiltro", "cerrada"}, "cerrada": {"comite"}}
-DECISIONES = {"aceptado": "Aceptado", "denegado": "Denegado", "en_espera": "En espera"}
+DECISIONES = {"aceptado": "Aceptado", "a_prueba": "Aceptado a prueba", "denegado": "Denegado", "en_espera": "En espera"}
+ACEPTADOS = ("aceptado", "a_prueba")
+# Motivo por indicador al decidir (junta del 12 nov 2026: «reprobado por indicador… saber el por qué»)
+INDICADORES = {"demanda": "Demanda", "rentabilidad": "Margen", "precio": "Precio", "tendencia": "Tendencia",
+               "categoria": "Categoría", "proveedor": "Proveedor", "sabor": "Sabor", "registro": "Registro sanitario",
+               "ya_tenemos": "Ya tenemos uno igual", "empaque": "Empaque", "otro": "Otro"}
 REVISIONES = {"inventario": "Espacio en inventario", "regulacion": "Regulación"}
 ESTADOS_IDEA = {"nueva": "Nueva", "buscar_proveedor": "Buscar proveedor", "vigilar": "Vigilar", "descartada": "Descartada"}
 EN_PORTAL = {"borrador", "devuelta"}  # la propuesta todavía no está completa para evaluarse
@@ -179,6 +187,16 @@ class ItemSalida(BaseModel):
     revisiones: list[RevisionSalida]
     agregado_por: str | None
     agregado_en: datetime
+    # Memoria del comité y prueba en pocas tiendas (migración 0049)
+    indicadores: list[dict] = []
+    radar_error_factor: str | None = None
+    radar_error_motivo: str | None = None
+    prueba_tiendas: list[str] = []
+    prueba_precio: Decimal | None = None
+    prueba_revision: date | None = None
+    prueba_condicion: str | None = None
+    sku: str | None = None
+    seguimiento: list[dict] = []
 
 
 class AsistenteSalida(BaseModel):
@@ -377,6 +395,15 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
             .options(selectinload(ProductoEvaluacion.factores)).order_by(ProductoEvaluacion.evaluacion_id)):
         vigentes[("p", ev.propuesta_id) if ev.propuesta_id else ("i", ev.idea_id)] = ev  # la más nueva gana
     oportunidades = {o.idea_id: o for o in bd.scalars(select(Oportunidad).where(Oportunidad.idea_id.in_(iids)))}
+    seguimientos: dict[int, list[dict]] = {}
+    for x in bd.scalars(select(ProductoSeguimiento).where(
+            ProductoSeguimiento.item_id.in_({i.item_id for i in items if i.decision in ACEPTADOS} or {0}))
+            .order_by(ProductoSeguimiento.semana)):
+        seguimientos.setdefault(x.item_id, []).append(
+            {"semana": x.semana, "fecha": x.fecha.isoformat(), "resultado": x.resultado, "propuesta": x.propuesta,
+             "texto": x.texto, "real": float(x.real) if x.real is not None else None,
+             "rango": [float(y) for y in (x.pronostico_bajo, x.pronostico_medio, x.pronostico_alto)]
+             if x.pronostico_medio is not None else None})
     salida = []
     for i in items:
         if i.propuesta_id:
@@ -420,7 +447,11 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
             revisiones=[RevisionSalida(tipo=r.tipo, nombre=REVISIONES[r.tipo], resultado=r.resultado, nota=r.nota,
                                        por=usuarios.get(r.actualizada_por), en=r.actualizada_en)
                         for r in sorted(i.revisiones, key=lambda r: list(REVISIONES).index(r.tipo))],
-            faltantes=_faltantes(e, base), reporte_guardado=bool(i.reporte_archivo_id), **base))
+            faltantes=_faltantes(e, base), reporte_guardado=bool(i.reporte_archivo_id),
+            indicadores=json.loads(i.indicadores or "[]"), radar_error_factor=i.radar_error_factor,
+            radar_error_motivo=i.radar_error_motivo, prueba_tiendas=json.loads(i.prueba_tiendas or "[]"),
+            prueba_precio=i.prueba_precio, prueba_revision=i.prueba_revision, prueba_condicion=i.prueba_condicion,
+            sku=i.sku, seguimiento=seguimientos.get(i.item_id, []), **base))
     _marcar_duplicados(salida)
     return salida
 
@@ -498,7 +529,7 @@ def _embudo(bd: Session, items: list[ComiteProducto]) -> Embudo:
         evaluados += bool(e and e.estado == "lista")
     return Embudo(subidos=len(items), evaluados=evaluados, pasan=sum(i.prefiltro == "pasa" for i in items),
                   no_pasan=sum(i.prefiltro == "no_pasa" for i in items),
-                  aceptados=sum(i.decision == "aceptado" for i in items),
+                  aceptados=sum(i.decision in ACEPTADOS for i in items),
                   denegados=sum(i.decision == "denegado" for i in items),
                   en_espera=sum(i.decision == "en_espera" for i in items))
 
@@ -1007,9 +1038,37 @@ def criterios(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtene
 
 # ---------------------------------------------------------------- comité
 
+class Indicador(BaseModel):
+    factor: Literal["demanda", "rentabilidad", "precio", "tendencia", "categoria", "proveedor", "sabor", "registro",
+                    "ya_tenemos", "empaque", "otro"]
+    sentido: Literal["a_favor", "en_contra"]
+    motivo: str | None = Field(None, max_length=300)
+
+
 class Decision(BaseModel):
-    decision: Literal["aceptado", "denegado", "en_espera"]
+    decision: Literal["aceptado", "a_prueba", "denegado", "en_espera"]
     motivo: str = Field(min_length=1, max_length=1000)
+    # Memoria del comité (migración 0049): qué indicador pesó y si el radar se equivocó
+    indicadores: list[Indicador] = Field(default_factory=list, max_length=11)
+    radar_error_factor: Literal["demanda", "rentabilidad", "precio", "tendencia", "categoria", "proveedor",
+                                "color"] | None = None
+    radar_error_motivo: str | None = Field(None, max_length=500)
+    # «Aceptado a prueba» en pocas tiendas
+    prueba_tiendas: list[str] = Field(default_factory=list, max_length=30)
+    prueba_precio: Decimal | None = Field(None, gt=0)
+    prueba_revision: date | None = None
+    prueba_condicion: str | None = Field(None, max_length=500)
+
+
+def texto_indicadores(indicadores: list[dict]) -> str:
+    """«Pesó: precio en contra (muy caro); sabor a favor» para el antecedente y el acta."""
+    partes = []
+    for x in indicadores:
+        t = f"{INDICADORES.get(x.get('factor'), x.get('factor'))} {'a favor' if x.get('sentido') == 'a_favor' else 'en contra'}"
+        if x.get("motivo"):
+            t += f" ({x['motivo']})"
+        partes.append(t)
+    return "Pesó: " + "; ".join(partes) if partes else ""
 
 
 @router.put("/productos/{item_id}/decision", response_model=ReunionSalida)
@@ -1023,12 +1082,28 @@ def decidir(item_id: int, datos: Decision, request: Request, ctx: Contexto = Dep
     motivo = _texto(datos.motivo)
     if not motivo:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escribe el motivo.")
+    if datos.decision == "a_prueba":
+        if not datos.prueba_tiendas:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige al menos una tienda para la prueba.")
+        if not datos.prueba_revision:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pon la fecha en que se revisa la prueba.")
+        conocidas = set(bd.scalars(select(Tienda.almacen).where(Tienda.almacen.in_(datos.prueba_tiendas))))
+        if faltan := [t for t in datos.prueba_tiendas if t not in conocidas]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No conozco estas tiendas: {', '.join(faltan[:5])}.")
     e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
     i.decision, i.decision_motivo = datos.decision, motivo
+    i.indicadores = json.dumps([x.model_dump() for x in datos.indicadores], ensure_ascii=False) if datos.indicadores else None
+    i.radar_error_factor = datos.radar_error_factor
+    i.radar_error_motivo = _texto(datos.radar_error_motivo) if datos.radar_error_factor else None
+    a_prueba = datos.decision == "a_prueba"
+    i.prueba_tiendas = json.dumps(datos.prueba_tiendas) if a_prueba else None
+    i.prueba_precio = datos.prueba_precio if a_prueba else None
+    i.prueba_revision = datos.prueba_revision if a_prueba else None
+    i.prueba_condicion = _texto(datos.prueba_condicion) if a_prueba else None
     i.decision_color = (e.color_final or e.color) if e and e.estado == "lista" else None
     i.decision_puntaje = e.puntaje if e and e.estado == "lista" else None
     i.decision_por, i.decision_en = ctx.usuario.usuario_id, ahora()
-    if datos.decision != "aceptado":
+    if datos.decision not in ACEPTADOS:
         i.revisiones.clear()
         i.reporte_archivo_id = None  # el archivo se queda; solo deja de ser «el reporte con que se aceptó»
     elif e and e.estado == "lista":
@@ -1041,9 +1116,13 @@ def decidir(item_id: int, datos: Decision, request: Request, ctx: Contexto = Dep
         except Exception:  # noqa: BLE001
             log.exception("Comité: no se pudo guardar el reporte del producto %s", i.item_id)
     _bitacora(bd, "decision", ctx, request, "comite_producto", i.item_id,
-              {"reunion": r.reunion_id, "decision": datos.decision, "semaforo": i.decision_color})
-    antecedente(bd, i, r, {"aceptado": "aprobado", "denegado": "rechazado"}.get(datos.decision),
-                f"Comité: {motivo}", ctx.usuario.usuario_id)
+              {"reunion": r.reunion_id, "decision": datos.decision, "semaforo": i.decision_color,
+               "indicadores": [x.model_dump() for x in datos.indicadores], "radar_error": datos.radar_error_factor})
+    extra = texto_indicadores([x.model_dump() for x in datos.indicadores])
+    if a_prueba:
+        extra = f"A prueba en {len(datos.prueba_tiendas)} tienda(s). {extra}".strip()
+    antecedente(bd, i, r, {"aceptado": "aprobado", "a_prueba": "condicionado", "denegado": "rechazado"}.get(datos.decision),
+                f"Comité: {motivo}" + (f". {extra}" if extra else ""), ctx.usuario.usuario_id)
     bd.commit()
     return _salida(bd, r)
 
@@ -1084,7 +1163,7 @@ def revisar(item_id: int, tipo: Literal["inventario", "regulacion"], datos: Revi
             ctx: Contexto = Depends(requiere(PREFILTRAR)), bd: Session = Depends(obtener_bd)) -> ReunionSalida:
     """Revisión después de aceptar, si aplica: espacio en inventario y después regulación. Sigue abierta al cerrar."""
     i = _item(bd, item_id)
-    if i.decision != "aceptado":
+    if i.decision not in ACEPTADOS:
         raise HTTPException(status.HTTP_409_CONFLICT, "Solo los productos aceptados pasan a revisión.")
     rev = next((x for x in i.revisiones if x.tipo == tipo), None)
     if not rev:
@@ -1234,12 +1313,95 @@ class Aceptado(BaseModel):
 @router.get("/aceptados", response_model=list[Aceptado])
 def aceptados(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> list[Aceptado]:
     """Los aceptados de todas las reuniones, con su revisión de inventario y regulación si aplica."""
-    filas = list(bd.scalars(select(ComiteProducto).where(ComiteProducto.decision == "aceptado")
+    filas = list(bd.scalars(select(ComiteProducto).where(ComiteProducto.decision.in_(ACEPTADOS))
                             .order_by(ComiteProducto.decision_en.desc()).limit(300)))
     fechas = dict(bd.execute(select(ComiteReunion.reunion_id, ComiteReunion.fecha).where(
         ComiteReunion.reunion_id.in_({i.reunion_id for i in filas} or {0}))).all())
     return [Aceptado(reunion_id=i.reunion_id, fecha_reunion=fechas[i.reunion_id], producto=x)
             for i, x in zip(filas, _items(bd, filas))]
+
+
+# ---------------------------------------------------------------- prueba en tiendas, SKU y memoria (0049)
+
+class TiendaPrueba(BaseModel):
+    almacen: str
+    nombre: str
+    region: str | None
+    grupo: int
+    grupo_nombre: str
+    tipicidad: int
+    vende_parecidos: bool
+
+
+@router.get("/productos/{item_id}/tiendas-prueba", response_model=list[TiendaPrueba])
+def tiendas_prueba(item_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> list[TiendaPrueba]:
+    """Tiendas sugeridas para «Aceptado a prueba»: las más típicas de cada grupo de tiendas parecidas, de regiones
+    distintas y donde ya se venden sus parecidos. El comité elige."""
+    from modulos.compras import pronostico as pn
+
+    i = _item(bd, item_id)
+    e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
+    skus = [bd.get(rp.Producto, c.producto_id).sku for c in (e.comparables if e else [])]
+    return [TiendaPrueba(**t) for t in pn.tiendas_para_prueba(bd, skus)]
+
+
+class SkuEntrada(BaseModel):
+    sku: str = Field(min_length=1, max_length=80)
+
+
+@router.put("/productos/{item_id}/sku", response_model=ReunionSalida)
+def poner_sku(item_id: int, datos: SkuEntrada, request: Request, ctx: Contexto = Depends(requiere(PREFILTRAR)),
+              bd: Session = Depends(obtener_bd)) -> ReunionSalida:
+    """El SKU con que se dio de alta un aceptado, para revisarlo contra su venta a 4, 8 y 12 semanas."""
+    i = _item(bd, item_id)
+    if i.decision not in ACEPTADOS:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Solo los productos aceptados tienen seguimiento.")
+    i.sku = datos.sku.strip()
+    bd.query(ProductoSeguimiento).filter(ProductoSeguimiento.item_id == i.item_id,
+                                         ProductoSeguimiento.resultado == "sin_sku").delete()
+    _bitacora(bd, "sku", ctx, request, "comite_producto", i.item_id, {"sku": i.sku})
+    bd.commit()
+    return _salida(bd, _reunion(bd, i.reunion_id))
+
+
+class ErrorRadar(BaseModel):
+    factor: str
+    nombre: str
+    veces: int
+    ejemplos: list[str]
+
+
+class Aprendizaje(BaseModel):
+    decisiones: int
+    coinciden: int  # verde aceptado, rojo denegado
+    no_coinciden: int
+    errores: list[ErrorRadar]  # en qué se equivoca más el radar, según el comité
+    indicadores: list[dict]  # qué pesa más en las decisiones: [{factor, nombre, a_favor, en_contra}]
+
+
+@router.get("/aprendizaje", response_model=Aprendizaje)
+def aprendizaje(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> Aprendizaje:
+    """Lo que el radar aprende del comité: en qué indicador se equivoca más y qué pesa en las decisiones."""
+    filas = list(bd.scalars(select(ComiteProducto).where(ComiteProducto.decision.in_(("aceptado", "a_prueba", "denegado")))))
+    coinciden = sum((i.decision in ACEPTADOS and i.decision_color == "verde") or
+                    (i.decision == "denegado" and i.decision_color == "rojo") for i in filas)
+    no_coinciden = sum((i.decision in ACEPTADOS and i.decision_color == "rojo") or
+                       (i.decision == "denegado" and i.decision_color == "verde") for i in filas)
+    errores: dict[str, list[str]] = {}
+    pesos: dict[str, list[int]] = {}
+    for i in filas:
+        if i.radar_error_factor:
+            errores.setdefault(i.radar_error_factor, []).append(i.radar_error_motivo or i.decision_motivo or "")
+        for x in json.loads(i.indicadores or "[]"):
+            c = pesos.setdefault(x.get("factor"), [0, 0])
+            c[0 if x.get("sentido") == "a_favor" else 1] += 1
+    nombres = {**INDICADORES, "color": "El color en general"}
+    return Aprendizaje(
+        decisiones=len(filas), coinciden=coinciden, no_coinciden=no_coinciden,
+        errores=sorted([ErrorRadar(factor=f, nombre=nombres.get(f, f), veces=len(v), ejemplos=[t for t in v if t][:3])
+                        for f, v in errores.items()], key=lambda x: -x.veces),
+        indicadores=sorted([{"factor": f, "nombre": nombres.get(f, f), "a_favor": a, "en_contra": c}
+                            for f, (a, c) in pesos.items()], key=lambda x: -(x["a_favor"] + x["en_contra"])))
 
 
 # ---------------------------------------------------------------- asistente de IA por producto

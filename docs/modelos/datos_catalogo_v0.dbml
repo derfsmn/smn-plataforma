@@ -86,3 +86,41 @@ Table datos.carga {
   fin_en datetime
   Note: 'Cada corrida de carga, visible en Centro de datos → Cargas.'
 }
+
+// Ficha técnica estándar (migración 0047, 2026-11-17). La llenan reglas + IA local con cita; Compras solo marca «Está mal».
+Table datos.producto_ficha {
+  producto_id int [pk, ref: - datos.producto.producto_id]
+  tipo nvarchar(120)
+  forma nvarchar(40)
+  contenido_cantidad decimal(12,3)
+  contenido_unidad nvarchar(4) [note: 'g / ml / pz / m']
+  piezas int
+  porciones int
+  ingrediente_principal nvarchar(200)
+  activo_g_porcion decimal(10,4)
+  otros_ingredientes nvarchar(500)
+  sabor nvarchar(80)
+  variante nvarchar(80)
+  uso nvarchar(300)
+  registro_sanitario nvarchar(60)
+  iva_pct decimal(5,2) [note: 'solo del catálogo; nunca se adivina']
+  origenes nvarchar(max) [note: 'JSON campo -> reglas / texto / foto / catalogo']
+  citas nvarchar(max) [note: 'JSON campo -> texto que lo prueba']
+  huella varchar(64)
+  estado nvarchar(10) [note: 'lista / dudosa / fallida / mal']
+  nota nvarchar(500)
+  intentos int
+  con_ia bit
+  mal_motivo nvarchar(500)
+  mal_por int
+  mal_en datetime2
+  extraida_en datetime2
+}
+
+// Mismos campos que producto_ficha, para ideas y propuestas (sin llave al esquema compras)
+Table datos.idea_ficha {
+  ficha_id int [pk, increment]
+  origen nvarchar(10) [note: 'idea / propuesta']
+  origen_id int
+  Note: 'Mismos campos que datos.producto_ficha. Única por (origen, origen_id).'
+}

@@ -24,7 +24,8 @@ FIN = date(2027, 3, 29)  # lunes; la misma última semana que usan las pruebas d
 
 
 def _texto(pdf: bytes) -> str:
-    return " ".join((p.extract_text() or "") for p in PdfReader(BytesIO(pdf)).pages).replace("\n", " ")
+    # se juntan los espacios: pypdf 6 deja dobles espacios donde la celda corta el renglón
+    return " ".join(" ".join((p.extract_text() or "") for p in PdfReader(BytesIO(pdf)).pages).split())
 
 
 @pytest.fixture(scope="module")
@@ -130,6 +131,7 @@ def test_reporte_de_wonu(admin: TestClient, sincrono, catalogo_creatinas):  # no
     assert e["precio_nuestro"] == "599.00" and e["codigo_barras"] == "7503053821217" and e["porciones"] == 30
     factores = {f["factor"]: f for f in e["factores"]}
     assert factores["demanda"]["puntaje"] is not None  # ya tiene parecidos con venta
+    assert "precio cercano" in factores["demanda"]["detalle"]  # el sobre de $25.50 no cuenta para un producto de $599
     assert "Chedraui" in factores["precio"]["detalle"]  # el precio visto cuenta como precio del mercado
     assert factores["rentabilidad"]["valor"].startswith("Deja 32.2 % de margen")
 
@@ -142,7 +144,9 @@ def test_reporte_de_wonu(admin: TestClient, sincrono, catalogo_creatinas):  # no
                      "misma marca", "$3.99 por gramo de creatina", "Lo que proponemos a Compras", "Calificación del radar"):
         assert esperado in t, esperado
     # Lo que va a Compras no lleva notas de método ni pendientes (Diego, 13 nov 2026)
-    for prohibido in ("por confirmar", "no se pudo", "validar con", "Sin datos"):
+    assert "$4.35 por gramo de creatina" in t  # lo que vio Compras en Chedraui, 653 / 150 g de creatina
+    for prohibido in ("por confirmar", "no se pudo", "validar con", "Sin datos", " de el ", "La IA eligió", "Sin IA",
+                      "provisional"):
         assert prohibido not in t, prohibido
 
 

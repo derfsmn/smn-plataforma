@@ -14,7 +14,7 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Campo, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe } from "@/lib/api";
 import {
-  fechaReunion, RESULTADO_REVISION, RUTA, type Aceptado, type Peticion, type Reunion, type ReunionBreve,
+  fechaReunion, RESULTADO_REVISION, RUTA, type Aceptado, type Item, type Peticion, type Reunion, type ReunionBreve, type Seguimiento,
 } from "@/lib/comite";
 import { Atender } from "./piezas";
 
@@ -241,18 +241,94 @@ function Peticiones() {
   );
 }
 
+const RESULTADO_SEGUIMIENTO: Record<Seguimiento["resultado"], string> = {
+  arriba: "bg-green-600/10 text-green-700 dark:text-green-400",
+  en_linea: "bg-smn-gris-100 text-smn-gris-700",
+  abajo: "bg-red-600/10 text-red-700 dark:text-red-400",
+  sin_venta: "bg-red-600/10 text-red-700 dark:text-red-400",
+  sin_sku: "bg-aviso-fondo text-aviso-texto",
+};
+
+type Aprendizaje = {
+  decisiones: number;
+  coinciden: number;
+  no_coinciden: number;
+  errores: { factor: string; nombre: string; veces: number; ejemplos: string[] }[];
+  indicadores: { factor: string; nombre: string; a_favor: number; en_contra: number }[];
+};
+
+function LoQueAprende() {
+  const [a, setA] = useState<Aprendizaje | null>(null);
+  useEffect(() => {
+    api<Aprendizaje>(`${RUTA}/aprendizaje`).then(setA).catch(() => setA(null));
+  }, []);
+  if (!a || a.decisiones === 0) return null;
+  return (
+    <section className="mb-5 grid gap-3 rounded-2xl border border-smn-gris-100 bg-superficie p-5 sm:grid-cols-3">
+      <div>
+        <p className="text-[13px] text-smn-gris-500">El radar y el comité coinciden</p>
+        <p className="text-2xl font-semibold tabular-nums">{a.coinciden} <span className="text-base font-normal text-smn-gris-500">de {a.decisiones}</span></p>
+        <p className="text-[13px] text-smn-gris-500">{a.no_coinciden} al revés (verde denegado o rojo aceptado)</p>
+      </div>
+      <div>
+        <p className="text-[13px] text-smn-gris-500">Donde más se equivoca el radar</p>
+        {a.errores.length ? (
+          <ul className="text-sm">{a.errores.slice(0, 3).map((e) => <li key={e.factor}><b>{e.nombre}</b> · {e.veces} vez(es){e.ejemplos[0] && <span className="block truncate text-[13px] text-smn-gris-500">«{e.ejemplos[0]}»</span>}</li>)}</ul>
+        ) : <p className="text-sm text-smn-gris-500">El comité no ha marcado errores.</p>}
+      </div>
+      <div>
+        <p className="text-[13px] text-smn-gris-500">Lo que más pesa al decidir</p>
+        {a.indicadores.length ? (
+          <ul className="text-sm">{a.indicadores.slice(0, 4).map((x) => <li key={x.factor}><b>{x.nombre}</b> · {x.a_favor} a favor, {x.en_contra} en contra</li>)}</ul>
+        ) : <p className="text-sm text-smn-gris-500">Todavía no se marca qué pesó.</p>}
+      </div>
+    </section>
+  );
+}
+
+function SkuAlta({ i, listo }: { i: Item; listo: () => void }) {
+  const avisar = useAvisos();
+  const [sku, setSku] = useState(i.sku ?? "");
+  const [guardando, setGuardando] = useState(false);
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setGuardando(true);
+        try {
+          await api(`${RUTA}/productos/${i.id}/sku`, { metodo: "PUT", cuerpo: { sku: sku.trim() } });
+          avisar("SKU guardado: se revisará contra su venta a 4, 8 y 12 semanas");
+          listo();
+        } catch (err) {
+          avisar(mensajeDe(err), "info");
+        } finally {
+          setGuardando(false);
+        }
+      }}
+    >
+      <input value={sku} onChange={(e) => setSku(e.target.value)} maxLength={80} aria-label="SKU de alta" placeholder="SKU con que se dio de alta"
+        className="w-48 rounded-lg border border-smn-gris-100 bg-superficie px-3 py-1.5 text-sm outline-none focus:border-smn-naranja" />
+      <Boton variante="secundario" cargando={guardando} disabled={!sku.trim() || sku.trim() === (i.sku ?? "")}>Guardar</Boton>
+    </form>
+  );
+}
+
 function Aceptados() {
   const avisar = useAvisos();
   const [lista, setLista] = useState<Aceptado[] | null>(null);
-  useEffect(() => {
+  const cargar = useCallback(() => {
     api<Aceptado[]>(`${RUTA}/aceptados`).then(setLista).catch((e) => avisar(mensajeDe(e), "info"));
   }, [avisar]);
+  useEffect(cargar, [cargar]);
 
   return (
     <>
       <p className="mb-4 max-w-2xl text-smn-gris-500">
         Los productos que aceptó el comité. Algunos pasan antes por una revisión de espacio en inventario y después de regulación; luego siguen con el proceso de alta, que va aparte.
+        Con su SKU de alta, el radar los revisa contra su venta a las 4, 8 y 12 semanas y avisa si van arriba, en línea o abajo de lo pronosticado.
       </p>
+      <LoQueAprende />
       {lista === null ? (
         <Esqueleto className="h-24" />
       ) : lista.length === 0 ? (
@@ -260,8 +336,8 @@ function Aceptados() {
       ) : (
         <ul className="space-y-2">
           {lista.map(({ producto: i, reunion_id, fecha_reunion }) => (
-            <li key={i.id}>
-              <Link href={`/compras/propuestas/comite/${reunion_id}#producto-${i.id}`} className="flex flex-wrap items-center gap-3 rounded-2xl border border-smn-gris-100 bg-superficie p-4 hover:border-smn-naranja">
+            <li key={i.id} className="rounded-2xl border border-smn-gris-100 bg-superficie">
+              <Link href={`/compras/propuestas/comite/${reunion_id}#producto-${i.id}`} className="flex flex-wrap items-center gap-3 rounded-2xl p-4 hover:bg-smn-gris-50">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{i.nombre}</p>
                   <p className="truncate text-sm text-smn-gris-500">
@@ -273,8 +349,19 @@ function Aceptados() {
                     {r.nombre}: {RESULTADO_REVISION[r.resultado].texto.toLowerCase()}
                   </Insignia>
                 ))}
+                {i.decision === "a_prueba" && <Insignia className="bg-smn-gris-100 text-smn-gris-700">A prueba en {i.prueba_tiendas?.length ?? 0} tienda(s)</Insignia>}
                 <InsigniaColor color={i.decision_color} />
               </Link>
+              <div className="space-y-1.5 border-t border-smn-gris-100 px-4 py-3">
+                {(i.seguimiento ?? []).map((x) => (
+                  <p key={x.semana} className="flex flex-wrap items-start gap-2 text-sm">
+                    <Insignia className={RESULTADO_SEGUIMIENTO[x.resultado]}>{x.semana} semanas</Insignia>
+                    <span className="min-w-0 flex-1">{x.texto}</span>
+                  </p>
+                ))}
+                {!(i.seguimiento ?? []).length && <p className="text-[13px] text-smn-gris-500">Sin revisiones todavía: la primera es a las 4 semanas de venta.</p>}
+                <SkuAlta i={i} listo={cargar} />
+              </div>
             </li>
           ))}
         </ul>

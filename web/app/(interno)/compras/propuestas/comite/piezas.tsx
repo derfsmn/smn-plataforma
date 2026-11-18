@@ -9,8 +9,8 @@ import { InsigniaColor } from "@/componentes/semaforo-producto";
 import { Boton, Campo, Insignia } from "@/componentes/ui";
 import { api, mensajeDe } from "@/lib/api";
 import {
-  DECISION, RUTA, urlFoto, VALOR, type Candidato, type Criterio, type Criterios, type Decision, type Item, type Peticion,
-  type Reunion, type UsuarioBreve, type ValorCriterio,
+  DECISION, FACTORES_RADAR, INDICADORES, RUTA, urlFoto, VALOR, type Candidato, type Criterio, type Criterios, type Decision,
+  type Indicador, type Item, type Peticion, type Reunion, type TiendaPrueba, type UsuarioBreve, type ValorCriterio,
 } from "@/lib/comite";
 
 const CAJA = "w-full rounded-lg border border-smn-gris-100 bg-superficie px-3.5 py-2.5 text-[15px] outline-none hover:border-smn-gris-300 focus:border-smn-naranja focus:ring-4 focus:ring-smn-naranja/15";
@@ -202,23 +202,64 @@ export function Prefiltrar({ i, cerrar, listo }: { i: Item; cerrar: () => void; 
   );
 }
 
-/** Aceptar, Denegar o En espera, siempre con motivo. */
+/** Aceptar, Aceptar a prueba, Denegar o En espera, siempre con motivo. Además, qué indicador pesó y si el radar se
+ * equivocó (memoria del comité, 17 nov 2026), y para la prueba: tiendas, precio de introducción, fecha y condición. */
 export function FormDecision({ i, listo, grande = false }: { i: Item; listo: (r: Reunion) => void; grande?: boolean }) {
   const avisar = useAvisos();
   const [decision, setDecision] = useState<Decision | null>(i.decision);
   const [motivo, setMotivo] = useState(i.decision_motivo ?? "");
+  const [pesos, setPesos] = useState<Record<string, Indicador["sentido"]>>({});
+  const [error, setError] = useState(i.radar_error_factor ?? "");
+  const [errorMotivo, setErrorMotivo] = useState(i.radar_error_motivo ?? "");
+  const [sugeridas, setSugeridas] = useState<TiendaPrueba[] | null>(null);
+  const [tiendas, setTiendas] = useState<string[]>(i.prueba_tiendas ?? []);
+  const [precio, setPrecio] = useState(i.prueba_precio ?? "");
+  const [revision, setRevision] = useState(i.prueba_revision ?? new Date(Date.now() + 56 * 86400000).toISOString().slice(0, 10));
+  const [condicion, setCondicion] = useState(i.prueba_condicion ?? "");
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
     setDecision(i.decision);
     setMotivo(i.decision_motivo ?? "");
-  }, [i.id, i.decision, i.decision_motivo]);
+    setPesos(Object.fromEntries((i.indicadores ?? []).map((x) => [x.factor, x.sentido])));
+    setError(i.radar_error_factor ?? "");
+    setErrorMotivo(i.radar_error_motivo ?? "");
+    setTiendas(i.prueba_tiendas ?? []);
+  }, [i.id, i.decision, i.decision_motivo, i.indicadores, i.radar_error_factor, i.radar_error_motivo, i.prueba_tiendas]);
+
+  useEffect(() => {
+    if (decision !== "a_prueba" || sugeridas) return;
+    api<TiendaPrueba[]>(`${RUTA}/productos/${i.id}/tiendas-prueba`)
+      .then((t) => {
+        setSugeridas(t);
+        setTiendas((x) => (x.length ? x : t.map((y) => y.almacen)));
+      })
+      .catch(() => setSugeridas([]));
+  }, [decision, sugeridas, i.id]);
+
+  const sentidoInicial: Indicador["sentido"] = decision === "denegado" ? "en_contra" : "a_favor";
+  const alternar = (f: string) =>
+    setPesos((p) => {
+      const x = { ...p };
+      if (!x[f]) x[f] = sentidoInicial;
+      else if (x[f] === sentidoInicial) x[f] = sentidoInicial === "a_favor" ? "en_contra" : "a_favor";
+      else delete x[f];
+      return x;
+    });
 
   const guardar = async () => {
     if (!decision) return;
     setGuardando(true);
     try {
-      const r = await api<Reunion>(`${RUTA}/productos/${i.id}/decision`, { metodo: "PUT", cuerpo: { decision, motivo } });
+      const cuerpo = {
+        decision,
+        motivo,
+        indicadores: Object.entries(pesos).map(([factor, sentido]) => ({ factor, sentido })),
+        radar_error_factor: error || null,
+        radar_error_motivo: error ? errorMotivo || null : null,
+        ...(decision === "a_prueba" ? { prueba_tiendas: tiendas, prueba_precio: precio || null, prueba_revision: revision || null, prueba_condicion: condicion || null } : {}),
+      };
+      const r = await api<Reunion>(`${RUTA}/productos/${i.id}/decision`, { metodo: "PUT", cuerpo });
       avisar(`${DECISION[decision].texto}: ${i.nombre}`);
       listo(r);
     } catch (err) {
@@ -228,9 +269,10 @@ export function FormDecision({ i, listo, grande = false }: { i: Item; listo: (r:
     }
   };
 
+  const faltaPrueba = decision === "a_prueba" && (!tiendas.length || !revision);
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {(Object.keys(DECISION) as Decision[]).map((d) => (
           <button
             key={d}
@@ -252,13 +294,93 @@ export function FormDecision({ i, listo, grande = false }: { i: Item; listo: (r:
         placeholder="Motivo de la decisión *"
         className={CAJA}
       />
+      {decision && decision !== "en_espera" && (
+        <div>
+          <p className="mb-1.5 text-sm font-medium text-smn-gris-700">¿Qué pesó? <span className="font-normal text-smn-gris-500">Toca una vez a favor o en contra, otra para cambiarlo, otra para quitarlo.</span></p>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(INDICADORES).map(([f, nombre]) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => alternar(f)}
+                className={`rounded-full border px-3 py-1 text-[13px] font-semibold transition-colors ${
+                  pesos[f] === "a_favor" ? "border-green-600/40 bg-green-600/10 text-green-700 dark:text-green-400"
+                  : pesos[f] === "en_contra" ? "border-red-600/40 bg-red-600/10 text-red-700 dark:text-red-400"
+                  : "border-smn-gris-100 text-smn-gris-700 hover:border-smn-gris-300"}`}
+              >
+                {nombre}{pesos[f] && ` · ${pesos[f] === "a_favor" ? "a favor" : "en contra"}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {decision && decision !== "en_espera" && (
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_1fr]">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-smn-gris-700">El radar se equivocó en</span>
+            <select value={error} onChange={(e) => setError(e.target.value)} className={CAJA}>
+              <option value="">No se equivocó</option>
+              {Object.entries(FACTORES_RADAR).map(([f, n]) => <option key={f} value={f}>{n}</option>)}
+            </select>
+          </label>
+          {error && (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-smn-gris-700">¿En qué?</span>
+              <input value={errorMotivo} onChange={(e) => setErrorMotivo(e.target.value)} maxLength={500} className={CAJA} placeholder="Ej. el precio de afuera era de otra presentación" />
+            </label>
+          )}
+        </div>
+      )}
+      {decision === "a_prueba" && (
+        <div className="space-y-2 rounded-xl border border-smn-gris-100 p-3">
+          <p className="text-sm font-semibold">Prueba en pocas tiendas</p>
+          {sugeridas === null ? (
+            <p className="text-[13px] text-smn-gris-500">Buscando tiendas sugeridas…</p>
+          ) : sugeridas.length === 0 ? (
+            <p className="text-[13px] text-smn-gris-500">No hay grupos de tiendas calculados. Calcúlalos en Datos → Mapa de tiendas para sugerir tiendas.</p>
+          ) : (
+            <ul className="grid gap-1 sm:grid-cols-2">
+              {sugeridas.map((t) => (
+                <li key={t.almacen}>
+                  <label className="flex items-start gap-2 text-[13px]">
+                    <input
+                      type="checkbox"
+                      checked={tiendas.includes(t.almacen)}
+                      onChange={(e) => setTiendas((x) => (e.target.checked ? [...x, t.almacen] : x.filter((y) => y !== t.almacen)))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <b>{t.nombre}</b> · {t.region ?? "sin región"}
+                      <span className="block text-smn-gris-500">{t.grupo_nombre}{t.vende_parecidos ? " · ya vende sus parecidos" : ""}</span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-smn-gris-700">Precio de introducción</span>
+              <input value={precio} onChange={(e) => setPrecio(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" className={CAJA} placeholder="$" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-smn-gris-700">Se revisa el *</span>
+              <input type="date" value={revision} onChange={(e) => setRevision(e.target.value)} className={CAJA} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] text-smn-gris-700">Condición con el proveedor</span>
+              <input value={condicion} onChange={(e) => setCondicion(e.target.value)} maxLength={500} className={CAJA} placeholder="Ej. devuelve lo que no se venda" />
+            </label>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         {i.decision ? (
           <Insignia className={DECISION[i.decision].clase}>Registrado: {DECISION[i.decision].texto}</Insignia>
         ) : (
           <span className="text-[13px] text-smn-gris-500">Sin decisión todavía</span>
         )}
-        <Boton onClick={guardar} cargando={guardando} disabled={!decision || !motivo.trim() || (decision === i.decision && motivo === (i.decision_motivo ?? ""))}>
+        <Boton onClick={guardar} cargando={guardando} disabled={!decision || !motivo.trim() || faltaPrueba}>
           Registrar
         </Boton>
       </div>

@@ -8,6 +8,7 @@ import { AlertTriangle, Bot, Check, CircleHelp, Gavel, History, PackageSearch, P
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { BotonReporte } from "@/componentes/boton-reporte";
+import { FichaTecnicaTarjeta } from "@/componentes/ficha-tecnica";
 import { Modal } from "@/componentes/modal";
 import { InsigniaColor, Semaforo } from "@/componentes/semaforo-producto";
 import { useSesion } from "@/componentes/sesion";
@@ -18,7 +19,7 @@ import { RUTA as RUTA_BUSQUEDAS, type BusquedaBreve } from "@/lib/busquedas";
 import { Asistente, type Turno } from "../../propuestas/comite/[id]/presentar/asistente";
 import {
   aportes, colorVigente, CONFIANZA, ESTADOS_IDEA, faltaPara, QUE_MIDE, RUTA, urlFoto,
-  type Color, type Comparable, type EstadoIdea, type Evaluacion, type MercadoInternet, type OpcionClasificacion, type RevisionPoliticas, type ProductoCatalogo,
+  type Color, type Comparable, type EstadoIdea, type Evaluacion, type HallazgoWeb, type Investigacion, type MercadoInternet, type Pronostico, type OpcionClasificacion, type RevisionPoliticas, type ProductoCatalogo,
 } from "@/lib/productos";
 
 // Preguntas para el asistente de cada producto (Diego, 2026-11-09: «preguntarle sobre la decisión de cada producto»)
@@ -349,8 +350,11 @@ export default function DetalleEvaluacion() {
               </p>
             </section>
 
+            <FichaTecnicaTarjeta ruta={`${RUTA}/evaluaciones/${e.id}/ficha`} />
             {e.politicas && <Politicas r={e.politicas} />}
             {e.mercado && <PreciosInternet m={e.mercado} />}
+            {e.investigacion && <Afuera inv={e.investigacion} />}
+            {e.pronostico && <CuantoVendera p={e.pronostico} />}
 
             <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -491,7 +495,11 @@ function Politicas({ r }: { r: RevisionPoliticas }) {
                 <p className="font-semibold">{h.titulo} <span className="font-normal text-smn-gris-500">· {TIPO_POLITICA[h.tipo]}</span></p>
                 {h.motivo && <p className="text-[13px] text-smn-gris-500">{h.motivo}</p>}
               </div>
-              <Insignia className={RESULTADO_POLITICA[h.resultado].clase}>{RESULTADO_POLITICA[h.resultado].texto}</Insignia>
+              {h.sin_prueba ? (
+                <Insignia className={RESULTADO_POLITICA.sin_datos.clase}>Por confirmar</Insignia>
+              ) : (
+                <Insignia className={RESULTADO_POLITICA[h.resultado].clase}>{RESULTADO_POLITICA[h.resultado].texto}</Insignia>
+              )}
             </li>
           ))}
         </ul>
@@ -529,7 +537,7 @@ function PreciosInternet({ m }: { m: MercadoInternet }) {
           {m.precios.map((p, i) => (
             <li key={i} className="flex items-center justify-between gap-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="font-semibold">{p.vendedor} <span className="font-normal text-smn-gris-500">· {p.fuente === "google" ? "Google Shopping" : "su sitio"}</span></p>
+                <p className="font-semibold">{p.vendedor} <span className="font-normal text-smn-gris-500">· {p.fuente === "google" ? "Google Shopping" : p.fuente === "web" ? "página que leyó la IA local" : "su sitio"}</span></p>
                 <p className="truncate text-[13px] text-smn-gris-500">
                   {p.liga ? <a href={p.liga} target="_blank" rel="noreferrer" className="hover:underline">{p.titulo}</a> : p.titulo}
                 </p>
@@ -547,6 +555,96 @@ function PreciosInternet({ m }: { m: MercadoInternet }) {
       <p className="mt-2 text-[13px] text-smn-gris-500">
         Búsqueda del {m.buscado_en ? fechaLocal(m.buscado_en) : "—"}; se reusa 7 días al recalcular. Costo DataForSEO: US$ {Number(m.costo_usd).toFixed(3)}.
       </p>
+    </section>
+  );
+}
+
+const TIPO_WEB: Record<HallazgoWeb["tipo"], string> = { mismo: "Este producto", misma_marca: "Otro de la marca", sustituto: "Sustituto" };
+
+function Afuera({ inv }: { inv: Investigacion }) {
+  return (
+    <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
+      <h2 className="mb-1 font-semibold">Lo que encontramos afuera</h2>
+      <p className="mb-3 text-[13px] text-smn-gris-500">Páginas de internet que leyó la IA local. Cada dato está tal cual en la página; pasa el mouse para ver la frase.</p>
+      {inv.hallazgos.length === 0 ? (
+        <p className="text-sm text-smn-gris-500">No encontramos páginas que hablen de este producto o de uno parecido.</p>
+      ) : (
+        <ul className="divide-y divide-smn-gris-100">
+          {inv.hallazgos.map((h, i) => (
+            <li key={i} className="py-2.5 text-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <a href={h.url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold hover:underline">{h.producto ?? h.titulo}</a>
+                {h.precio && <span className="shrink-0 font-semibold" title={h.citas.precio}>{pesos(h.precio)}</span>}
+              </div>
+              <p className="text-[13px] text-smn-gris-500">
+                {TIPO_WEB[h.tipo]} · {h.dominio}
+                {h.presentacion && <span title={h.citas.presentacion}> · {h.presentacion}</span>}
+                {h.dosis && <span title={h.citas.dosis}> · {h.dosis}</span>}
+              </p>
+              {h.afirmaciones.length > 0 && <p className="mt-0.5 text-[13px] text-smn-gris-700">Dice: {h.afirmaciones.map((a) => `«${a}»`).join(" ")}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {inv.notas.length > 0 && (
+        <ul className="mt-2 list-disc pl-5 text-[13px] text-smn-gris-700">
+          {inv.notas.slice(0, 6).map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      )}
+      <p className="mt-2 text-[13px] text-smn-gris-500">
+        Búsqueda del {inv.buscado_en ? fechaLocal(inv.buscado_en) : "—"}; se reusa 7 días al recalcular.
+      </p>
+    </section>
+  );
+}
+
+const piezas = (n: number) => n.toLocaleString("es-MX", { maximumFractionDigits: 1 });
+
+function CuantoVendera({ p }: { p: Pronostico }) {
+  const tramos = (["4", "8", "12"] as const).filter((t) => p.tramos[t]);
+  return (
+    <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
+      <h2 className="mb-1 font-semibold">¿Cuánto venderá y dónde?</h2>
+      {tramos.length === 0 ? (
+        <p className="text-sm text-smn-gris-500">{p.nota ?? "Todavía no se puede pronosticar."}</p>
+      ) : (
+        <>
+          <p className="mb-3 text-[13px] text-smn-gris-500">
+            Piezas por tienda al mes. Parte de {p.base_de} ({piezas(p.base ?? 0)}) y de cómo arrancaron {p.lanzamientos} productos nuevos de 2026.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {tramos.map((t) => {
+              const [bajo, medio, alto] = p.tramos[t];
+              return (
+                <div key={t} className="rounded-xl border border-smn-gris-100 p-3">
+                  <p className="text-[13px] text-smn-gris-500">Semanas {Number(t) - 3} a {t}</p>
+                  <p className="text-2xl font-semibold tabular-nums">{piezas(medio)}</p>
+                  <p className="text-[13px] text-smn-gris-500 tabular-nums">entre {piezas(bajo)} y {piezas(alto)}</p>
+                </div>
+              );
+            })}
+          </div>
+          {p.grupos.length > 0 && (
+            <>
+              <h3 className="mt-4 mb-1 text-sm font-semibold">Por grupo de tiendas, a 12 semanas</h3>
+              <ul className="divide-y divide-smn-gris-100">
+                {[...p.grupos].sort((a, b) => b.medio - a.medio).map((g) => (
+                  <li key={g.grupo} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                    <span className="min-w-0 truncate">{g.nombre} <span className="text-[13px] text-smn-gris-500">· {g.tiendas} tiendas</span></span>
+                    <span className="shrink-0 tabular-nums"><b>{piezas(g.medio)}</b> <span className="text-[13px] text-smn-gris-500">({piezas(g.bajo)} a {piezas(g.alto)})</span></span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="mt-2 text-[13px] text-smn-gris-500">
+            {p.canibal_pct != null && `De lo que vende un nuevo, cerca de ${p.canibal_pct} % se lo quita a los que ya tenemos de su subcategoría. `}
+            {p.examen.suficientes
+              ? `Probado con los lanzamientos de 2026: ${p.examen.dentro_pct} % cayó dentro del rango.`
+              : "Todavía hay pocos lanzamientos para medir qué tan bien le atina."}
+          </p>
+        </>
+      )}
     </section>
   );
 }
