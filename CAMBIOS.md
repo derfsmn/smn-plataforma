@@ -1,5 +1,20 @@
 # Registro de cambios
 
+## v0.4 · 2026-11-18
+
+Radar de productos inteligente con fichas tecnicas, validacion nocturna del radar de precios, reporte PDF por producto, editar datos de usuarios y arreglos de seguridad
+
+**Cambios guardados:**
+- Radar inteligente, fichas tecnicas, precios de noche, editar usuarios y arreglos de seguridad
+- Reporte PDF por producto evaluado (migraci├│n 0046)
+
+**Migraciones nuevas:**
+- 0046_reporte_producto.py
+- 0047_fichas.py
+- 0049_radar_inteligente.py
+- 0049b_envio_organico.py
+- 0050_validar_radar_precios.py
+
 ## v0.3.1 · 2026-11-12
 
 Radar más inteligente y comité más rápido
