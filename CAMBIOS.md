@@ -1,5 +1,19 @@
 # Registro de cambios
 
+## v0.5 · 2026-11-22
+
+Buscador de productos, Innovación Vidanat, radar por niveles, lista de margen y membresía, búsquedas web y arreglos de seguridad (llave de cifrado propia, límites de intentos, encabezados, contenedores sin root)
+
+**Cambios guardados:**
+- Buscador de productos, Innovación Vidanat, radar por niveles, lista de margen y membresía, búsquedas web con DataForSEO y arreglos de seguridad
+
+**Migraciones nuevas:**
+- 0051_buscar_web.py
+- 0052_innovacion.py
+- 0053_pantalla_guardada.py
+- 0054_envio_amazon.py
+- 0055_lista_margen.py
+
 ## v0.4 · 2026-11-18
 
 Radar de productos inteligente con fichas tecnicas, validacion nocturna del radar de precios, reporte PDF por producto, editar datos de usuarios y arreglos de seguridad
