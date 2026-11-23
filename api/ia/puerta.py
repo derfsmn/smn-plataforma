@@ -32,6 +32,9 @@ from nucleo.modelos import IaLlamada, IaPresupuesto, IaTarea, Permiso, RolPermis
 from nucleo.notificaciones import notificar
 
 ADMINISTRAR_IA = "nucleo.ia.administrar"
+# Tareas que por diseño nunca salen del servidor (fórmulas y material confidencial). Aunque alguien cambie su proveedor
+# en Administración > IA, la puerta las rechaza si no van a Ollama. Plan TD005 aprobado por Diego el 2026-11-22.
+SOLO_LOCAL = ("innovacion.",)
 BETA_RESPALDO = "server-side-fallback-2026-07-01"
 
 
@@ -65,7 +68,8 @@ def ventana(*textos: str, salida: int, minimo: int = 8192, maximo: int = 32768) 
 
 
 def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: int,
-                   imagenes: list[str] | None = None, con_think: bool = True, contexto: int | None = None) -> dict:
+                   imagenes: list[str] | None = None, con_think: bool = True, contexto: int | None = None,
+                   formato: str | None = None) -> dict:
     cfg = configuracion()
     usuario = {"role": "user", "content": mensaje, **({"images": imagenes} if imagenes else {})}  # base64; modelo con visión
     cuerpo = json.dumps({
@@ -75,6 +79,8 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
         "options": {"num_predict": max_tokens, "temperature": 0.3, "repeat_penalty": 1.15, "repeat_last_n": 256,
                     **({"num_ctx": contexto} if contexto else {})},
         "messages": [{"role": "system", "content": instrucciones}, usuario],
+        # 22 nov 2026: con «json» Ollama solo deja salir JSON válido (antes llegaba vacío o con prosa)
+        **({"format": formato} if formato else {}),
     }).encode()
     peticion = urllib.request.Request(f"{cfg.ollama_url.rstrip('/')}/api/chat", data=cuerpo,
                                       headers={"Content-Type": "application/json"})
@@ -88,7 +94,8 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
             causa = ""
         if con_think and e.code == 400 and "think" in causa.lower():
             # Modelos sin razonamiento (p. ej. qwen3-vl instruct) pueden rechazar el campo «think»: se reintenta sin él
-            return _llamar_ollama(modelo, instrucciones, mensaje, max_tokens, imagenes, con_think=False, contexto=contexto)
+            return _llamar_ollama(modelo, instrucciones, mensaje, max_tokens, imagenes, con_think=False, contexto=contexto,
+                                  formato=formato)
         raise ErrorIA(f"Ollama respondió con error {e.code}" + (f": {causa}" if causa else "")
                       + f". Revisa que el modelo «{modelo}» esté descargado.") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -335,7 +342,7 @@ def _registrar(bd: Session, tarea: IaTarea, usuario_id: int | None, proveedor: s
 
 
 def _por_ollama(bd: Session, tarea: IaTarea, usuario_id, instrucciones, mensaje, max_tokens,
-                imagenes: list[str] | None = None, contexto: int | None = None) -> Respuesta:
+                imagenes: list[str] | None = None, contexto: int | None = None, formato: str | None = None) -> Respuesta:
     cfg = configuracion()
     modelo = (tarea.modelo if tarea.proveedor_ia == "ollama" else None) or cfg.ollama_modelo
     if not modelo:
@@ -343,7 +350,7 @@ def _por_ollama(bd: Session, tarea: IaTarea, usuario_id, instrucciones, mensaje,
     inicio = time.monotonic()
     try:
         r = _llamar_ollama(modelo, instrucciones, mensaje, max_tokens, **({"imagenes": imagenes} if imagenes else {}),
-                           **({"contexto": contexto} if contexto else {}))
+                           **({"contexto": contexto} if contexto else {}), **({"formato": formato} if formato else {}))
     except ErrorIA as e:
         _registrar(bd, tarea, usuario_id, "ollama", modelo, "error", inicio, detalle=str(e))
         raise
@@ -389,8 +396,9 @@ def _por_api(bd: Session, tarea: IaTarea, usuario_id, instrucciones, mensaje, ma
 def ejecutar(bd: Session, tarea_codigo: str, *, usuario_id: int | None, instrucciones: str, mensaje: str,
              max_tokens: int = 1024, esfuerzo: str = "medium", proveedor: str | None = None,
              busqueda_web: bool = False, dominios: list[str] | None = None,
-             imagenes: list[str] | None = None, contexto: int | None = None) -> Respuesta:
+             imagenes: list[str] | None = None, contexto: int | None = None, formato: str | None = None) -> Respuesta:
     """Corre una tarea de IA. `proveedor` solo lo usa la pantalla de prueba para forzar uno.
+    `formato="json"` obliga a Ollama a contestar JSON válido (la API externa lo ignora).
     `contexto` (tokens) agranda la ventana de Ollama para textos largos; sin él, Ollama usa la suya (2,048 a 4,096).
     Con `busqueda_web` siempre va a la API externa (Ollama no busca en internet).
     Con `imagenes` (base64) solo va a Ollama, con el modelo de la tarea, que debe tener visión."""
@@ -398,6 +406,13 @@ def ejecutar(bd: Session, tarea_codigo: str, *, usuario_id: int | None, instrucc
     if not tarea or not tarea.activa:
         raise ErrorIA(f"La tarea de IA «{tarea_codigo}» no existe o está apagada.")
     plan = proveedor or tarea.proveedor_ia
+    if tarea_codigo.startswith(SOLO_LOCAL) and (plan != "ollama" or busqueda_web):
+        aviso = (f"La tarea «{tarea_codigo}» solo puede correr con la IA local (Ollama): maneja material confidencial. "
+                 "Cámbiala a Ollama en Administración > Inteligencia artificial.")
+        _registrar(bd, tarea, usuario_id, "api" if plan != "ollama" else "ollama", tarea.modelo, "error",
+                   time.monotonic(), detalle=aviso)
+        bd.commit()
+        raise ErrorIA(aviso)
     if imagenes:
         if plan == "api":
             raise ErrorIA("Comparar imágenes por ahora solo funciona con Ollama.")
@@ -405,11 +420,11 @@ def ejecutar(bd: Session, tarea_codigo: str, *, usuario_id: int | None, instrucc
     if busqueda_web:
         return _por_api(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, esfuerzo, True, dominios)
     if plan == "ollama":
-        return _por_ollama(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, contexto=contexto)
+        return _por_ollama(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, contexto=contexto, formato=formato)
     if plan == "api":
         return _por_api(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, esfuerzo)
     try:  # ollama_y_api_respaldo
-        return _por_ollama(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, contexto=contexto)
+        return _por_ollama(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, contexto=contexto, formato=formato)
     except ErrorIA:
         return _por_api(bd, tarea, usuario_id, instrucciones, mensaje, max_tokens, esfuerzo)
 

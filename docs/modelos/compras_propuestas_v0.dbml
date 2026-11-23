@@ -22,6 +22,8 @@ Table compras.propuesta {
   revisiones nvarchar(max) [null, note: 'JSON: revisiones automáticas al enviar (RFC, código de barras, ya en catálogo, margen, vida útil)']
   alertas int [not null, default: 0, note: 'Cuántas revisiones automáticas quedaron en alerta']
   comentario nvarchar(1000) [null, note: 'Último comentario de Compras al regresarla o rechazarla']
+  lista_margen nvarchar(1) [null, note: 'Tipo de producto = lista de márgenes A–F; lo pone Compras al revisarla (migración 0055)']
+  precio_membresia decimal(12,2) [null, note: 'con IVA; vacío = se calcula con la regla de la lista']
   enviada_en datetime [null, note: 'Último envío']
   creada_en datetime [not null]
   actualizada_en datetime [not null]

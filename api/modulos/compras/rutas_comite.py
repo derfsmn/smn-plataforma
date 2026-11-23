@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, true
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, selectinload
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, ip_de, requiere
@@ -392,7 +392,9 @@ def _items(bd: Session, items: list[ComiteProducto]) -> list[ItemSalida]:
     vigentes: dict[tuple[str, int], ProductoEvaluacion] = {}
     for ev in bd.scalars(select(ProductoEvaluacion).where(
             ProductoEvaluacion.vigente == true(), or_(ProductoEvaluacion.idea_id.in_(iids), ProductoEvaluacion.propuesta_id.in_(pids)))
-            .options(selectinload(ProductoEvaluacion.factores)).order_by(ProductoEvaluacion.evaluacion_id)):
+            .options(selectinload(ProductoEvaluacion.factores), defer(ProductoEvaluacion.mercado), defer(ProductoEvaluacion.investigacion),
+                     defer(ProductoEvaluacion.pronostico), defer(ProductoEvaluacion.politicas), defer(ProductoEvaluacion.pantalla))
+            .order_by(ProductoEvaluacion.evaluacion_id)):
         vigentes[("p", ev.propuesta_id) if ev.propuesta_id else ("i", ev.idea_id)] = ev  # la más nueva gana
     oportunidades = {o.idea_id: o for o in bd.scalars(select(Oportunidad).where(Oportunidad.idea_id.in_(iids)))}
     seguimientos: dict[int, list[dict]] = {}
@@ -610,7 +612,7 @@ def evaluar_sujeto(bd: Session, item: ComiteProducto, ctx: Contexto, request: Re
     if p.estado in ("recibida", "en_revision"):
         from modulos.compras import rutas_propuestas as rpr
 
-        rpr.cambiar_estado(p.propuesta_id, rpr.CambioEstado(estado="lista"), request, ctx, bd)  # evalúa ahí mismo
+        rpr.pasar_a(p.propuesta_id, rpr.CambioEstado(estado="lista"), request, ctx, bd, exigir_lista=False)  # evalúa ahí
     elif p.estado == "lista" and not rp.vigente(bd, propuesta_id=p.propuesta_id):
         e = rp.iniciar(bd, propuesta_id=p.propuesta_id, usuario_id=ctx.usuario.usuario_id)
         rp.en_hilo(e.evaluacion_id)
@@ -1512,6 +1514,19 @@ def _por_unidad_parecidos(d: Parecidos, presentacion: str | None, nombre: str, p
         x.tamano = _texto_tamano(t, dim)
         x.por_unidad = (x.precio / t).quantize(Decimal("0.0001"))
         x.cuenta = x.producto_id in cercanos if cercanos else True
+
+
+@router.get("/productos/{item_id}/pantalla")
+def pantalla(item_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
+    """La pantalla del producto en el comité: cómo salió, por qué, cómo se calculó y con qué datos (plan del 20 nov 2026)."""
+    from modulos.compras import pantalla_comite
+
+    i = _item(bd, item_id)
+    e = rp.vigente(bd, propuesta_id=i.propuesta_id) if i.propuesta_id else rp.vigente(bd, idea_id=i.idea_id)
+    if not e or e.estado != "lista":
+        raise HTTPException(status.HTTP_409_CONFLICT, "La pantalla sale cuando el semáforo termina de evaluar.")
+    fotos = [f"{router.prefix}/productos/{item_id}/fotos/{n}?ancho=900" for n in range(len(_fotos(bd, i)))]
+    return pantalla_comite.armar(bd, e, fotos)
 
 
 @router.post("/productos/{item_id}/preguntar", response_model=RespuestaAsistente)

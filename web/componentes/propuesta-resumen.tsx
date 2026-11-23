@@ -1,6 +1,7 @@
 "use client";
 // Lo que capturó el proveedor en una propuesta, de solo lectura. Lo usan el portal (ya enviada) y la bandeja de Compras.
 
+import { Imagen } from "@/componentes/imagen";
 import { FileText } from "lucide-react";
 import { tamanoLegible } from "@/lib/api";
 import { margenDe, NOMBRE_ADJUNTO, urlAdjunto, type Catalogos, type Propuesta } from "@/lib/propuestas";
@@ -99,7 +100,7 @@ export function ResumenPropuesta({ p, cat }: { p: Propuesta; cat: Catalogos }) {
               <li key={a.id} className="overflow-hidden rounded-2xl border border-smn-gris-100">
                 <a href={urlAdjunto(p.id, a.id)} target="_blank" rel="noreferrer" className="block aspect-square bg-smn-gris-50">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={urlAdjunto(p.id, a.id)} alt={a.nombre} className="h-full w-full object-contain" />
+                  <Imagen src={urlAdjunto(p.id, a.id)} alt={a.nombre} className="h-full w-full object-contain" />
                 </a>
                 <p className="border-t border-smn-gris-100 px-2 py-1.5 text-[13px] font-semibold">
                   {a.tipo === "imagen_producto" ? "Producto" : "Etiquetado"} · {a.etiqueta}

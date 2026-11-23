@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from core.bd import motor
@@ -909,7 +909,8 @@ def test_fotos_solo_de_sitios_permitidos_y_solo_con_ollama(limpio):
     assert not img.permitida("http://encrypted-tbn0.gstatic.com/x")  # sin https
     assert not img.permitida("https://169.254.169.254/latest") and not img.permitida("https://gstatic.com.ejemplo.mx/x")
     with Session(motor()) as bd, pytest.raises(puerta.ErrorIA, match="solo funciona con Ollama"):
-        puerta.ejecutar(bd, "compras.radar_buscar", usuario_id=None, instrucciones="x", mensaje="x", imagenes=["abc"])
+        bd.execute(text("UPDATE nucleo.ia_tarea SET proveedor_ia = 'api' WHERE codigo = 'compras.radar_resumen'"))
+        puerta.ejecutar(bd, "compras.radar_resumen", usuario_id=None, instrucciones="x", mensaje="x", imagenes=["abc"])
 
 
 def test_reglas_de_variante_sobre_lo_que_elige_la_ia():

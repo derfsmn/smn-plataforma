@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Literal
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -180,6 +181,9 @@ class PropuestaSalida(PropuestaBreve):
     eventos: list[EventoSalida]
     filas: list[PresentacionSalida]
     creada_por: str
+    # Solo para Compras (22 nov 2026): el proveedor no ve nuestros márgenes
+    lista_margen: str | None = None
+    precio_membresia: Decimal | None = None
 
 
 def _breve(bd: Session, p: Propuesta, empresas: dict[int, str] | None = None) -> PropuestaBreve:
@@ -220,6 +224,7 @@ def _salida(bd: Session, p: Propuesta, ctx: Contexto) -> PropuestaSalida:
                                   margen_calculado=float(f.margen_calculado) if f.margen_calculado is not None else None,
                                   ya_en_catalogo=f.ya_en_catalogo) for f in p.filas_presentacion] if interno else [],
         creada_por=nombres.get(p.creada_por, ""),
+        lista_margen=p.lista_margen if interno else None, precio_membresia=p.precio_membresia if interno else None,
     )
 
 
@@ -537,6 +542,13 @@ class CambioEstado(BaseModel):
 @router.post("/propuestas/{propuesta_id}/estado", response_model=PropuestaSalida)
 def cambiar_estado(propuesta_id: int, datos: CambioEstado, request: Request, ctx: Contexto = Depends(requiere(REVISAR)),
                    bd: Session = Depends(obtener_bd)) -> PropuestaSalida:
+    return pasar_a(propuesta_id, datos, request, ctx, bd)
+
+
+def pasar_a(propuesta_id: int, datos: CambioEstado, request: Request | None, ctx: Contexto, bd: Session,
+            exigir_lista: bool = True) -> PropuestaSalida:
+    """`exigir_lista=False` solo desde el comité, que la sube a evaluar sola: sin tipo de producto se evalúa con la
+    lista A por omisión y la pantalla lo avisa."""
     p = _propuesta(bd, propuesta_id, ctx)
     if datos.estado not in pr.TRANSICIONES.get(p.estado, set()):
         raise HTTPException(status.HTTP_409_CONFLICT,
@@ -544,6 +556,10 @@ def cambiar_estado(propuesta_id: int, datos: CambioEstado, request: Request, ctx
     comentario = pr.limpio(datos.comentario) or None
     if datos.estado in {"devuelta", "rechazada"} and not comentario:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escribe el motivo para el proveedor.")
+    if datos.estado == "lista" and not p.lista_margen and exigir_lista:
+        # Diego, 22 nov 2026: Rentabilidad se mide contra el margen de su tipo de producto
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Elige el tipo de producto (lista de márgenes A–F) antes de pasarla a evaluación.")
     antes = p.estado
     p.estado = datos.estado
     if comentario:
@@ -570,6 +586,28 @@ def cambiar_estado(propuesta_id: int, datos: CambioEstado, request: Request, ctx
     if datos.estado == "lista":  # el radar de productos la evalúa solo (Diego, 2026-10-26)
         e = radar_productos.iniciar(bd, propuesta_id=p.propuesta_id, usuario_id=ctx.usuario.usuario_id)
         radar_productos.en_hilo(e.evaluacion_id)
+    return _salida(bd, p, ctx)
+
+
+class CambioMargen(BaseModel):
+    lista_margen: Literal["A", "B", "C", "D", "E", "F"]
+    precio_membresia: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
+
+
+@router.patch("/propuestas/{propuesta_id}/margen", response_model=PropuestaSalida)
+def poner_margen(propuesta_id: int, datos: CambioMargen, request: Request,
+                 ctx: Contexto = Depends(requiere(REVISAR)), bd: Session = Depends(obtener_bd)) -> PropuestaSalida:
+    """Compras pone el tipo de producto (lista de márgenes) y, si lo sabe, el precio de membresía con IVA. Cuenta en la
+    siguiente evaluación («Recalcular»)."""
+    p = _propuesta(bd, propuesta_id, ctx)
+    if ctx.usuario.tipo != "interno":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo Compras pone el tipo de producto.")
+    antes = {"lista": p.lista_margen, "membresia": str(p.precio_membresia) if p.precio_membresia else None}
+    p.lista_margen, p.precio_membresia, p.actualizada_en = datos.lista_margen, datos.precio_membresia, ahora()
+    _bitacora(bd, "poner_margen", ctx, request, p.propuesta_id,
+              {"antes": antes, "despues": {"lista": p.lista_margen,
+                                           "membresia": str(p.precio_membresia) if p.precio_membresia else None}})
+    bd.commit()
     return _salida(bd, p, ctx)
 
 

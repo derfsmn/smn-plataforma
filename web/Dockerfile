@@ -14,8 +14,10 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=construccion /app/.next/standalone ./
-COPY --from=construccion /app/.next/static ./.next/static
-COPY --from=construccion /app/public ./public
+# Corre con el usuario «node» de la imagen, sin privilegios (revisión de seguridad 2026-11-22, M6)
+COPY --from=construccion --chown=node:node /app/.next/standalone ./
+COPY --from=construccion --chown=node:node /app/.next/static ./.next/static
+COPY --from=construccion --chown=node:node /app/public ./public
+USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

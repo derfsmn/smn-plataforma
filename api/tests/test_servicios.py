@@ -239,3 +239,23 @@ def test_probar_correo(admin: TestClient, monkeypatch):
     monkeypatch.setattr("nucleo.configuracion.enviar", lambda *a, **k: True)
     r = admin.post("/api/nucleo/configuracion/probar-correo").json()
     assert r["enviado"] is True and ADMIN["correo"] in r["mensaje"]
+
+
+def test_ollama_recibe_formato_json(monkeypatch):
+    """22 nov 2026: clasificar y revisar parecidos piden JSON a Ollama para que no llegue vacío o cortado."""
+    import io
+    import json as _json
+
+    from ia import puerta
+    enviado = {}
+
+    def falso(peticion, timeout=None):
+        enviado.update(_json.loads(peticion.data))
+        return io.BytesIO(_json.dumps({"message": {"content": "{\"a\": 1}"}, "done_reason": "stop"}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", falso)
+    assert puerta._llamar_ollama("qwen3:4b", "i", "m", 10, formato="json")["texto"] == "{\"a\": 1}"
+    assert enviado["format"] == "json"
+    enviado.clear()
+    puerta._llamar_ollama("qwen3:4b", "i", "m", 10)
+    assert "format" not in enviado

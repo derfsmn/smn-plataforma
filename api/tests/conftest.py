@@ -53,6 +53,15 @@ def base_de_pruebas():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _limites_limpios():
+    """Cada prueba empieza sin intentos anotados (los límites por IP y por correo viven en memoria)."""
+    from core import limites
+
+    limites.reiniciar()
+    yield
+
+
 @pytest.fixture
 def cliente(base_de_pruebas):
     from main import app

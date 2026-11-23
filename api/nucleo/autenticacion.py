@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from core import limites
 from core.bd import motor, obtener_bd
 from core.config import configuracion
 from core.seguridad import (
@@ -26,6 +27,13 @@ INTENTOS_MAXIMOS = 5
 MINUTOS_BLOQUEO = 15
 MINUTOS_LIGA_RECUPERACION = 30
 INCORRECTO = "Correo o contraseña incorrectos."
+# Límites por IP y por correo (revisión de seguridad 2026-11-22, M3). El bloqueo por correo aplica igual exista o no la
+# cuenta, para que la respuesta no revele qué correos tienen cuenta.
+FALLAS_POR_IP, MINUTOS_IP = 20, 15
+RECUPERAR_POR_IP, RECUPERAR_POR_CORREO, MINUTOS_RECUPERAR = 10, 3, 60
+BLOQUEADA = (f"Tu cuenta está bloqueada por {INTENTOS_MAXIMOS} intentos fallidos. Intenta en {MINUTOS_BLOQUEO} minutos "
+             "o recupera tu contraseña.")
+DEMASIADOS = "Demasiados intentos desde este equipo. Espera unos minutos y vuelve a intentar."
 # Hash de relleno para que tardar lo mismo exista o no el correo
 _HASH_RELLENO = cifrar_contrasena("relleno-que-no-es-de-nadie")
 
@@ -76,20 +84,29 @@ def buscar_por_correo(bd: Session, correo: str) -> Usuario | None:
 
 @router.post("/iniciar", response_model=Yo)
 def iniciar(datos: Credenciales, request: Request, response: Response, bd: Session = Depends(obtener_bd)) -> Yo:
+    ip, clave_correo = ip_de(request), datos.correo.strip().lower()
+    if limites.excedido("login_ip", ip, FALLAS_POR_IP, MINUTOS_IP * 60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DEMASIADOS, headers={"Retry-After": str(MINUTOS_IP * 60)})
+    if limites.excedido("login_correo", clave_correo, INTENTOS_MAXIMOS, MINUTOS_BLOQUEO * 60):
+        raise HTTPException(status.HTTP_423_LOCKED, BLOQUEADA)
+
+    def fallo() -> None:
+        limites.anotar("login_ip", ip, MINUTOS_IP * 60)
+        limites.anotar("login_correo", clave_correo, MINUTOS_BLOQUEO * 60)
+
     usuario = buscar_por_correo(bd, datos.correo)
     if not usuario or usuario.estatus != "activo" or not usuario.hash_contrasena:
         verificar_contrasena(_HASH_RELLENO, datos.contrasena)
-        registrar(bd, "login_fallido", entidad="usuario", detalle={"correo": datos.correo[:254]}, ip=ip_de(request))
+        fallo()
+        registrar(bd, "login_fallido", entidad="usuario", detalle={"correo": datos.correo[:254]}, ip=ip)
         bd.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, INCORRECTO)
 
     if usuario.bloqueado_hasta and usuario.bloqueado_hasta > ahora():
-        raise HTTPException(
-            status.HTTP_423_LOCKED,
-            f"Tu cuenta está bloqueada por {INTENTOS_MAXIMOS} intentos fallidos. Intenta en {MINUTOS_BLOQUEO} minutos o recupera tu contraseña.",
-        )
+        raise HTTPException(status.HTTP_423_LOCKED, BLOQUEADA)
 
     if not verificar_contrasena(usuario.hash_contrasena, datos.contrasena):
+        fallo()
         usuario.intentos_fallidos += 1
         detalle = {"intentos": usuario.intentos_fallidos}
         if usuario.intentos_fallidos >= INTENTOS_MAXIMOS:
@@ -106,6 +123,7 @@ def iniciar(datos: Credenciales, request: Request, response: Response, bd: Sessi
     usuario.intentos_fallidos = 0
     usuario.bloqueado_hasta = None
     usuario.ultimo_acceso_en = ahora()
+    limites.olvidar("login_correo", clave_correo)
     iniciar_sesion(bd, usuario, request, response)
     registrar(bd, "login", usuario_id=usuario.usuario_id, entidad="usuario", entidad_id=usuario.usuario_id, ip=ip_de(request))
     bd.commit()
@@ -149,8 +167,15 @@ def cambiar_contrasena(
 @router.post("/recuperar")
 def recuperar(datos: SolicitudRecuperacion, request: Request, tareas: BackgroundTasks,
               bd: Session = Depends(obtener_bd)) -> dict:
-    """Siempre responde lo mismo, para no revelar qué correos tienen cuenta."""
-    usuario = buscar_por_correo(bd, datos.correo)
+    """Siempre responde lo mismo, para no revelar qué correos tienen cuenta. Con límite por IP y por correo para que
+    nadie use la plataforma para inundar de correos a una persona (si se pasa, responde igual y no manda nada)."""
+    ip, clave_correo, segundos = ip_de(request), datos.correo.strip().lower(), MINUTOS_RECUPERAR * 60
+    if limites.excedido("recuperar_ip", ip, RECUPERAR_POR_IP, segundos):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DEMASIADOS, headers={"Retry-After": str(segundos)})
+    limites.anotar("recuperar_ip", ip, segundos)
+    permitido = not limites.excedido("recuperar_correo", clave_correo, RECUPERAR_POR_CORREO, segundos)
+    limites.anotar("recuperar_correo", clave_correo, segundos)
+    usuario = buscar_por_correo(bd, datos.correo) if permitido else None
     if usuario and usuario.estatus == "activo":
         token, token_hash = nuevo_token()
         bd.add(RestablecimientoContrasena(

@@ -138,10 +138,29 @@ def _fecha(valor) -> date | None:
 
 # ---------------------------------------------------------------- lectura
 
+def _sitio_publico(url: str) -> bool:
+    from modulos.compras.imagenes import _host_publico
+
+    u = urlsplit(url)
+    return u.scheme in ("http", "https") and bool(u.hostname) and _host_publico(u.hostname)
+
+
+class _RedireccionPublica(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones solo a sitios públicos de internet (revisión de seguridad 2026-11-22, B2)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, code, msg, headers, newurl) if _sitio_publico(newurl) else None
+
+
+_abridor_rss = urllib.request.build_opener(_RedireccionPublica)
+
+
 def leer_rss(direccion: str) -> list[dict]:
+    if not _sitio_publico(direccion):
+        raise ErrorRadar("La dirección debe ser un sitio público de internet (http o https), no de la red interna.")
     peticion = urllib.request.Request(direccion, headers={"User-Agent": AGENTE, "Accept": "application/rss+xml, */*"})
     try:
-        with urllib.request.urlopen(peticion, timeout=25) as r:
+        with _abridor_rss.open(peticion, timeout=25) as r:
             contenido = r.read(5 * 1024 * 1024)
     except urllib.error.HTTPError as e:
         bloqueo = " El sitio bloquea lectores automáticos; si sigue igual, cambia esta fuente a «Búsqueda en su sitio»." \
@@ -208,6 +227,38 @@ def _cuantas(n: int) -> str:
     return "1 nota" if n == 1 else f"{n} notas"
 
 
+def buscar_en_web(bd: Session, consulta: str, desde: date, dominios: list[str] | None = None) -> tuple[list[dict], int]:
+    """Lo mismo que buscar_con_ia, sin API externa (18 nov 2026): la IA local escribe las búsquedas y Google Noticias
+    (DataForSEO) da las notas con su liga y su fecha. Devuelve (notas, descartadas por fecha o por sitio)."""
+    from modulos.compras import buscar_web as bw
+
+    temas = ["suplementos", "productos naturistas", "nutrición"]
+    fijas = [f"{consulta.split('.')[0][:80]}"] if not dominios else temas
+    busquedas = bw.frases(bd, "compras.radar_buscar",
+                          f"Notas recientes (noticias, comunicados) sobre: {consulta}", fijas)
+    if dominios:
+        sitios = " OR ".join(f"site:{d}" for d in dominios[:8])
+        busquedas = [f"({sitios}) {b}" for b in busquedas]
+    b = bw.google(bd, busquedas, "noticias", f"radar de noticias: {consulta[:120]}")
+    if b.notas and not b.resultados:
+        raise ValueError(" ".join(b.notas))
+    notas, descartadas, vistas = [], 0, set()
+    for r in b.resultados:
+        clave = _clave_url(r.url)
+        if clave in vistas:
+            continue
+        vistas.add(clave)
+        if dominios and not any(sitio_de(r.url).endswith(d) for d in dominios):
+            descartadas += 1  # Google dio un sitio que no es de la fuente
+            continue
+        if not r.fecha or r.fecha < desde:
+            descartadas += 1  # sin fecha o fuera de la ventana
+            continue
+        notas.append({"url": r.url, "titulo": _texto_plano(r.titulo, 500), "extracto": _texto_plano(r.descripcion),
+                      "publicado_en": r.fecha, "pais": None})
+    return notas[:10], descartadas
+
+
 def guardar_notas(bd: Session, reporte: RadarReporte, notas: list[dict], *, origen: str,
                   fuente_id: int | None = None, tema_id: int | None = None) -> int:
     """Guarda las notas que no se habían visto. Devuelve cuántas fueron nuevas."""
@@ -244,7 +295,17 @@ def guardar_notas(bd: Session, reporte: RadarReporte, notas: list[dict], *, orig
 def leer_fuentes(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
     cfg = configuracion()
     desde = hoy_local() - timedelta(days=cfg.radar_ventana_dias)
-    api_apagada = puerta.motivos_api_apagada(bd)
+    from modulos.compras import buscar_web as bw
+
+    web = bw.usar_web(bd, "compras.radar_buscar")  # Google por DataForSEO + IA local (18 nov 2026)
+    if web:
+        from modulos.compras import dataforseo as dfs
+
+        falta = dfs.configurado()
+        api_apagada = [f"Falta {', '.join(falta)} en Configuración."] if falta else []
+    else:
+        api_apagada = puerta.motivos_api_apagada(bd)
+    buscar = buscar_en_web if web else buscar_con_ia
     busquedas_restantes = cfg.radar_busquedas_por_dia
 
     fuentes = bd.scalars(select(RadarFuente).where(RadarFuente.activa).order_by(RadarFuente.fuente_id)).all()
@@ -267,7 +328,8 @@ def leer_fuentes(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
     for f in (x for x in fuentes if x.metodo == "busqueda" and x.lectura):
         por_tipo.setdefault(f.tipo, []).append(f)
     if por_tipo and api_apagada:
-        avisos.append("No se buscó en los sitios sin RSS ni en internet porque la API externa está apagada: "
+        avisos.append("No se buscó en los sitios sin RSS ni en internet porque "
+                      + ("no está lista la búsqueda en Google (DataForSEO): " if web else "la API externa está apagada: ")
                       + " ".join(api_apagada))
     temas = bd.scalars(select(RadarTema).where(RadarTema.activo).order_by(RadarTema.orden, RadarTema.tema_id)).all()
     if api_apagada:
@@ -284,7 +346,7 @@ def leer_fuentes(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
         consulta = (f"Notas de {nombres_tipo.get(tipo, tipo)} ({', '.join(f.nombre for f in grupo)}) sobre suplementos, "
                     "productos naturistas, ingredientes, bienestar, nutrición, regulación sanitaria y consumo.")
         try:
-            notas, descartadas = buscar_con_ia(bd, consulta, desde, dominios)
+            notas, descartadas = buscar(bd, consulta, desde, dominios)
             reporte.busquedas += 1
             for f in grupo:
                 propias = [n for n in notas if any(sitio_de(n["url"]).endswith(d) for d in (f.lectura or "").split(","))]
@@ -294,7 +356,7 @@ def leer_fuentes(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
                 f.ultima_lectura_en = ahora()
                 reporte.fuentes_leidas += 1
             if descartadas:
-                avisos.append(f"Se descartaron {descartadas} ligas de {nombres_tipo.get(tipo, tipo)} que no se pudieron verificar.")
+                avisos.append(f"Se descartaron {descartadas} ligas de {nombres_tipo.get(tipo, tipo)} que no se pudieron verificar o estaban fuera de fecha.")
         except (puerta.ErrorIA, ValueError) as e:
             for f in grupo:
                 f.ultimo_resultado = f"Error: {e}"[:300]
@@ -309,11 +371,11 @@ def leer_fuentes(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
             break
         busquedas_restantes -= 1
         try:
-            notas, descartadas = buscar_con_ia(bd, f"{t.nombre}. {t.descripcion}", desde)
+            notas, descartadas = buscar(bd, f"{t.nombre}. {t.descripcion}", desde)
             reporte.busquedas += 1
             guardar_notas(bd, reporte, notas, origen="busqueda", tema_id=t.tema_id)
             if descartadas:
-                avisos.append(f"En el tema «{t.nombre}» se descartaron {descartadas} ligas que no se pudieron verificar.")
+                avisos.append(f"En el tema «{t.nombre}» se descartaron {descartadas} ligas que no se pudieron verificar o estaban fuera de fecha.")
         except (puerta.ErrorIA, ValueError) as e:
             avisos.append(f"Falló la búsqueda del tema «{t.nombre}»: {e}")
         bd.commit()

@@ -84,7 +84,7 @@ export type Evaluacion = EvaluacionResumen & {
   vigente: boolean;
   rama: string | null;
   segmento: string | null;
-  clasificacion_origen: "ia" | "compras" | "parecidos" | "sin_clasificar" | null;
+  clasificacion_origen: "ia" | "compras" | "parecidos" | "variante" | "sin_clasificar" | null;
   pesos_origen: "compras" | "iguales" | null;
   explicacion: string | null;
   avance?: string | null;
@@ -104,6 +104,9 @@ export type Evaluacion = EvaluacionResumen & {
   codigo_barras?: string | null;
   activo_g_porcion?: string | null;
   porciones?: number | null;
+  /** 22 nov 2026: tipo de producto (lista de márgenes A–F) y precio de membresía con IVA */
+  lista_margen?: string | null;
+  precio_membresia?: string | null;
   historial: { id: number; creada_en: string; estado: EstadoEvaluacion; puntaje: number | null; color: Color | null; color_final: Color | null }[];
   mercado: MercadoInternet | null;
   investigacion?: Investigacion | null;
@@ -131,7 +134,10 @@ export type Pronostico = {
   grupos: { grupo: number; nombre: string; tiendas: number; bajo: number; medio: number; alto: number }[];
   canibal_pct: number | null;
   lanzamientos: number;
-  examen: { lanzamientos?: number; suficientes?: boolean; dentro_pct?: number; error_mediano_pct?: number };
+  examen: {
+    lanzamientos?: number; suficientes?: boolean; dentro_pct?: number; error_mediano_pct?: number;
+    prueba?: { probados: number; color: number; clase: number; en_rango: number; error_tipico_pct: number | null };
+  };
   nota: string | null;
 };
 
@@ -182,6 +188,17 @@ export const CONFIANZA = { alta: "Confianza alta", media: "Confianza media", baj
 
 /** El color que cuenta: el que puso Compras si lo cambió, si no el del radar. */
 export const colorVigente = (e: Pick<EvaluacionResumen, "color" | "color_final">) => e.color_final ?? e.color;
+
+/** Tipo de producto = lista de márgenes de Compras («MARGENES PARA CALCULO DE PRECIOS.xlsx», 29 oct 2026). Los
+ *  porcentajes se editan en Configuración; aquí solo los nombres. */
+export const LISTAS_MARGEN = [
+  { valor: "A", texto: "A · Autoservicio (renombre)" },
+  { valor: "B", texto: "B · Margen general" },
+  { valor: "C", texto: "C · 80/20 (revisar con gerencia)" },
+  { valor: "D", texto: "D · Nutrición deportiva nacional" },
+  { valor: "E", texto: "E · Nutrición deportiva importación" },
+  { valor: "F", texto: "F · Margen específico" },
+];
 
 export const FORMAS = ["Cápsula", "Tableta", "Capleta", "Líquido", "Polvo", "Gomita", "Pieza", "Sobres", "Otro"];
 

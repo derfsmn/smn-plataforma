@@ -9,7 +9,7 @@ export type EstadoCoincidencia = "automatica" | "ia" | "persona" | "rechazada" |
 export type Corrida = {
   id: number;
   fecha: string;
-  origen: "programado" | "tardio" | "manual" | "prueba" | "producto";
+  origen: "programado" | "tardio" | "manual" | "prueba" | "producto" | "oportunidad" | "nocturna" | "web";
   estado: EstadoCorrida;
   intentos: number;
   usuario: string | null;
@@ -268,7 +268,7 @@ export const CLASE_CORRIDA: Record<EstadoCorrida, string> = {
   fallida: "bg-red-500/10 text-red-700 dark:text-red-400",
 };
 
-export const ORIGEN: Record<Corrida["origen"], string> = { programado: "programada", tardio: "programada (tardía)", manual: "a mano", prueba: "prueba con Excel", producto: "radar de productos" };
+export const ORIGEN: Record<Corrida["origen"], string> = { programado: "programada", tardio: "programada (tardía)", manual: "a mano", prueba: "prueba con Excel", producto: "radar de productos", oportunidad: "buscar oportunidades", nocturna: "de noche", web: "buscar en internet" };
 
 export const pct = (v: string | null, signo = true) =>
   v === null ? "—" : `${signo && Number(v) > 0 ? "+" : ""}${Number(v).toLocaleString("es-MX", { maximumFractionDigits: 1 })} %`;

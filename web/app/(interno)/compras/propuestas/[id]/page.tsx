@@ -4,12 +4,13 @@
 import { useParams } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Info, PenLine, Search, Undo2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Gavel, Info, PenLine, Search, Undo2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { Modal } from "@/componentes/modal";
 import { ResumenPropuesta } from "@/componentes/propuesta-resumen";
 import { TarjetaEvaluacion } from "@/componentes/semaforo-producto";
+import { TipoProducto } from "@/componentes/tipo-producto";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe } from "@/lib/api";
@@ -101,13 +102,27 @@ export default function DetallePropuesta() {
       </Entrada>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
-        <div className="order-2 lg:order-1">
+        {/* En el celular el producto va primero: antes salían «Tipo de producto» y «Decidir» sin haberlo visto */}
+        <div>
           <ResumenPropuesta p={p} cat={cat} />
         </div>
 
-        <aside className="order-1 space-y-4 lg:order-2">
+        <aside className="space-y-4">
+          {revisa && (
+            <TipoProducto
+              lista={p.lista_margen}
+              membresia={p.precio_membresia}
+              editable
+              nota={p.estado === "lista"
+                ? "Si lo cambias, usa «Recalcular» en su semáforo para que cuente."
+                : "Hace falta para pasarla a «Lista para evaluar». Rentabilidad pide el margen mínimo de esta lista al precio de lista y al de membresía."}
+              guardar={async (lista, membresia) => {
+                setP(await api<Propuesta>(`${RUTA}/${id}/margen`, { metodo: "PATCH", cuerpo: { lista_margen: lista, precio_membresia: membresia } }));
+              }}
+            />
+          )}
           {revisa && (ACCIONES[p.estado] ?? []).length > 0 && (
-            <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
+            <section id="decidir" className="scroll-mt-24 rounded-2xl border border-smn-gris-100 bg-superficie p-5">
               <h2 className="mb-3 font-semibold">Decidir</h2>
               <div className="flex flex-col gap-2">
                 {ACCIONES[p.estado].map((e) => {
@@ -115,6 +130,8 @@ export default function DetallePropuesta() {
                   const Icono = b.icono;
                   return (
                     <Boton key={e} variante={b.variante} cargando={ocupado && pide === null} className="justify-start"
+                      disabled={e === "lista" && !p.lista_margen}
+                      title={e === "lista" && !p.lista_margen ? "Primero elige el tipo de producto" : undefined}
                       onClick={() => (e === "devuelta" || e === "rechazada" ? setPide(e) : mover(e))}>
                       <Icono className="h-4 w-4" /> {e === "devuelta" && p.capturada_por_compras ? "Regresar para corregir" : b.texto}
                     </Boton>
@@ -179,6 +196,15 @@ export default function DetallePropuesta() {
           </section>
         </aside>
       </div>
+
+      {revisa && (ACCIONES[p.estado] ?? []).length > 0 && (
+        <a
+          href="#decidir"
+          className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-20 flex h-12 items-center justify-center gap-2 rounded-2xl bg-tinta text-[15px] font-semibold text-superficie shadow-lg lg:hidden"
+        >
+          <Gavel className="h-4 w-4" /> Decidir
+        </a>
+      )}
 
       <AnimatePresence>
         {pide && (

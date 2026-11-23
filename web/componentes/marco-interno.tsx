@@ -15,8 +15,19 @@ import { Campana } from "./campana";
 import { ProveedorSesion, useSesion } from "./sesion";
 import { Paleta, usePaleta, type EntradaPaleta } from "./paleta";
 import { NOMBRES_RUTA, RUTAS_CON_PANTALLA } from "@/lib/inicio";
+import { PERMISOS_BUSCADOR } from "@/lib/buscador";
 
 const CLAVE_MENU = "smn_td_menu";
+
+// La ruta de arriba usa el mismo nombre que el título de la pantalla (antes «Propuestas» llevaba a «Productos nuevos»)
+const NOMBRES_RUTA_COMPLETA: Record<string, string> = {
+  "/compras/productos": "Radar de productos",
+  "/compras/propuestas": "Productos nuevos",
+  "/compras/precios/productos": "Productos vigilados",
+  "/compras/productos/oportunidades": "Buscar oportunidades",
+  "/compras/radar/origen": "De dónde sale",
+  "/compras/buscar": "Buscar productos",
+};
 
 export const iniciales = (nombre: string) =>
   nombre.replace(/\(.*\)/, "").trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -84,18 +95,25 @@ const CLAVE_SECCIONES = "smn_td_menu_cerradas";
 
 // Pantallas dentro de cada iniciativa, para el buscador (se muestran solo con su permiso)
 const SUBPANTALLAS: { permiso: string; texto: string; grupo: string; href: string; palabras?: string }[] = [
+  { permiso: "compras.productos.ver", texto: "Buscar productos", grupo: "Compras", href: "/compras/buscar", palabras: "ficha sku codigo barras articulo catalogo venta inventario" },
   { permiso: "compras.precios.ver", texto: "Radar de precios", grupo: "Compras", href: "/compras/precios", palabras: "competencia internet" },
   { permiso: "compras.productos.ver", texto: "Radar de productos", grupo: "Compras", href: "/compras/productos", palabras: "semaforo ideas evaluar" },
   { permiso: "compras.productos.ver", texto: "Buscar oportunidades", grupo: "Compras", href: "/compras/productos/oportunidades" },
-  { permiso: "compras.propuestas.ver", texto: "Propuestas de proveedores", grupo: "Compras", href: "/compras/propuestas" },
+  { permiso: "compras.propuestas.ver", texto: "Productos nuevos", palabras: "propuestas proveedores portal comite", grupo: "Compras", href: "/compras/propuestas" },
   { permiso: "compras.busquedas.ver", texto: "Búsqueda de proveedores", grupo: "Compras", href: "/compras/propuestas/busquedas", palabras: "proveedor oportunidades stakeholders" },
-  { permiso: "compras.radar.ver", texto: "Radar de mercado", grupo: "Compras", href: "/compras/radar", palabras: "tendencias señales noticias" },
+  { permiso: "compras.radar.ver", texto: "Radar de tendencias", grupo: "Compras", href: "/compras/radar", palabras: "tendencias señales noticias" },
   { permiso: "compras.conocimiento.ver", texto: "Base de conocimiento de Compras", grupo: "Compras", href: "/compras/conocimiento", palabras: "politicas pesos" },
   { permiso: "contraloria.diot.ver", texto: "DIOT", grupo: "Contraloría", href: "/contraloria/diot", palabras: "fiscal txt sat" },
   { permiso: "contraloria.diot.ver", texto: "Base de conocimiento fiscal", grupo: "Contraloría", href: "/contraloria/conocimiento", palabras: "criterios" },
   { permiso: "metodos.consultar", texto: "Preguntar a los manuales", grupo: "Métodos", href: "/metodos", palabras: "procedimientos" },
   { permiso: "metodos.consultar", texto: "Manuales vigentes", grupo: "Métodos", href: "/metodos?vista=documentos", palabras: "procedimientos documentos" },
   { permiso: "metodos.cargar", texto: "Borradores de manuales", grupo: "Métodos", href: "/metodos?vista=borradores", palabras: "nuevo manual redactar" },
+  { permiso: "innovacion.recurso.ver", texto: "Innovación Vidanat", grupo: "Innovación", href: "/innovacion", palabras: "vidanat marca propia investigacion" },
+  { permiso: "innovacion.recurso.ver", texto: "Fuentes de Vidanat", grupo: "Innovación", href: "/innovacion/fuentes", palabras: "estudios articulos normas base de conocimiento" },
+  { permiso: "innovacion.expediente.ver", texto: "Expedientes de Vidanat", grupo: "Innovación", href: "/innovacion/expedientes", palabras: "folio producto nuevo filtro" },
+  { permiso: "innovacion.consulta.usar", texto: "Consultar la base de Vidanat", grupo: "Innovación", href: "/innovacion/consultar", palabras: "preguntar ia citas" },
+  { permiso: "innovacion.investigacion.correr", texto: "Investigar en internet", grupo: "Innovación", href: "/innovacion/investigar", palabras: "pubmed estudios cientifico" },
+  { permiso: "innovacion.recurso.ver", texto: "Reglas de Vidanat", grupo: "Innovación", href: "/innovacion/reglas", palabras: "regulatorio cumplimiento" },
 ];
 
 export function MarcoInterno({ children }: { children: React.ReactNode }) {
@@ -192,7 +210,7 @@ function Marco({ children }: { children: React.ReactNode }) {
   const migas = tramos.map((t, i) => {
     const modulo = tramos[i - 1] === "modulos" ? yo.modulos.find((m) => m.codigo === t) : undefined;
     return {
-      texto: modulo?.nombre ?? NOMBRES_RUTA[t] ?? (/^\d+$/.test(t) ? "Detalle" : t),
+      texto: modulo?.nombre ?? NOMBRES_RUTA_COMPLETA["/" + tramos.slice(0, i + 1).join("/")] ?? NOMBRES_RUTA[t] ?? (/^\d+$/.test(t) ? "Detalle" : t),
       href: i === 0 && yo.modulos.some((m) => m.codigo === t) ? `/modulos/${t}` : "/" + tramos.slice(0, i + 1).join("/"),
       saltar: t === "modulos",
     };
@@ -217,7 +235,7 @@ function Marco({ children }: { children: React.ReactNode }) {
             </span>
           )}
         </Link>
-        <nav className="-mx-1 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-1 pt-3 pb-6">
+        <nav className="-mx-1 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pt-3 pb-8 [mask-image:linear-gradient(to_bottom,black_calc(100%-32px),transparent)]">
           <EnlaceMenu href="/inicio" activo={ruta === "/inicio"} corto={corto} texto="Inicio" icono={Home} />
           {yo.modulos.length > 0 && (
             <Seccion
@@ -256,7 +274,7 @@ function Marco({ children }: { children: React.ReactNode }) {
         </nav>
         <button
           onClick={alternarMenu}
-          className={`mt-2 mb-6 flex h-11 shrink-0 items-center gap-3 rounded-lg text-[15px] text-[var(--menu-tenue)] hover:bg-[var(--menu-hover)] hover:text-[var(--menu-tinta)] ${corto ? "justify-center" : "px-3"}`}
+          className={`mt-1 mb-6 flex h-11 shrink-0 items-center gap-3 rounded-lg text-[15px] text-[var(--menu-tenue)] hover:bg-[var(--menu-hover)] hover:text-[var(--menu-tinta)] ${corto ? "justify-center" : "px-3"}`}
           aria-label={corto ? "Abrir menú" : "Encoger menú"}
           title={corto ? "Abrir menú" : "Encoger menú"}
         >
@@ -289,11 +307,11 @@ function Marco({ children }: { children: React.ReactNode }) {
           </nav>
           <button
             onClick={paleta.abrir}
-            className="ml-auto flex h-10 items-center gap-2.5 rounded-lg border border-smn-gris-100 bg-superficie px-3 text-sm text-smn-gris-500 transition-colors hover:border-smn-gris-300 hover:text-tinta sm:w-64"
+            className="ml-auto flex h-10 items-center gap-2.5 rounded-lg border border-smn-gris-100 bg-superficie px-3 text-sm text-smn-gris-500 transition-colors hover:border-smn-gris-300 hover:text-tinta whitespace-nowrap sm:w-64"
             aria-label="Buscar o ir a"
           >
             <Search className="h-4 w-4" />
-            <span className="hidden sm:inline">Buscar o ir a…</span>
+            <span className="hidden sm:inline">{PERMISOS_BUSCADOR.some((p) => puede(p)) ? "Buscar producto…" : "Buscar o ir a…"}</span>
             <kbd className="ml-auto hidden rounded border border-smn-gris-100 px-1.5 font-sobria text-[13px] sm:inline">Ctrl K</kbd>
           </button>
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -337,7 +355,7 @@ function Marco({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <Paleta abierta={paleta.abierta} cerrar={paleta.cerrar} entradas={entradasPaleta} preguntar={puede("metodos.consultar")} salir={salir} />
+      <Paleta abierta={paleta.abierta} cerrar={paleta.cerrar} entradas={entradasPaleta} preguntar={puede("metodos.consultar")} productos={PERMISOS_BUSCADOR.some((p) => puede(p))} salir={salir} />
 
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-28 sm:px-8 lg:pt-10 lg:pb-16">
         <AnimatePresence mode="wait">

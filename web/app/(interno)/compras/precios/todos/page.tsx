@@ -13,7 +13,7 @@ import { useAvisos } from "@/componentes/avisos";
 import { Modal } from "@/componentes/modal";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto, Insignia, Selector } from "@/componentes/ui";
-import { Diferencia, ICONO_COINCIDENCIA, Miniatura, precio } from "../piezas";
+import { Diferencia, ICONO_COINCIDENCIA, Miniatura, monto, precio } from "../piezas";
 import { PruebaExcel, UltimaPrueba } from "../prueba";
 
 // Ligas viejas de avisos y de la pantalla anterior
@@ -179,8 +179,13 @@ function Productos() {
           </p>
           <p className="mt-1">
             <Clock className="mr-1 inline h-3.5 w-3.5" />
-            {(r.automatico ? `${r.frecuencia} a las ${r.hora}:00.${proxima ? ` Próxima: ${proxima}` : ""}` : "La corrida automática está apagada").replace(/\.?$/, ".")} Gasto del mes{" "}
-            <b className="text-tinta">{dolares(r.gasto_mes_usd, 3)}</b> de {dolares(r.tope_mes_usd)} · siguiente corrida hasta {dolares(r.estimado_usd, 3)}.
+            {(r.automatico ? `${r.frecuencia} a las ${r.hora}:00.${proxima ? ` Próxima: ${proxima}` : ""}` : "La corrida automática está apagada").replace(/\.?$/, ".")}
+            {/* El gasto solo le sirve a quien administra el radar */}
+            {administra && (
+              <>
+                {" "}Gasto del mes <b className="text-tinta">{dolares(r.gasto_mes_usd, 3)}</b> de {dolares(r.tope_mes_usd)} · siguiente corrida hasta {dolares(r.estimado_usd, 3)}.
+              </>
+            )}
           </p>
         </div>
         {administra && (
@@ -195,7 +200,12 @@ function Productos() {
         )}
       </Entrada>
 
-      {r.falta_configurar.length > 0 && (
+      {r.falta_configurar.length > 0 && !administra && (
+        <Entrada className="mb-5 rounded-2xl border border-smn-gris-100 bg-superficie px-4 py-3 text-sm text-smn-gris-700">
+          El radar está en pausa: Transformación Digital ya tiene el aviso. Los precios de abajo son los de la última corrida.
+        </Entrada>
+      )}
+      {r.falta_configurar.length > 0 && administra && (
         <Entrada className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-smn-naranja bg-aviso-fondo px-4 py-3 text-sm text-aviso-texto">
           <Settings className="h-5 w-5 shrink-0" />
           <p className="min-w-0 flex-1">
@@ -455,15 +465,13 @@ function Productos() {
 }
 
 function Tiendas({ t }: { t: Record<string, string> }) {
+  // Una línea como en el Resumen; antes cada tienda era una etiqueta y en el celular se apilaban
   const lista = Object.entries(t ?? {});
   if (!lista.length) return null;
   return (
-    <span className="mt-1 flex flex-wrap gap-1">
-      {lista.map(([n, p]) => (
-        <span key={n} className="rounded-full bg-smn-gris-100 px-2 py-0.5 text-[13px] font-semibold whitespace-nowrap text-smn-gris-700 tabular-nums">
-          {n} {precio(p)}
-        </span>
-      ))}
+    <span className="mt-1 block text-[12.5px] font-normal text-smn-gris-500 tabular-nums" title={lista.map(([n, p]) => `${n} ${precio(p)}`).join(" · ")}>
+      {lista.slice(0, 2).map(([n, p]) => `${n} ${monto(p)}`).join(" · ")}
+      {lista.length > 2 && ` · +${lista.length - 2} más`}
     </span>
   );
 }

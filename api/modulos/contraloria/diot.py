@@ -28,7 +28,7 @@ from modulos.contraloria.modelos_diot import (
 from nucleo.modelos import ahora
 
 log = logging.getLogger(__name__)
-MB_DOCUMENTO = 40
+MB_DOCUMENTO = 200  # por archivo subido (un .zip con todo el mes puede pasar de 75 MB)
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre")
 

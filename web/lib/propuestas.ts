@@ -110,6 +110,9 @@ export type Propuesta = PropuestaBreve & {
   eventos: Evento[];
   filas: Fila[];
   creada_por: string;
+  /** Solo Compras (22 nov 2026): tipo de producto y precio de membresía */
+  lista_margen?: string | null;
+  precio_membresia?: string | null;
 };
 
 export type Opcion = { valor: string; texto: string };

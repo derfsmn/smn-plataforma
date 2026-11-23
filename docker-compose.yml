@@ -9,7 +9,7 @@ services:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
       MSSQL_PID: Developer
     ports:
-      - "1433:1433"
+      - "127.0.0.1:1433:1433"   # solo desde tu equipo (SSMS y pruebas); nadie de la red donde estés conectado entra
     volumes:
       - sqlserver_datos:/var/opt/mssql
 
@@ -35,7 +35,7 @@ services:
   correo:
     image: axllent/mailpit:v1.27
     ports:
-      - "8025:8025"
+      - "127.0.0.1:8025:8025"
 
   web:
     build:

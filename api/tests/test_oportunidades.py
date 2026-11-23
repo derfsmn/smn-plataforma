@@ -23,6 +23,12 @@ R = "/api/compras/oportunidades"
 FIN = date(2027, 3, 29)  # lunes; la misma última semana que usan las pruebas del semáforo
 
 
+@pytest.fixture(autouse=True)
+def agente_con_api(monkeypatch):
+    """Estas pruebas simulan el agente con API externa; la búsqueda sin API (18 nov 2026) tiene la suya al final."""
+    monkeypatch.setattr("modulos.compras.buscar_web.usar_web", lambda bd, tarea: False)
+
+
 @pytest.fixture
 def sincrono(monkeypatch):
     """La corrida y la evaluación corren en la misma petición, para revisar el resultado."""
@@ -453,3 +459,50 @@ def test_se_quita_lo_que_no_encaja_con_nuestro_cliente(admin: TestClient, sincro
     salieron = {o["nombre"]: o for o in c["oportunidades"]}
     assert lujo not in salieron and salieron[duda]["encaje"] == "dudoso"
     assert any(f"Se quitó «{lujo}»: no encaja con nuestro cliente (C-). Es de lujo" in n for n in c["notas"])
+
+
+def test_mas_vendidos_sin_api_con_google_y_la_ia_local(admin: TestClient, sincrono, datos, monkeypatch):
+    """18 nov 2026: sin API externa. Google (DataForSEO, simulado) da las páginas y la IA local lee cada una; solo
+    cuenta la prueba de venta que está escrita en la página, y la liga es la de esa página."""
+    from modulos.compras import buscar_web as bw
+
+    h = datos["h"]
+    vendido, inventado = f"Creatina{h} monohidratada 300 g", f"Inventado{h} 60 caps"
+    pagina = (f"<html><body><nav>Menú</nav><h1>Más vendidos en Suplementos</h1><p>1. {vendido} Marca ficticia</p>"
+              "<p>Más de 5 mil vendidos · $399</p></body></html>")
+    buscadas = []
+
+    def google(bd, consultas, tipo, referencia, profundidad=10):
+        buscadas.append((tipo, consultas))
+        return bw.Busqueda(resultados=[
+            bw.Resultado(url=f"https://ejemplo.mx/creatina-{h}", titulo="Más vendidos", descripcion="",
+                         consulta=consultas[0], dominio="ejemplo.mx"),
+            bw.Resultado(url=f"https://cerrada.mx/{h}", titulo="Lo más vendido", descripcion="No deja leer",
+                         consulta=consultas[0], dominio="cerrada.mx")])
+
+    def ia(bd, tarea, **kw):
+        if tarea != op.TAREA_VENDIDOS:
+            raise puerta.ErrorIA("sin IA en pruebas")
+        assert not kw.get("busqueda_web")
+        if kw["instrucciones"] == bw.INSTRUCCIONES_FRASES:
+            return Respuesta(json.dumps({"busquedas": ["más vendidos creatina México"]}))
+        m = json.loads(kw["mensaje"])
+        if m["sitio"] == "ejemplo.mx":
+            assert "Menú" not in m["texto"] and "Más de 5 mil vendidos" in m["texto"]
+            return Respuesta(json.dumps({"productos": [
+                {"nombre": vendido, "marca": "Marca ficticia", "prueba_de_venta": "Más de 5 mil vendidos", "precio": 399},
+                {"nombre": inventado, "prueba_de_venta": "Número 1 en ventas del país"}]}))  # la frase no está
+        return Respuesta(json.dumps({"productos": []}))
+
+    monkeypatch.setattr(bw, "usar_web", lambda bd, tarea: True)
+    monkeypatch.setattr(bw, "google", google)
+    monkeypatch.setattr(bw.iv, "bajar", lambda url: pagina if "ejemplo.mx" in url else None)
+    monkeypatch.setattr(puerta, "ejecutar", ia)
+    c = admin.get(f"{R}/corridas/{admin.post(R, json={'competencia': False}).json()['id']}").json()
+    assert c["estado"] == "lista", c["error"]
+    nombres = [o["nombre"] for o in c["oportunidades"]]
+    assert vendido in nombres and inventado not in nombres
+    assert any("no está escrita en la página" in n for n in c["notas"])
+    assert buscadas and all(t == "organico" and q == ["más vendidos creatina México"] for t, q in buscadas)
+    o = next(o for o in c["oportunidades"] if o["nombre"] == vendido)
+    assert "Más de 5 mil vendidos" in o["evidencia"][0]["texto"] and Decimal(o["precio_visto"]) == Decimal("399.00")

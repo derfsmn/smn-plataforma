@@ -5,16 +5,15 @@ un ajuste en la pantalla, vuelve el valor del .env. Los secretos (contraseña SM
 se guardan cifrados (Fernet) con una llave derivada de CLAVE_CIFRADO; si no existe, de MSSQL_SA_PASSWORD.
 La base de datos, el entorno y los orígenes permitidos solo se cambian en el .env.
 """
-import base64
-import hashlib
 import re
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from core import cifrado
 from core.config import Configuracion, configuracion
 
 
@@ -137,6 +136,9 @@ CATALOGO = [
            "La contraseña del API (no la de entrar a la página)."),
     Ajuste("precios_tope_mensual_usd", "precios", "Tope de gasto al mes (USD)", "decimal",
            "Antes de cada envío se revisa que no se pase. 0 = el radar no corre.", 0, 10000),
+    Ajuste("busqueda_web_tope_usd", "precios", "Tope para buscar en internet al mes (USD)", "decimal",
+           "Notas del radar de noticias y más vendidos de «Buscar oportunidades» (Google por DataForSEO, leído con Ollama). "
+           "También cuenta para el tope de gasto al mes.", 0, 100),
     Ajuste("precios_tope_corrida_usd", "precios", "Tope de gasto por corrida (USD)", "decimal",
            "Si una corrida llega a este monto, los productos que falten quedan para la siguiente.", 0, 1000),
     Ajuste("precios_tarifa_usd", "precios", "Tarifa de DataForSEO (USD por bloque de resultados)", "decimal",
@@ -209,10 +211,23 @@ CATALOGO = [
     Ajuste("radar_productos_margen_minimo", "productos", "Margen mínimo provisional (%)", "decimal",
            "Se usa solo mientras la Base de conocimiento de Compras no tenga una regla de margen. Provisional: "
            "no es una política de Compras.", 0, 100),
+    Ajuste("radar_productos_listas_margen", "productos", "Margen mínimo por tipo de producto (lista A–F)", "texto",
+           "Margen sobre el precio de lista / sobre el de membresía, de «MARGENES PARA CALCULO DE PRECIOS.xlsx» de "
+           "Compras. Formato: A=31/28; B=45/35; C=39/31; D=36/31; E=31/26; F=41/34. Si un producto no tiene tipo, "
+           "se evalúa con la lista A."),
     Ajuste("radar_productos_buscar_mercado", "productos", "Buscar el producto nuevo en internet", "booleano",
            "Al evaluar, lo busca en Google Shopping y en el sitio de las tiendas clave, igual que el radar de precios. "
            "Cuesta unos centavos de dólar de DataForSEO por evaluación y cuenta para el tope del mes. La búsqueda se "
            "reusa 7 días."),
+    Ajuste("radar_productos_amazon", "productos", "Buscar también en Amazon México", "booleano",
+           "Al evaluar, busca el producto en Amazon México para ver si es de los más vendidos, cuántos se compraron el mes "
+           "pasado y sus reseñas. Cuesta una búsqueda de DataForSEO por evaluación (US$0.0015 en su tarifa normal) y "
+           "cuenta para el tope del mes."),
+    Ajuste("mercado_libre_app_id", "productos", "Mercado Libre: número de la aplicación (App ID)", "texto",
+           "De la aplicación que SMN registra en developers.mercadolibre.com.mx. Con ella el radar ve si el producto está en "
+           "los más vendidos de su categoría y quién lo vende. Sin ella, Mercado Libre queda como «sin conectar»."),
+    Ajuste("mercado_libre_clave", "productos", "Mercado Libre: clave secreta (Client Secret)", "secreto",
+           "La clave secreta de la misma aplicación. Se guarda cifrada y nunca sale de la API."),
     Ajuste("oportunidades_busquedas", "productos", "Subcategorías a buscar en la competencia", "entero",
            "Al «Buscar oportunidades» con la competencia, cuántas de las subcategorías que más venden se buscan en Google "
            "Shopping. Cada una cuesta una búsqueda de DataForSEO y cuenta para el tope del mes.", 1, 300),
@@ -264,10 +279,8 @@ def _originales() -> dict[str, object]:
     return _ORIGINALES
 
 
-def _fernet() -> Fernet:
-    cfg = configuracion()
-    semilla = cfg.clave_cifrado or cfg.mssql_sa_password
-    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(f"smn-td-ajustes:{semilla}".encode()).digest()))
+def _fernet():
+    return cifrado.fernet(cifrado.AJUSTES)
 
 
 def cifrar(texto: str) -> str:

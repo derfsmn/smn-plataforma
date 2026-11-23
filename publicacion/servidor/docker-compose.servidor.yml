@@ -31,7 +31,10 @@ services:
 
   api:
     image: smn-api:${VERSION:?falta VERSION}
-    build: ../../api
+    build:
+      context: ../../api
+      args:
+        REQUISITOS: requirements.txt   # sin las herramientas de prueba en producción
     restart: unless-stopped
     env_file: /datos/plataforma/.env
     # la IP real del usuario llega de Caddy (para la bitácora); la API no tiene puerto publicado

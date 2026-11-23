@@ -52,6 +52,11 @@ export default function Proveedores() {
   const [agente, setAgente] = useState("");
   const [rfc, setRfc] = useState("");
   const [ficha, setFicha] = useState<string | null>(null);
+  // ?codigo=XXXX abre la ficha de ese proveedor (la usa la ficha de producto del buscador de Compras)
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get("codigo");
+    if (c) setFicha(c);
+  }, []);
   const [lanzando, setLanzando] = useState(false);
   const corria = useRef(false);
 

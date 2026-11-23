@@ -11,7 +11,7 @@ from decimal import Decimal
 import re
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 
 from datos.modelos import Producto
@@ -283,7 +283,7 @@ def lo_que_mas_se_vende(bd: Session, subcategoria: str, sin: set[str], n: int = 
     if not v:
         return []
     productos = {p.sku: p for p in bd.scalars(select(Producto).where(
-        Producto.activo.is_(True), Producto.subcategoria == subcategoria)) if p.sku not in sin}
+        Producto.activo == true(), Producto.subcategoria == subcategoria)) if p.sku not in sin}
     venta = rr_venta.venta_por_sku(bd, v, list(productos)[:500]) if productos else {}
     mejores = sorted(venta.items(), key=lambda x: -x[1].al_mes)[:n]
     return [Parecido(productos[sku], productos[sku].precio_lista_con_impuestos, x.al_mes, x.tiendas, x.por_tienda_mes,
@@ -432,7 +432,9 @@ def y_si(bd: Session, e: ProductoEvaluacion, pregunta: str) -> Seccion | None:
     m = mp.Mercado.de_json(e.mercado)
     mediana = m.mediana() if m else None
     s2 = rp.Sujeto(**{**s.__dict__, "precio": precio_n, "costo": costo_n, "margen": margen.quantize(Decimal("0.1")),
-                      "margen_nota": None})
+                      "margen_nota": None,
+                      "precio_membresia": (rp.membresia_de(precio_n, rp.listas()[s.lista or rp.LISTA_OMISION])
+                                           if s.membresia_calculada else s.precio_membresia)})
     nuevos = {"rentabilidad": rp.f_rentabilidad(bd, s2, None, None, None, tope=mediana).puntaje}
     if mediana:
         nuevos["precio"] = rp._por_precio(precio_n / mediana)
@@ -443,7 +445,7 @@ def y_si(bd: Session, e: ProductoEvaluacion, pregunta: str) -> Seccion | None:
             total, peso = total + p * f.peso, peso + f.peso
     puntaje = round(total / peso) if peso else None
     lineas = [f"Con precio de {rp._pesos(precio_n)} y costo de {rp._pesos(costo_n)} sin IVA, el margen queda en {rp._n(margen)} %."]
-    minimo, _ = rp.margen_minimo(bd, s.departamento)
+    minimo = rp.minimos(bd, s).lista
     lineas.append(f"Compras pide al menos {rp._n(minimo)} %: {'sí lo deja' if margen >= minimo else 'no lo deja'}.")
     if mediana:
         dif = (precio_n / mediana - 1) * 100

@@ -62,13 +62,15 @@ NETAS = VentaSemanal.piezas - VentaSemanal.piezas_devueltas
 @dataclass
 class VentaSku:
     piezas: float  # netas en la ventana
-    tiendas: int
-    semanas: int
+    tiendas: int  # donde estuvo: vendió en la ventana o tenía existencia en el último corte de inventario
+    semanas: int  # desde su primera venta en la ventana hasta el final (no solo las semanas con venta)
     recientes: float  # últimas 13 semanas
     anteriores: float
 
     @property
     def por_tienda_mes(self) -> float:
+        """Plan de Demanda aprobado por Diego (19 nov 2026): antes se dividía solo entre las tiendas y semanas donde sí
+        vendió, y 1 pieza en 1 tienda en 1 semana salía como 4.3 piezas por tienda al mes."""
         return self.piezas / max(1, self.tiendas) / max(1, self.semanas) * SEMANAS_MES
 
     @property
@@ -76,22 +78,47 @@ class VentaSku:
         return self.piezas / max(1, self.semanas) * SEMANAS_MES
 
 
+def _de(q, skus: list[str] | None, departamento: str | None, columna_sku):
+    if skus is not None:
+        q = q.where(columna_sku.in_(skus))
+    if departamento:
+        q = q.join(Producto, Producto.sku == columna_sku).where(Producto.departamento == departamento)
+    return q
+
+
+def tiendas_surtidas(bd: Session, v: Ventana, skus: list[str] | None = None, departamento: str | None = None
+                     ) -> dict[str, int]:
+    """Por SKU, en cuántas tiendas estuvo: las que lo vendieron en la ventana más las que tenían existencia en el
+    último corte de inventario (solo tiendas con venta en la ventana; CEDIS y mayoreo no cuentan)."""
+    vendio = _de(select(VentaSemanal.sku.label("sku"), VentaSemanal.tienda.label("tienda"))
+                 .where(*v.filtro(), NETAS > 0), skus, departamento, VentaSemanal.sku)
+    partes = [vendio]
+    corte = bd.scalar(select(func.max(Inventario.fecha_corte)))
+    if corte:
+        con_venta = select(VentaSemanal.tienda).where(*v.filtro()).distinct()
+        partes.append(_de(select(Inventario.sku.label("sku"), Inventario.almacen.label("tienda")).where(
+            Inventario.fecha_corte == corte, Inventario.existencia > 0, Inventario.almacen.in_(con_venta)),
+            skus, departamento, Inventario.sku))
+    union = partes[0].union(*partes[1:]).subquery() if len(partes) > 1 else partes[0].distinct().subquery()
+    return {sku: int(n) for sku, n in bd.execute(select(union.c.sku, func.count()).group_by(union.c.sku))}
+
+
 def venta_por_sku(bd: Session, v: Ventana, skus: list[str] | None = None, departamento: str | None = None
                   ) -> dict[str, VentaSku]:
     """Por SKU: de los indicados (pocos) o de todo el departamento."""
+    if skus is not None and not skus:
+        return {}
     mitad = v.fin - timedelta(weeks=SEMANAS_TENDENCIA)
-    q = select(VentaSemanal.sku, func.sum(NETAS), func.count(VentaSemanal.tienda.distinct()),
-               func.count(VentaSemanal.semana.distinct()),
-               func.sum(case((VentaSemanal.semana > mitad, NETAS), else_=0)),
-               func.sum(case((VentaSemanal.semana <= mitad, NETAS), else_=0))).where(*v.filtro())
-    if skus is not None:
-        if not skus:
-            return {}
-        q = q.where(VentaSemanal.sku.in_(skus))
-    if departamento:
-        q = q.join(Producto, Producto.sku == VentaSemanal.sku).where(Producto.departamento == departamento)
-    return {sku: VentaSku(float(p), t, s, float(r or 0), float(a or 0))
-            for sku, p, t, s, r, a in bd.execute(q.group_by(VentaSemanal.sku)) if p and p > 0}
+    q = _de(select(VentaSemanal.sku, func.sum(NETAS), func.count(VentaSemanal.tienda.distinct()),
+                   func.min(VentaSemanal.semana),
+                   func.sum(case((VentaSemanal.semana > mitad, NETAS), else_=0)),
+                   func.sum(case((VentaSemanal.semana <= mitad, NETAS), else_=0))).where(*v.filtro()),
+            skus, departamento, VentaSemanal.sku)
+    filas = [f for f in bd.execute(q.group_by(VentaSemanal.sku)) if f[1] and f[1] > 0]
+    surtidas = tiendas_surtidas(bd, v, skus, departamento) if filas else {}
+    return {sku: VentaSku(float(p), max(t, surtidas.get(sku, 0)), (v.fin - primera).days // 7 + 1,
+                          float(r or 0), float(a or 0))
+            for sku, p, t, primera, r, a in filas}
 
 
 def tiendas_con_venta(bd: Session, v: Ventana, skus: list[str]) -> tuple[int, int]:
@@ -207,3 +234,26 @@ def cumplimiento(bd: Session, codigo: str) -> Cumplimiento | None:
         rechazadas_pct=float(sum(o.piezas_rechazadas for o in ordenes)) / pedidas * 100,
         dias_reales=sum(dias) / len(dias) if dias else None,
         dias_prometidos=bd.scalar(select(Proveedor.dias_entrega).where(Proveedor.proveedor == codigo)), desde=desde)
+
+
+def tendencia_subcategoria(bd: Session, v: Ventana, subcategoria: str) -> tuple[float, float, int] | None:
+    """Piezas de la subcategoría en las últimas 13 semanas, en las 13 anteriores y cuántos SKU tuvieron venta."""
+    mitad = v.fin - timedelta(weeks=SEMANAS_TENDENCIA)
+    recientes, anteriores, skus = bd.execute(
+        select(func.sum(case((VentaSemanal.semana > mitad, NETAS), else_=0)),
+               func.sum(case((VentaSemanal.semana <= mitad, NETAS), else_=0)),
+               func.count(VentaSemanal.sku.distinct()))
+        .join(Producto, Producto.sku == VentaSemanal.sku)
+        .where(*v.filtro(), Producto.subcategoria == subcategoria)).one()
+    if not recientes or not anteriores or anteriores <= 0:
+        return None
+    return float(recientes), float(anteriores), skus
+
+
+def venta_por_mes(bd: Session, v: Ventana | None, sku: str) -> list[tuple[date, float]]:
+    """Piezas netas por mes de un SKU (toda la historia cargada, sin mayoreo), para la gráfica del parecido."""
+    q = select(VentaSemanal.mes, func.sum(NETAS)).where(VentaSemanal.sku == sku)
+    if v and v.mayoreo:
+        q = q.where(VentaSemanal.tienda.not_in(v.mayoreo))
+    return [(m, float(p or 0)) for m, p in bd.execute(q.group_by(VentaSemanal.mes).order_by(VentaSemanal.mes))]
+

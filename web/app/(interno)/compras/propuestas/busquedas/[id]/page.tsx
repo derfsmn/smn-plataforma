@@ -1,6 +1,7 @@
 "use client";
 // Una búsqueda de proveedor: por qué vale la pena, el semáforo, a quién se ha contactado y cómo se cierra.
 
+import { Imagen } from "@/componentes/imagen";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AnimatePresence } from "motion/react";
@@ -169,11 +170,11 @@ export default function Busqueda() {
               <div className="mt-4 flex gap-2 overflow-x-auto">
                 {b.fotos.map((f) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={f} src={urlFoto(b.idea_id, f, 160)} alt="Foto del producto" loading="lazy" decoding="async" className="h-24 w-24 shrink-0 rounded-xl bg-smn-gris-50 object-contain" />
+                  <Imagen key={f} src={urlFoto(b.idea_id, f, 160)} alt="Foto del producto" loading="lazy" decoding="async" className="h-24 w-24 shrink-0 rounded-xl bg-smn-gris-50 object-contain" />
                 ))}
                 {b.imagen && b.fotos.length === 0 && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={b.imagen} alt="Foto del producto" referrerPolicy="no-referrer" className="h-24 w-24 shrink-0 rounded-xl bg-smn-gris-50 object-contain" />
+                  <Imagen src={b.imagen} alt="Foto del producto" referrerPolicy="no-referrer" className="h-24 w-24 shrink-0 rounded-xl bg-smn-gris-50 object-contain" />
                 )}
               </div>
             )}

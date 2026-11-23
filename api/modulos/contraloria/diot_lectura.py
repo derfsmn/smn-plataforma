@@ -479,7 +479,7 @@ HOJAS_PAPEL = {
     "tipos_operacion": ("RETENCIONES", 4, 2),  # RFC, nombre, descripción, tipo (encabezado partido en 2 renglones)
 }
 ENCABEZADO_TIPOS = ["RFC", "Nombre", "Descripcion", "TIPO DE OPERACIÓN"]
-MAX_ZIP_ARCHIVOS, MAX_ZIP_MB = 40, 300
+MAX_ZIP_ARCHIVOS, MAX_ZIP_MB = 200, 600  # ya descomprimido; protege contra .zip que se inflan de más
 
 
 @dataclass

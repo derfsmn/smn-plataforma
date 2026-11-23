@@ -1,25 +1,28 @@
 "use client";
-// Detalle de una evaluación del radar de productos: semáforo, explicación, los 6 factores, clasificación, parecidos y color final.
+// Detalle de una evaluación del radar de productos: la pantalla por niveles (como en el comité), las acciones y «Más del producto».
 
+import { Imagen } from "@/componentes/imagen";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, Bot, Check, CircleHelp, Gavel, History, PackageSearch, Palette, Pencil, Plus, RefreshCw, Search, Tag, Trash2, TrendingUp, Loader2, X } from "lucide-react";
+import { AlertTriangle, Bot, Check, ChevronDown, CircleHelp, Gavel, History, MoreHorizontal, PackageSearch, Palette, Plus, RefreshCw, Search, Tag, Trash2, TrendingUp, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { BotonReporte } from "@/componentes/boton-reporte";
+import { PantallaComite } from "@/componentes/pantalla-comite";
 import { FichaTecnicaTarjeta } from "@/componentes/ficha-tecnica";
 import { Modal } from "@/componentes/modal";
 import { InsigniaColor, Semaforo } from "@/componentes/semaforo-producto";
 import { useSesion } from "@/componentes/sesion";
+import { TipoProducto } from "@/componentes/tipo-producto";
 import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe, pesos } from "@/lib/api";
 import { SEMAFORO } from "@/lib/precios";
 import { RUTA as RUTA_BUSQUEDAS, type BusquedaBreve } from "@/lib/busquedas";
 import { Asistente, type Turno } from "../../propuestas/comite/[id]/presentar/asistente";
 import {
-  aportes, colorVigente, CONFIANZA, ESTADOS_IDEA, faltaPara, QUE_MIDE, RUTA, urlFoto,
-  type Color, type Comparable, type EstadoIdea, type Evaluacion, type HallazgoWeb, type Investigacion, type MercadoInternet, type Pronostico, type OpcionClasificacion, type RevisionPoliticas, type ProductoCatalogo,
+  colorVigente, ESTADOS_IDEA, RUTA, urlFoto,
+  type Color, type Comparable, type EstadoIdea, type Evaluacion, type OpcionClasificacion, type RevisionPoliticas, type ProductoCatalogo,
 } from "@/lib/productos";
 
 // Preguntas para el asistente de cada producto (Diego, 2026-11-09: «preguntarle sobre la decisión de cada producto»)
@@ -30,7 +33,7 @@ const SUGERENCIAS_RADAR = [
   { texto: "¿Qué decidió el comité y por qué?", icono: Gavel },
 ];
 
-const ORIGEN_CLASIFICACION = { ia: "Sugerida por la IA, sin confirmar", compras: "Confirmada por Compras", parecidos: "Tomada de los productos parecidos, sin confirmar", sin_clasificar: "Sin clasificar" } as const;
+const ORIGEN_CLASIFICACION = { ia: "Sugerida por la IA, sin confirmar", compras: "Confirmada por Compras", parecidos: "Tomada de los productos parecidos, sin confirmar", variante: "La misma que el producto en otro sabor, sin confirmar", sin_clasificar: "Sin clasificar" } as const;
 
 export default function DetalleEvaluacion() {
   const { id } = useParams<{ id: string }>();
@@ -54,6 +57,8 @@ export default function DetalleEvaluacion() {
   }, [ia]);
   const [abierto, setAbierto] = useState<"color" | "clasificacion" | "parecidos" | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [masAbierto, setMasAbierto] = useState(false);
+  const [acciones, setAcciones] = useState(false);
 
   const cargar = useCallback(() => api<Evaluacion>(`${RUTA}/evaluaciones/${id}`).then(setE).catch((x) => avisar(mensajeDe(x), "info")), [id, avisar]);
   useEffect(() => {
@@ -109,51 +114,60 @@ export default function DetalleEvaluacion() {
   const vigente = e.historial[0]?.id;
   const yaVendemos = e.comparables.find((c) => Number(c.similitud) >= 1);
 
+  const recalcularBoton = (texto = "Recalcular", variante: "primario" | "secundario" = "secundario") =>
+    evalua && e.vigente ? (
+      <Boton variante={variante} cargando={ocupado && !abierto} onClick={() => nueva("recalcular", undefined, "POST", "Recalculando")}>
+        <RefreshCw className="h-4 w-4" /> {texto}
+      </Boton>
+    ) : null;
+  const foto = e.sujeto.tipo === "idea" && e.fotos[0] ? (
+    // eslint-disable-next-line @next/next/no-img-element -- foto servida por la API con sesión
+    <Imagen src={urlFoto(e.sujeto.id, e.fotos[0].archivo_id, 900)} alt="" className="h-full w-full object-contain" />
+  ) : undefined;
+
   return (
     <>
-      <Entrada className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      {/* Plan aprobado por Diego (22 nov 2026): el producto se ve por niveles, igual que en el comité; lo demás va en
+          «Más del producto» */}
+      <Entrada className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-naranja-tinta">
             {e.sujeto.tipo === "propuesta" ? `${e.sujeto.folio} · ${e.sujeto.proveedor}` : "Idea de Compras"}
+            <span className="font-normal text-smn-gris-500"> · evaluado el {fechaLocal(e.creada_en)}</span>
           </p>
-          <h1 className="text-3xl leading-tight font-semibold tracking-tight sm:text-[34px]">{e.sujeto.nombre}</h1>
-          <p className="mt-1 text-sm text-smn-gris-500">
-            {[e.sujeto.marca, e.sujeto.departamento ?? "Sin departamento"].filter(Boolean).join(" · ")} · evaluado el {fechaLocal(e.creada_en)}
-          </p>
+          {!lista && <h1 className="text-3xl leading-tight font-semibold tracking-tight sm:text-[34px]">{e.sujeto.nombre}</h1>}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-        {busqueda && (
-          <Link
-            href={`/compras/propuestas/busquedas/${busqueda.id}`}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-smn-gris-100 bg-superficie px-3 py-2 text-sm font-medium hover:border-smn-naranja"
-          >
-            <PackageSearch className="h-4 w-4" aria-hidden />
-            Búsqueda de proveedor: {busqueda.estado_texto.toLowerCase()}
-            {busqueda.responsable && ` · ${busqueda.responsable.nombre}`}
-          </Link>
-        )}
-        {lista && (
-          <Boton variante="secundario" onClick={() => setIa(true)}>
-            <Bot className="h-4 w-4" /> Pregúntale a la IA
-          </Boton>
-        )}
-        {lista && <BotonReporte ruta={`${RUTA}/evaluaciones/${e.id}/reporte`} nombre={e.sujeto.nombre} />}
-        {e.sujeto.tipo === "propuesta" ? (
-          <Link href={`/compras/propuestas/${e.sujeto.id}`} className="text-sm font-semibold text-naranja-tinta hover:underline">Ver la propuesta</Link>
-        ) : evalua ? (
-          <select
-            value={e.sujeto.estado ?? "nueva"}
-            onChange={(x) => estadoIdea(x.target.value as EstadoIdea)}
-            aria-label="Estado de la idea"
-            className="rounded-xl border border-smn-gris-300 bg-superficie px-3 py-2 text-sm font-semibold outline-none focus:border-smn-naranja"
-          >
-            {Object.entries(ESTADOS_IDEA).map(([v, t]) => (
-              <option key={v} value={v}>{t}</option>
-            ))}
-          </select>
-        ) : (
-          <Insignia className="bg-smn-gris-100 text-smn-gris-700">{ESTADOS_IDEA[e.sujeto.estado ?? "nueva"]}</Insignia>
-        )}
+        {/* En el celular solo queda a la vista «Pregúntale a la IA»; lo demás va en «⋯» para que el producto se vea primero */}
+        <div className="relative flex items-center gap-2">
+          {lista && (
+            <Boton variante="secundario" onClick={() => setIa(true)}>
+              <Bot className="h-4 w-4" /> Pregúntale a la IA
+            </Boton>
+          )}
+          {lista && (
+            <button
+              type="button"
+              onClick={() => setAcciones((v) => !v)}
+              aria-expanded={acciones}
+              aria-label="Más acciones"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-smn-gris-300 text-smn-gris-700 hover:bg-smn-gris-50 sm:hidden"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          )}
+          {lista && (
+            <div
+              className={`${acciones ? "flex" : "hidden"} absolute top-full right-0 z-20 mt-2 w-60 flex-col gap-2 rounded-2xl border border-smn-gris-100 bg-superficie p-2 shadow-xl sm:static sm:mt-0 sm:flex sm:w-auto sm:flex-row sm:flex-wrap sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none [&>*]:justify-start sm:[&>*]:justify-center`}
+            >
+              <BotonReporte ruta={`${RUTA}/evaluaciones/${e.id}/reporte`} nombre={e.sujeto.nombre} />
+              {ajusta && e.vigente && (
+                <Boton variante="secundario" onClick={() => setAbierto("color")}>
+                  <Palette className="h-4 w-4" /> Cambiar el color final
+                </Boton>
+              )}
+              {recalcularBoton()}
+            </div>
+          )}
         </div>
       </Entrada>
 
@@ -208,9 +222,15 @@ export default function DetalleEvaluacion() {
         </p>
       )}
 
-      {/* Resultado */}
-      <Entrada retraso={0.05} className="mb-4 rounded-2xl border border-smn-gris-100 bg-superficie p-5 sm:p-6">
-        {e.estado === "en_curso" ? (
+      {lista && e.color_final && (
+        <p className="mb-4 rounded-2xl bg-smn-gris-50 px-4 py-3 text-sm">
+          Compras lo cambió de <b>{SEMAFORO[e.color!].texto.toLowerCase()}</b> a <b>{SEMAFORO[e.color_final].texto.toLowerCase()}</b>: {e.motivo_cambio}
+          <span className="block text-[13px] text-smn-gris-500">{e.cambiado_por} · {e.cambiado_en && fechaLocal(e.cambiado_en)}</span>
+        </p>
+      )}
+
+      {e.estado === "en_curso" && (
+        <Entrada retraso={0.05} className="mb-4 rounded-2xl border border-smn-gris-100 bg-superficie p-5 sm:p-6">
           <div className="flex items-center gap-4">
             <Semaforo color={null} tam="lg" />
             <div>
@@ -219,243 +239,195 @@ export default function DetalleEvaluacion() {
               <p className="mt-1 text-[13px] text-smn-gris-500">Los pasos que buscan en internet o usan la IA son los que más tardan. Puedes salir de esta pantalla; sigue corriendo.</p>
             </div>
           </div>
-        ) : e.estado === "fallida" ? (
+        </Entrada>
+      )}
+      {e.estado === "fallida" && (
+        <Entrada retraso={0.05} className="mb-4 rounded-2xl border border-smn-gris-100 bg-superficie p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-4">
             <AlertTriangle className="h-8 w-8 text-smn-naranja" />
             <div className="min-w-0 flex-1">
               <p className="text-xl font-semibold">No se pudo evaluar</p>
               <p className="text-sm text-smn-gris-700">{e.error}</p>
             </div>
-            {evalua && e.vigente && (
-              <Boton cargando={ocupado} onClick={() => nueva("recalcular", undefined, "POST", "Recalculando")}>
-                <RefreshCw className="h-4 w-4" /> Recalcular
-              </Boton>
-            )}
+            {recalcularBoton("Recalcular", "primario")}
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-5">
-            <Semaforo color={color} tam="lg" />
-            <div className="min-w-0 flex-1">
-              <p className="text-5xl font-semibold tabular-nums">
-                {e.puntaje ?? "—"}<span className="text-lg font-semibold text-smn-gris-500"> de 100</span>
-              </p>
-              <p className="mt-1 text-sm text-smn-gris-700">
-                {color && SEMAFORO[color].texto} · {e.confianza && CONFIANZA[e.confianza]}
-                {e.pesos_origen === "iguales" && " · los 6 factores pesan igual"}
-                {e.modelo === "con_proveedor" && " · semáforo con proveedor actual"}
-                {e.modelo === "sin_proveedor" && " · semáforo sin proveedor actual"}
-              </p>
-              {faltaPara(e.puntaje, e.color) && <p className="mt-1 text-sm font-semibold text-smn-gris-700">{faltaPara(e.puntaje, e.color)}</p>}
-              {e.color_final && (
-                <p className="mt-2 rounded-xl bg-smn-gris-50 px-3 py-2 text-sm">
-                  Compras lo cambió de <b>{SEMAFORO[e.color!].texto.toLowerCase()}</b> a <b>{SEMAFORO[e.color_final].texto.toLowerCase()}</b>: {e.motivo_cambio}
-                  <span className="block text-[13px] text-smn-gris-500">{e.cambiado_por} · {e.cambiado_en && fechaLocal(e.cambiado_en)}</span>
-                </p>
-              )}
-            </div>
-            {e.vigente && (evalua || ajusta) && (
-              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-col">
-                {ajusta && (
-                  <Boton onClick={() => setAbierto("color")}>
-                    <Palette className="h-4 w-4" /> Cambiar color
-                  </Boton>
-                )}
-                {evalua && (
-                  <Boton variante="secundario" cargando={ocupado && !abierto} onClick={() => nueva("recalcular", undefined, "POST", "Recalculando")}>
-                    <RefreshCw className="h-4 w-4" /> Recalcular
-                  </Boton>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </Entrada>
+        </Entrada>
+      )}
 
       {lista && (
-        <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
-          <div className="space-y-4">
-            <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-              <h2 className="mb-2 flex items-center gap-2 font-semibold">
-                {e.color_final ? "¿Por qué el radar dio otro color?" : "¿Por qué este color?"}
-                <span className="text-[13px] font-medium text-smn-gris-500">{e.explicacion_ia ? "· redactado por la IA con los datos de abajo" : "· armado con los números de los 6 factores"}</span>
-              </h2>
-              <TextoExplicado texto={e.explicacion ?? ""} />
-            </section>
+        <>
+          <section className="mb-6 rounded-3xl border border-smn-gris-100 bg-superficie p-4 sm:p-6">
+            <PantallaComite
+              key={e.id}
+              ruta={`${RUTA}/evaluaciones/${e.id}/pantalla${e.cambiado_en ? `?v=${encodeURIComponent(e.cambiado_en)}` : ""}`}
+              nombre={e.sujeto.nombre}
+              foto={foto}
+              inicio="Radar de productos"
+              recalcular={recalcularBoton("Recalcular ahora", "primario")}
+            />
+          </section>
 
-            <section>
-              <h2 className="mb-3 font-semibold">Los 6 factores</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {e.factores.map((f, i) => {
-                  const aporte = aportes(e.factores)[f.factor];
-                  return (
-                  <motion.article
-                    key={f.factor}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    className="rounded-2xl border border-smn-gris-100 bg-superficie p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold">{f.nombre}</p>
-                        <p className="text-[13px] text-smn-gris-500">Pesa {Number(f.peso).toFixed(0)} %</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-semibold tabular-nums">{f.puntaje ?? "—"}</p>
-                        {f.provisional && <Insignia className="bg-aviso-fondo text-aviso-texto">Provisional</Insignia>}
-                      </div>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-smn-gris-100">
-                      <motion.div
-                        className="h-full rounded-full bg-smn-naranja"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${f.puntaje ?? 0}%` }}
-                        transition={{ duration: 0.6, delay: 0.1 + i * 0.04 }}
-                      />
-                    </div>
-                    {QUE_MIDE[f.factor] && <p className="mt-2 text-[13px] text-smn-gris-500">{QUE_MIDE[f.factor]}</p>}
-                    {f.valor && <p className="mt-2 text-sm font-semibold">{f.valor}</p>}
-                    <dl className="mt-1 space-y-1.5 text-sm">
-                      <div>
-                        <dt className="sr-only">Qué encontramos</dt>
-                        <dd className={f.puntaje === null ? "text-smn-gris-500 italic" : "text-smn-gris-700"}>{f.detalle}</dd>
-                      </div>
-                      {f.mejora && (
-                        <div>
-                          <dt className="text-[13px] font-medium text-smn-gris-500">{f.puntaje !== null && f.puntaje > 80 ? "Qué significa" : "Qué lo subiría"}</dt>
-                          <dd className="text-smn-gris-700">{f.mejora}</dd>
-                        </div>
+          <details className="group rounded-2xl border border-smn-gris-100 bg-superficie" open={masAbierto} onToggle={(x) => setMasAbierto(x.currentTarget.open)}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 select-none">
+              <span>
+                <span className="font-semibold">Más del producto</span>
+                <span className="block text-[13px] text-smn-gris-500">Ficha técnica, lo que capturó Compras, clasificación, parecidos, políticas e historial</span>
+              </span>
+              <ChevronDown className="h-5 w-5 shrink-0 text-smn-gris-500 transition-transform group-open:rotate-180" aria-hidden />
+            </summary>
+            <div className="grid gap-4 border-t border-smn-gris-100 p-4 sm:p-5 lg:grid-cols-[1fr_22rem]">
+              <div className="min-w-0 space-y-4">
+                <section className="rounded-2xl border border-smn-gris-100 p-5">
+                  <h2 className="mb-2 font-semibold">{e.color_final ? "¿Por qué el radar dio otro color?" : "Explicación completa del radar"}</h2>
+                  <TextoExplicado texto={e.explicacion ?? ""} />
+                </section>
+                <FichaTecnicaTarjeta ruta={`${RUTA}/evaluaciones/${e.id}/ficha`} />
+                {e.politicas && <Politicas r={e.politicas} />}
+              </div>
+
+              <aside className="min-w-0 space-y-4">
+                {(busqueda || e.sujeto.tipo === "propuesta" || evalua) && (
+                  <section className="rounded-2xl border border-smn-gris-100 p-5">
+                    <h2 className="mb-3 font-semibold">{e.sujeto.tipo === "propuesta" ? "Propuesta" : "Estado de la idea"}</h2>
+                    <div className="flex flex-col items-start gap-3">
+                      {e.sujeto.tipo === "propuesta" ? (
+                        <Link href={`/compras/propuestas/${e.sujeto.id}`} className="text-sm font-semibold text-naranja-tinta hover:underline">Ver la propuesta</Link>
+                      ) : evalua ? (
+                        <select
+                          value={e.sujeto.estado ?? "nueva"}
+                          onChange={(x) => estadoIdea(x.target.value as EstadoIdea)}
+                          aria-label="Estado de la idea"
+                          className="rounded-xl border border-smn-gris-300 bg-superficie px-3 py-2 text-sm font-semibold outline-none focus:border-smn-naranja"
+                        >
+                          {Object.entries(ESTADOS_IDEA).map(([v, t]) => (
+                            <option key={v} value={v}>{t}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Insignia className="bg-smn-gris-100 text-smn-gris-700">{ESTADOS_IDEA[e.sujeto.estado ?? "nueva"]}</Insignia>
                       )}
-                      {f.calculo && (
-                        <details className="text-[13px] text-smn-gris-500">
-                          <summary className="cursor-pointer select-none">Cómo se calificó</summary>
-                          <p className="mt-1 text-smn-gris-700">{f.calculo}</p>
-                        </details>
+                      {busqueda && (
+                        <Link
+                          href={`/compras/propuestas/busquedas/${busqueda.id}`}
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-naranja-tinta hover:underline"
+                        >
+                          <PackageSearch className="h-4 w-4" aria-hidden />
+                          Búsqueda de proveedor: {busqueda.estado_texto.toLowerCase()}
+                          {busqueda.responsable && ` · ${busqueda.responsable.nombre}`}
+                        </Link>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                <TipoProducto
+                  lista={e.lista_margen}
+                  membresia={e.precio_membresia}
+                  editable={evalua && e.vigente && (e.sujeto.tipo === "idea" || puede("compras.propuestas.revisar"))}
+                  nota="Rentabilidad pide el margen mínimo de esta lista al precio de lista y al de membresía, y Precio usa los dos. Al cambiarlo, usa «Recalcular» para que cuente. Sin elegir, se evalúa con la lista A."
+                  guardar={async (lista, membresia) => {
+                    const ruta = e.sujeto.tipo === "idea"
+                      ? `${RUTA}/ideas/${e.sujeto.id}/margen`
+                      : `/api/compras/propuestas/${e.sujeto.id}/margen`;
+                    await api(ruta, { metodo: "PATCH", cuerpo: { lista_margen: lista, precio_membresia: membresia } });
+                    await cargar();
+                  }}
+                />
+
+                {e.sujeto.tipo === "idea" && (
+                  <section className="rounded-2xl border border-smn-gris-100 p-5">
+                    <h2 className="mb-3 font-semibold">Lo que capturó Compras</h2>
+                    {e.fotos.length > 0 && (
+                      <div className="mb-3 grid grid-cols-3 gap-2">
+                        {e.fotos.map((f) => (
+                          <a key={f.archivo_id} href={urlFoto(e.sujeto.id, f.archivo_id)} target="_blank" rel="noreferrer" className="aspect-square overflow-hidden rounded-xl bg-smn-gris-50">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- foto servida por la API con sesión */}
+                            <Imagen src={urlFoto(e.sujeto.id, f.archivo_id, 400)} alt={f.nombre} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {e.descripcion && <p className="mb-2 text-sm">{e.descripcion}</p>}
+                    <dl className="space-y-1 text-sm">
+                      {e.precio_nuestro && (
+                        <div><dt className="inline text-smn-gris-500">Nuestro precio: </dt><dd className="inline font-semibold">{pesos(e.precio_nuestro)}</dd></div>
+                      )}
+                      <div><dt className="inline text-smn-gris-500">{e.precio_nuestro ? "Precio visto afuera: " : "Precio visto: "}</dt><dd className="inline font-semibold">{e.precio_visto ? pesos(e.precio_visto) : "—"}</dd></div>
+                      <div><dt className="inline text-smn-gris-500">Dónde: </dt><dd className="inline font-semibold">{e.donde_se_vio ?? "—"}</dd></div>
+                      <div><dt className="inline text-smn-gris-500">Costo estimado: </dt><dd className="inline font-semibold">{e.costo_estimado ? pesos(e.costo_estimado) : "—"}</dd></div>
+                      {e.codigo_barras && (
+                        <div><dt className="inline text-smn-gris-500">Código de barras: </dt><dd className="inline font-semibold tabular-nums">{e.codigo_barras}</dd></div>
+                      )}
+                      {e.activo_g_porcion && e.porciones && (
+                        <div><dt className="inline text-smn-gris-500">Activo: </dt><dd className="inline font-semibold">{Number(e.activo_g_porcion)} g por porción × {e.porciones} porciones</dd></div>
                       )}
                     </dl>
-                    {aporte !== undefined && (
-                      <p className="mt-2 text-[13px] text-smn-gris-500">
-                        Aporta <b className="text-tinta">{aporte.toLocaleString("es-MX", { maximumFractionDigits: 1 })}</b> de los {e.puntaje} puntos del total.
-                      </p>
+                  </section>
+                )}
+
+                <section className="rounded-2xl border border-smn-gris-100 p-5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h2 className="flex items-center gap-2 font-semibold"><Tag className="h-4 w-4 text-smn-naranja" /> Clasificación</h2>
+                    {evalua && e.vigente && (
+                      <button onClick={() => setAbierto("clasificacion")} className="text-sm font-semibold text-naranja-tinta hover:underline">
+                        {e.clasificacion_origen === "compras" ? "Cambiar" : "Confirmar"}
+                      </button>
                     )}
-                  </motion.article>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[13px] text-smn-gris-500">
-                Cómo se suma: cada factor se califica de 0 a 100 y cuenta según lo que pesa; los que no tienen datos no cuentan. «Provisional» quiere
-                decir que la regla todavía no la definió Compras en su Base de conocimiento. «Confianza» dice qué parte del peso tiene datos: alta con 80 % o
-                más, media con la mitad o más, baja con menos; con confianza baja no puede salir verde. «Precio de en medio»: la mitad de los precios está
-                arriba y la mitad abajo.
-              </p>
-            </section>
-
-            <FichaTecnicaTarjeta ruta={`${RUTA}/evaluaciones/${e.id}/ficha`} />
-            {e.politicas && <Politicas r={e.politicas} />}
-            {e.mercado && <PreciosInternet m={e.mercado} />}
-            {e.investigacion && <Afuera inv={e.investigacion} />}
-            {e.pronostico && <CuantoVendera p={e.pronostico} />}
-
-            <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-semibold">Productos parecidos que ya vendemos</h2>
-                {evalua && e.vigente && (
-                  <Boton variante="secundario" onClick={() => setAbierto("parecidos")}>
-                    <Pencil className="h-4 w-4" /> Corregir
-                  </Boton>
-                )}
-              </div>
-              {e.comparables.length === 0 ? (
-                <p className="text-sm text-smn-gris-500">No se encontraron productos parecidos en el catálogo.</p>
-              ) : (
-                <ul className="divide-y divide-smn-gris-100">
-                  {e.comparables.map((c) => (
-                    <FilaParecido key={c.producto_id} c={c} />
-                  ))}
-                </ul>
-              )}
-              <p className="mt-2 text-[13px] text-smn-gris-500">
-                {e.comparables.some((c) => c.origen === "compras") ? "Lista fijada por Compras; se conserva al recalcular." : "Los eligió el sistema por palabras en común y subcategoría."}
-              </p>
-            </section>
-          </div>
-
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 font-semibold"><Tag className="h-4 w-4 text-smn-naranja" /> Clasificación</h2>
-                {evalua && e.vigente && (
-                  <button onClick={() => setAbierto("clasificacion")} className="text-sm font-semibold text-naranja-tinta hover:underline">
-                    {e.clasificacion_origen === "compras" ? "Cambiar" : "Confirmar"}
-                  </button>
-                )}
-              </div>
-              {e.subcategoria ? (
-                <dl className="space-y-1 text-sm">
-                  <div><dt className="inline text-smn-gris-500">Rama: </dt><dd className="inline font-semibold">{e.rama ?? "—"}</dd></div>
-                  <div><dt className="inline text-smn-gris-500">Subcategoría: </dt><dd className="inline font-semibold">{e.subcategoria}</dd></div>
-                  <div><dt className="inline text-smn-gris-500">Segmento: </dt><dd className="inline font-semibold">{e.segmento ?? "—"}</dd></div>
-                </dl>
-              ) : (
-                <p className="text-sm text-smn-gris-500">Todavía no tiene subcategoría.</p>
-              )}
-              <p className={`mt-2 flex items-center gap-1 text-[13px] ${e.clasificacion_origen === "compras" ? "text-smn-gris-500" : "text-aviso-texto"}`}>
-                {e.clasificacion_origen === "ia" && <Bot className="h-3.5 w-3.5" />}
-                {e.clasificacion_origen === "compras" && <Check className="h-3.5 w-3.5" />}
-                {ORIGEN_CLASIFICACION[e.clasificacion_origen ?? "sin_clasificar"]}
-              </p>
-            </section>
-
-            {e.sujeto.tipo === "idea" && (
-              <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-                <h2 className="mb-3 font-semibold">Lo que capturó Compras</h2>
-                {e.fotos.length > 0 && (
-                  <div className="mb-3 grid grid-cols-3 gap-2">
-                    {e.fotos.map((f) => (
-                      <a key={f.archivo_id} href={urlFoto(e.sujeto.id, f.archivo_id)} target="_blank" rel="noreferrer" className="aspect-square overflow-hidden rounded-xl bg-smn-gris-50">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- foto servida por la API con sesión */}
-                        <img src={urlFoto(e.sujeto.id, f.archivo_id, 400)} alt={f.nombre} loading="lazy" decoding="async" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
                   </div>
-                )}
-                {e.descripcion && <p className="mb-2 text-sm">{e.descripcion}</p>}
-                <dl className="space-y-1 text-sm">
-                  {e.precio_nuestro && (
-                    <div><dt className="inline text-smn-gris-500">Nuestro precio: </dt><dd className="inline font-semibold">{pesos(e.precio_nuestro)}</dd></div>
+                  {e.subcategoria ? (
+                    <dl className="space-y-1 text-sm">
+                      <div><dt className="inline text-smn-gris-500">Rama: </dt><dd className="inline font-semibold">{e.rama ?? "—"}</dd></div>
+                      <div><dt className="inline text-smn-gris-500">Subcategoría: </dt><dd className="inline font-semibold">{e.subcategoria}</dd></div>
+                      <div><dt className="inline text-smn-gris-500">Segmento: </dt><dd className="inline font-semibold">{e.segmento ?? "—"}</dd></div>
+                    </dl>
+                  ) : (
+                    <p className="text-sm text-smn-gris-500">Todavía no tiene subcategoría.</p>
                   )}
-                  <div><dt className="inline text-smn-gris-500">{e.precio_nuestro ? "Precio visto afuera: " : "Precio visto: "}</dt><dd className="inline font-semibold">{e.precio_visto ? pesos(e.precio_visto) : "—"}</dd></div>
-                  <div><dt className="inline text-smn-gris-500">Dónde: </dt><dd className="inline font-semibold">{e.donde_se_vio ?? "—"}</dd></div>
-                  <div><dt className="inline text-smn-gris-500">Costo estimado: </dt><dd className="inline font-semibold">{e.costo_estimado ? pesos(e.costo_estimado) : "—"}</dd></div>
-                  {e.codigo_barras && (
-                    <div><dt className="inline text-smn-gris-500">Código de barras: </dt><dd className="inline font-semibold tabular-nums">{e.codigo_barras}</dd></div>
-                  )}
-                  {e.activo_g_porcion && e.porciones && (
-                    <div><dt className="inline text-smn-gris-500">Activo: </dt><dd className="inline font-semibold">{Number(e.activo_g_porcion)} g por porción × {e.porciones} porciones</dd></div>
-                  )}
-                </dl>
-              </section>
-            )}
+                  <p className={`mt-2 flex items-center gap-1 text-[13px] ${e.clasificacion_origen === "compras" ? "text-smn-gris-500" : "text-aviso-texto"}`}>
+                    {e.clasificacion_origen === "ia" && <Bot className="h-3.5 w-3.5" />}
+                    {e.clasificacion_origen === "compras" && <Check className="h-3.5 w-3.5" />}
+                    {ORIGEN_CLASIFICACION[e.clasificacion_origen ?? "sin_clasificar"]}
+                  </p>
+                </section>
 
-            <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-              <h2 className="mb-3 font-semibold">Historial</h2>
-              <ol className="space-y-2">
-                {e.historial.map((h) => (
-                  <li key={h.id}>
-                    <Link
-                      href={`/compras/productos/${h.id}`}
-                      className={`flex items-center gap-3 rounded-xl px-2 py-1.5 text-sm ${h.id === e.id ? "bg-smn-gris-100 font-semibold" : "hover:bg-smn-gris-50"}`}
-                    >
-                      <Semaforo color={h.estado === "lista" ? h.color_final ?? h.color : null} tam="sm" horizontal />
-                      <span className="tabular-nums">{h.puntaje ?? "—"}</span>
-                      <span className="ml-auto text-[13px] text-smn-gris-500">{fechaLocal(h.creada_en)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          </aside>
-        </div>
+                <section className="rounded-2xl border border-smn-gris-100 p-5">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <h2 className="font-semibold">Productos parecidos</h2>
+                    {evalua && e.vigente && (
+                      <button onClick={() => setAbierto("parecidos")} className="text-sm font-semibold text-naranja-tinta hover:underline">
+                        Corregir
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-smn-gris-700">
+                    {e.comparables.length === 0 ? "No se encontraron parecidos en el catálogo." : `${e.comparables.length} del catálogo; se ven con su venta en el nivel «Con qué datos» de cada factor.`}
+                  </p>
+                  <p className="mt-1 text-[13px] text-smn-gris-500">
+                    {e.comparables.some((c) => c.origen === "compras") ? "Lista fijada por Compras; se conserva al recalcular." : "Los eligió el sistema."}
+                  </p>
+                </section>
+
+                <section className="rounded-2xl border border-smn-gris-100 p-5">
+                  <h2 className="mb-3 font-semibold">Historial</h2>
+                  <ol className="space-y-2">
+                    {e.historial.map((h) => (
+                      <li key={h.id}>
+                        <Link
+                          href={`/compras/productos/${h.id}`}
+                          className={`flex items-center gap-3 rounded-xl px-2 py-1.5 text-sm ${h.id === e.id ? "bg-smn-gris-100 font-semibold" : "hover:bg-smn-gris-50"}`}
+                        >
+                          <Semaforo color={h.estado === "lista" ? h.color_final ?? h.color : null} tam="sm" horizontal />
+                          <span className="tabular-nums">{h.puntaje ?? "—"}</span>
+                          <span className="ml-auto text-[13px] text-smn-gris-500">{fechaLocal(h.creada_en)}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              </aside>
+            </div>
+          </details>
+        </>
       )}
 
       <AnimatePresence>
@@ -519,132 +491,6 @@ function Politicas({ r }: { r: RevisionPoliticas }) {
         </div>
       )}
       {r.revisada_ia && <p className="mt-2 flex items-center gap-1 text-[13px] text-smn-gris-500"><Bot className="h-3.5 w-3.5" /> Revisado por la IA con los datos de esta evaluación.</p>}
-    </section>
-  );
-}
-
-function PreciosInternet({ m }: { m: MercadoInternet }) {
-  return (
-    <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-semibold">Precios en internet</h2>
-        {m.mediana && <span className="text-sm text-smn-gris-500">Mediana <b className="text-smn-negro">{pesos(m.mediana)}</b></span>}
-      </div>
-      {m.precios.length === 0 ? (
-        <p className="text-sm text-smn-gris-500">El radar de precios no encontró este producto en Google Shopping ni en el sitio de las tiendas clave.</p>
-      ) : (
-        <ul className="divide-y divide-smn-gris-100">
-          {m.precios.map((p, i) => (
-            <li key={i} className="flex items-center justify-between gap-3 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="font-semibold">{p.vendedor} <span className="font-normal text-smn-gris-500">· {p.fuente === "google" ? "Google Shopping" : p.fuente === "web" ? "página que leyó la IA local" : "su sitio"}</span></p>
-                <p className="truncate text-[13px] text-smn-gris-500">
-                  {p.liga ? <a href={p.liga} target="_blank" rel="noreferrer" className="hover:underline">{p.titulo}</a> : p.titulo}
-                </p>
-              </div>
-              <span className="shrink-0 font-semibold">{pesos(p.precio)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {m.notas.length > 0 && (
-        <ul className="mt-2 space-y-0.5 text-[13px] text-smn-gris-500">
-          {m.notas.map((n, i) => <li key={i}>{n}</li>)}
-        </ul>
-      )}
-      <p className="mt-2 text-[13px] text-smn-gris-500">
-        Búsqueda del {m.buscado_en ? fechaLocal(m.buscado_en) : "—"}; se reusa 7 días al recalcular. Costo DataForSEO: US$ {Number(m.costo_usd).toFixed(3)}.
-      </p>
-    </section>
-  );
-}
-
-const TIPO_WEB: Record<HallazgoWeb["tipo"], string> = { mismo: "Este producto", misma_marca: "Otro de la marca", sustituto: "Sustituto" };
-
-function Afuera({ inv }: { inv: Investigacion }) {
-  return (
-    <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-      <h2 className="mb-1 font-semibold">Lo que encontramos afuera</h2>
-      <p className="mb-3 text-[13px] text-smn-gris-500">Páginas de internet que leyó la IA local. Cada dato está tal cual en la página; pasa el mouse para ver la frase.</p>
-      {inv.hallazgos.length === 0 ? (
-        <p className="text-sm text-smn-gris-500">No encontramos páginas que hablen de este producto o de uno parecido.</p>
-      ) : (
-        <ul className="divide-y divide-smn-gris-100">
-          {inv.hallazgos.map((h, i) => (
-            <li key={i} className="py-2.5 text-sm">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <a href={h.url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold hover:underline">{h.producto ?? h.titulo}</a>
-                {h.precio && <span className="shrink-0 font-semibold" title={h.citas.precio}>{pesos(h.precio)}</span>}
-              </div>
-              <p className="text-[13px] text-smn-gris-500">
-                {TIPO_WEB[h.tipo]} · {h.dominio}
-                {h.presentacion && <span title={h.citas.presentacion}> · {h.presentacion}</span>}
-                {h.dosis && <span title={h.citas.dosis}> · {h.dosis}</span>}
-              </p>
-              {h.afirmaciones.length > 0 && <p className="mt-0.5 text-[13px] text-smn-gris-700">Dice: {h.afirmaciones.map((a) => `«${a}»`).join(" ")}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
-      {inv.notas.length > 0 && (
-        <ul className="mt-2 list-disc pl-5 text-[13px] text-smn-gris-700">
-          {inv.notas.slice(0, 6).map((n, i) => <li key={i}>{n}</li>)}
-        </ul>
-      )}
-      <p className="mt-2 text-[13px] text-smn-gris-500">
-        Búsqueda del {inv.buscado_en ? fechaLocal(inv.buscado_en) : "—"}; se reusa 7 días al recalcular.
-      </p>
-    </section>
-  );
-}
-
-const piezas = (n: number) => n.toLocaleString("es-MX", { maximumFractionDigits: 1 });
-
-function CuantoVendera({ p }: { p: Pronostico }) {
-  const tramos = (["4", "8", "12"] as const).filter((t) => p.tramos[t]);
-  return (
-    <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
-      <h2 className="mb-1 font-semibold">¿Cuánto venderá y dónde?</h2>
-      {tramos.length === 0 ? (
-        <p className="text-sm text-smn-gris-500">{p.nota ?? "Todavía no se puede pronosticar."}</p>
-      ) : (
-        <>
-          <p className="mb-3 text-[13px] text-smn-gris-500">
-            Piezas por tienda al mes. Parte de {p.base_de} ({piezas(p.base ?? 0)}) y de cómo arrancaron {p.lanzamientos} productos nuevos de 2026.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {tramos.map((t) => {
-              const [bajo, medio, alto] = p.tramos[t];
-              return (
-                <div key={t} className="rounded-xl border border-smn-gris-100 p-3">
-                  <p className="text-[13px] text-smn-gris-500">Semanas {Number(t) - 3} a {t}</p>
-                  <p className="text-2xl font-semibold tabular-nums">{piezas(medio)}</p>
-                  <p className="text-[13px] text-smn-gris-500 tabular-nums">entre {piezas(bajo)} y {piezas(alto)}</p>
-                </div>
-              );
-            })}
-          </div>
-          {p.grupos.length > 0 && (
-            <>
-              <h3 className="mt-4 mb-1 text-sm font-semibold">Por grupo de tiendas, a 12 semanas</h3>
-              <ul className="divide-y divide-smn-gris-100">
-                {[...p.grupos].sort((a, b) => b.medio - a.medio).map((g) => (
-                  <li key={g.grupo} className="flex items-baseline justify-between gap-3 py-2 text-sm">
-                    <span className="min-w-0 truncate">{g.nombre} <span className="text-[13px] text-smn-gris-500">· {g.tiendas} tiendas</span></span>
-                    <span className="shrink-0 tabular-nums"><b>{piezas(g.medio)}</b> <span className="text-[13px] text-smn-gris-500">({piezas(g.bajo)} a {piezas(g.alto)})</span></span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <p className="mt-2 text-[13px] text-smn-gris-500">
-            {p.canibal_pct != null && `De lo que vende un nuevo, cerca de ${p.canibal_pct} % se lo quita a los que ya tenemos de su subcategoría. `}
-            {p.examen.suficientes
-              ? `Probado con los lanzamientos de 2026: ${p.examen.dentro_pct} % cayó dentro del rango.`
-              : "Todavía hay pocos lanzamientos para medir qué tan bien le atina."}
-          </p>
-        </>
-      )}
     </section>
   );
 }

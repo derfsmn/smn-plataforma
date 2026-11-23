@@ -10,8 +10,9 @@ API_ENTORNO=desarrollo
 API_ORIGENES_PERMITIDOS=http://localhost:3000
 # Dirección de la web; con ella se arman las ligas de invitación y de contraseña
 WEB_URL=http://localhost:3000
-# Cifra los secretos que se guardan desde Administración > Configuración. Si la cambias, hay que volver a capturarlos.
-# Vacía = se deriva de MSSQL_SA_PASSWORD (suficiente en local; en el servidor pon una propia y larga).
+# Cifra los secretos de Administración > Configuración y lo confidencial de Innovación Vidanat.
+# Vacía = se deriva de MSSQL_SA_PASSWORD. Para ponerla o cambiarla sin perder nada: scripts/rotar_llave.py
+# (en el servidor: publicacion/servidor/rotar_llave.sh). Ver publicacion/SEGURIDAD.md.
 CLAVE_CIFRADO=
 
 # Correo, archivos e IA: estos valores también se pueden cambiar en Administración > Configuración

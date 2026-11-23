@@ -7,18 +7,18 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowDownRight, ArrowUpRight, Check, FileDown, MonitorPlay, TriangleAlert, ChevronLeft, ChevronRight, Layers, Minus, UserPlus, X } from "lucide-react";
+import { FileDown, MonitorPlay, TriangleAlert, ChevronLeft, ChevronRight, Layers, UserPlus, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Insignia } from "@/componentes/ui";
 import { api, mensajeDe } from "@/lib/api";
-import { DECISION, descargarActa, dictamenCorto, fechaReunion, pesos, RUTA, VALOR, type Item, type Parecidos, type Reunion } from "@/lib/comite";
+import { DECISION, descargarActa, fechaReunion, pesos, RUTA, VALOR, type Item, type Reunion } from "@/lib/comite";
 import { SEMAFORO } from "@/lib/precios";
-import { Miniatura } from "../../../../precios/piezas";
 import { AgregarAsistente, FormDecision, Foto, ListaPeticiones, NuevaPeticion } from "../../piezas";
 import { AFondo, Asistente, BotonAsistente, Panel, type Modo, type Turno } from "./asistente";
 import { BotonReporte } from "@/componentes/boton-reporte";
+import { PantallaComite, precargarPantallas } from "@/componentes/pantalla-comite";
 
 export default function Presentar() {
   const { id } = useParams<{ id: string }>();
@@ -55,6 +55,11 @@ export default function Presentar() {
   const elegidos = r?.productos.filter((i) => i.prefiltro === "pasa") ?? [];
   const { ordenados, rojos } = ordenar(elegidos);
   const posRojos = rojos.length ? ordenados.length + 1 : -1;
+  // Mientras se ve la portada se piden todas las pantallas en orden, para que cada diapositiva abra al momento
+  const porPedir = [...ordenados, ...rojos].filter((i) => i.evaluacion?.estado === "lista").map((i) => `${RUTA}/productos/${i.id}/pantalla`).join("|");
+  useEffect(() => {
+    if (porPedir) void precargarPantallas(porPedir.split("|"));
+  }, [porPedir]);
   const total = ordenados.length + (rojos.length ? 1 : 0) + 2; // portada + productos + rojos + resumen
   const ir = useCallback((n: number) => {
     setDir(n > pos ? 1 : -1);
@@ -127,7 +132,7 @@ export default function Presentar() {
             animate={{ opacity: 1, x: 0 }}
             exit={quieto ? { opacity: 0 } : { opacity: 0, x: -40 * dir }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="@container mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10"
+            className={`@container mx-auto px-4 py-6 sm:px-8 ${actual?.evaluacion?.estado === "lista" ? "max-w-[112rem] sm:py-5" : "max-w-7xl sm:py-10"}`}
           >
             {pos === 0 ? (
               <Portada r={r} ordenados={ordenados} rojos={rojos} registrar={() => setAsistentes(true)} puedeRegistrar={puede("compras.comite.decidir") || puede("compras.comite.prefiltrar")} abrirProducto={abrirProducto} />
@@ -340,6 +345,49 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
   const e = i.evaluacion?.estado === "lista" ? i.evaluacion : null;
   const peticiones = r.peticiones.filter((p) => p.item_id === i.id);
 
+  // Con semáforo listo: la pantalla del comité de 4 niveles (plan aprobado por Diego el 20 nov 2026) y abajo la decisión
+  if (e)
+    return (
+      <div className="space-y-8">
+        <PantallaComite key={i.id} ruta={`${RUTA}/productos/${i.id}/pantalla`} nombre={i.nombre} foto={<Foto i={i} n={0} ancho={900} className="h-full w-full" />} />
+        {e.motivo_cambio && <p className="rounded-2xl bg-aviso-fondo px-4 py-2 text-[15px] text-aviso-texto">Compras cambió el color: {e.motivo_cambio}</p>}
+        {i.duplicado && <p className="rounded-2xl bg-aviso-fondo px-4 py-2 text-[15px] text-aviso-texto">{i.duplicado}</p>}
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-smn-gris-100 pt-4">
+          <p className="mr-auto text-sm text-smn-gris-500">¿Preguntan algo que no está en pantalla?</p>
+          <Boton variante="secundario" onClick={() => abrir("fondo")}>
+            <Layers className="h-4 w-4" /> Ver a fondo
+          </Boton>
+          <BotonAsistente onClick={() => abrir("ia")} />
+          <BotonReporte ruta={`${RUTA}/productos/${i.id}/reporte`} nombre={i.nombre} guardado={i.reporte_guardado} />
+        </div>
+        {!proyector && (
+          <div className="grid gap-6 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className="space-y-5">
+              {i.prefiltro_motivo && (
+                <section className="rounded-3xl bg-smn-gris-50 p-5">
+                  <h2 className="text-sm font-semibold tracking-wide text-smn-gris-500 uppercase">Compras lo propone porque</h2>
+                  <p className="mt-1 text-xl leading-snug">{i.prefiltro_motivo}</p>
+                  {i.criterios.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {i.criterios.map((c) => (
+                        <Insignia key={c.criterio} className={`text-sm ${VALOR[c.valor].clase}`}>{c.criterio}: {VALOR[c.valor].texto.toLowerCase()}{c.nota && ` (${c.nota})`}</Insignia>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+            <Decidir i={i} r={r} decidir={decidir} anotar={anotar} listo={listo} peticiones={peticiones} />
+          </div>
+        )}
+        {proyector && i.decision && (
+          <p className="text-lg">
+            <Insignia className={`text-base ${DECISION[i.decision].clase}`}>{DECISION[i.decision].texto}</Insignia> {i.decision_motivo}
+          </p>
+        )}
+      </div>
+    );
+
   return (
     <div className="grid gap-8 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:gap-12">
       <div className="space-y-5">
@@ -366,7 +414,6 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
             )}
           </section>
         )}
-        {e && <ContraParecidos i={i} />}
       </div>
 
       <div className="min-w-0 space-y-6">
@@ -387,15 +434,13 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
           )}
         </div>
 
-        <Numeros i={i} minimo={e?.ejecutivo?.margen_minimo ?? null} />
+        <Numeros i={i} minimo={null} />
         {i.duplicado && <p className="rounded-2xl bg-aviso-fondo px-4 py-2 text-[15px] text-aviso-texto">{i.duplicado}</p>}
 
-        {e ? <Veredicto e={e} abrir={abrir} i={i} /> : (
-          <section className="rounded-3xl border border-smn-gris-100 p-5">
-            <p className="text-lg text-smn-gris-500">Este producto no tiene semáforo.</p>
-            <div className="mt-3"><BotonAsistente onClick={() => abrir("ia")} /></div>
-          </section>
-        )}
+        <section className="rounded-3xl border border-smn-gris-100 p-5">
+          <p className="text-lg text-smn-gris-500">{i.evaluacion?.estado === "en_curso" ? "El semáforo se está calculando." : "Este producto no tiene semáforo."}</p>
+          <div className="mt-3"><BotonAsistente onClick={() => abrir("ia")} /></div>
+        </section>
 
         {proyector ? (
           i.decision && (
@@ -404,32 +449,39 @@ function Diapositiva({ i, r, decidir, anotar, listo, abrir, proyector = false }:
             </p>
           )
         ) : (
-        <section className="rounded-3xl bg-smn-gris-50 p-5">
-          <h2 className="mb-3 text-lg font-semibold">Decisión del comité</h2>
-          {decidir ? (
-            <FormDecision i={i} listo={listo} grande />
-          ) : i.decision ? (
-            <p className="text-lg">
-              <Insignia className={`text-base ${DECISION[i.decision].clase}`}>{DECISION[i.decision].texto}</Insignia> {i.decision_motivo}
-            </p>
-          ) : (
-            <p className="text-smn-gris-500">Sin decisión.</p>
-          )}
-          {(anotar || peticiones.length > 0) && (
-            <div className="mt-4 border-t border-smn-gris-100 pt-4">
-              <h3 className="mb-2 text-sm font-semibold">Peticiones sobre este producto</h3>
-              {peticiones.length > 0 && <ListaPeticiones peticiones={peticiones} />}
-              {anotar && (
-                <div className="mt-2">
-                  <NuevaPeticion reunion={r} item={i} listo={listo} />
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+        <Decidir i={i} r={r} decidir={decidir} anotar={anotar} listo={listo} peticiones={peticiones} />
         )}
       </div>
     </div>
+  );
+}
+
+/** Decisión del comité y peticiones sobre el producto. */
+function Decidir({ i, r, decidir, anotar, listo, peticiones }: { i: Item; r: Reunion; decidir: boolean; anotar: boolean; listo: (r: Reunion) => void; peticiones: Reunion["peticiones"] }) {
+  return (
+    <section className="rounded-3xl bg-smn-gris-50 p-5">
+      <h2 className="mb-3 text-lg font-semibold">Decisión del comité</h2>
+      {decidir ? (
+        <FormDecision i={i} listo={listo} grande />
+      ) : i.decision ? (
+        <p className="text-lg">
+          <Insignia className={`text-base ${DECISION[i.decision].clase}`}>{DECISION[i.decision].texto}</Insignia> {i.decision_motivo}
+        </p>
+      ) : (
+        <p className="text-smn-gris-500">Sin decisión.</p>
+      )}
+      {(anotar || peticiones.length > 0) && (
+        <div className="mt-4 border-t border-smn-gris-100 pt-4">
+          <h3 className="mb-2 text-sm font-semibold">Peticiones sobre este producto</h3>
+          {peticiones.length > 0 && <ListaPeticiones peticiones={peticiones} />}
+          {anotar && (
+            <div className="mt-2">
+              <NuevaPeticion reunion={r} item={i} listo={listo} />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -460,112 +512,6 @@ function Numeros({ i, minimo }: { i: Item; minimo: string | null }) {
   );
 }
 
-const TONO = (p: number | null) => (p == null ? "bg-smn-gris-300" : p > 80 ? "bg-green-600" : p >= 60 ? "bg-yellow-500" : "bg-red-600");
-
-/** El semáforo para un comité: color y calificación, una frase, a favor y en contra, y qué lo subiría. */
-function Veredicto({ e, abrir, i }: { e: NonNullable<Item["evaluacion"]>; abrir: (modo: "fondo" | "ia") => void; i: Item }) {
-  const color = e.color;
-  const x = e.ejecutivo;
-  const factores = e.factores.filter((f) => !(e.modelo === "sin_proveedor" && f.factor === "proveedor" && f.puntaje == null));
-  const d = x?.dictamen ? dictamenCorto(x.dictamen) : null;
-  return (
-    <section className="rounded-3xl border border-smn-gris-100 p-5 sm:p-6">
-      {d && (
-        <div className={`mb-5 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl p-4 sm:p-5 ${d.fondo}`}>
-          <div>
-            <p className="text-xs font-semibold tracking-wide text-smn-gris-700 uppercase">Dictamen</p>
-            <p className={`mt-1 rounded-xl px-4 py-2 text-2xl font-semibold text-white ${d.solido}`}>{d.etiqueta}</p>
-          </div>
-          {d.resto && <p className="min-w-0 flex-1 basis-72 text-lg leading-snug">{d.resto}</p>}
-        </div>
-      )}
-      <div className="flex items-start gap-5">
-        <div className={`flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl ${color ? SEMAFORO[color].punto : "bg-smn-gris-300"} text-white`}>
-          <span className="text-3xl leading-none font-semibold tabular-nums">{e.puntaje ?? "—"}</span>
-          <span className="mt-1 text-[11px] font-medium tracking-wide uppercase opacity-90">de 100</span>
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold tracking-wide text-smn-gris-500 uppercase">
-            {color ? SEMAFORO[color].texto : "Sin color"}
-            {x?.faltan_puntos != null && <span className="font-normal normal-case"> · {x.faltan_puntos === 1 ? "le falta 1 punto" : `le faltan ${x.faltan_puntos} puntos`} para verde</span>}
-          </p>
-          <p className="mt-1 text-2xl leading-snug font-semibold">{x?.titular ?? "Semáforo listo."}</p>
-          {e.motivo_cambio && <p className="mt-1 text-sm text-smn-gris-700">Compras cambió el color: {e.motivo_cambio}</p>}
-        </div>
-      </div>
-
-      {/* Barras por factor con su peso: de un vistazo qué lo sube y qué lo baja (maqueta, 12 nov 2026) */}
-      <ul className="mt-5 grid gap-x-6 gap-y-3.5 sm:grid-cols-2">
-        {factores.map((f) => (
-          <li key={f.factor} className="min-w-0">
-            <div className="flex items-baseline justify-between gap-2 text-[15px]">
-              <span className={`font-semibold ${f.puntaje == null ? "text-smn-gris-500" : ""}`}>{f.nombre}</span>
-              <span className="shrink-0 tabular-nums">
-                {f.puntaje == null ? <span className="text-smn-gris-500">no cuenta</span> : <b>{f.puntaje}</b>}
-                <span className="text-smn-gris-500"> · pesa {Number(f.peso).toFixed(0)} %</span>
-              </span>
-            </div>
-            <div className="mt-1 h-2.5 rounded-full bg-smn-gris-100" aria-hidden>
-              {f.puntaje != null && <div className={`h-2.5 rounded-full ${TONO(f.puntaje)}`} style={{ width: `${Math.max(2, f.puntaje)}%` }} />}
-            </div>
-            {f.valor && <p className="mt-1 line-clamp-2 text-sm leading-snug text-smn-gris-700">{f.valor}</p>}
-          </li>
-        ))}
-      </ul>
-
-      {x && (x.a_favor.length > 0 || x.en_contra.length > 0) && (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <Lista titulo="A favor" puntos={x.a_favor} bien />
-          <Lista titulo="En contra" puntos={x.en_contra} bien={false} />
-        </div>
-      )}
-
-      {x?.para_verde && (
-        <p className="mt-4 rounded-2xl bg-smn-gris-50 px-4 py-3 text-[17px] leading-snug">
-          <span className="font-semibold">Lo que más lo subiría: </span>
-          {x.para_verde}
-        </p>
-      )}
-
-      <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-smn-gris-100 pt-4">
-        <p className="mr-auto text-sm text-smn-gris-500">¿Preguntan el porqué de algo?</p>
-        <div className="flex gap-2">
-          <Boton variante="secundario" onClick={() => abrir("fondo")}>
-            <Layers className="h-4 w-4" /> Ver a fondo
-          </Boton>
-          <BotonAsistente onClick={() => abrir("ia")} />
-          {e.estado === "lista" && (
-            <BotonReporte ruta={`${RUTA}/productos/${i.id}/reporte`} nombre={i.nombre} guardado={i.reporte_guardado} />
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Lista({ titulo, puntos, bien }: { titulo: string; puntos: { factor: string; nombre: string; puntaje: number; texto: string }[]; bien: boolean }) {
-  const Icono = bien ? Check : Minus;
-  return (
-    <div>
-      <h3 className={`mb-2 text-sm font-semibold tracking-wide uppercase ${bien ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>{titulo}</h3>
-      {puntos.length === 0 ? (
-        <p className="text-[15px] text-smn-gris-500">{bien ? "Ningún factor destaca a favor." : "Nada en contra."}</p>
-      ) : (
-        <ul className="space-y-2.5">
-          {puntos.map((p) => (
-            <li key={p.factor} className="flex gap-2.5">
-              <Icono className={`mt-1 h-4 w-4 shrink-0 ${bien ? "text-green-600" : "text-red-600"}`} />
-              <span className="text-[17px] leading-snug">
-                <b>{p.nombre}</b> <span className="text-smn-gris-500 tabular-nums">({p.puntaje})</span>
-                <span className="block text-[15px] text-smn-gris-700">{p.texto}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 function Resumen({ r, elegidos, abrirProducto }: { r: Reunion; elegidos: Item[]; abrirProducto: (i: Item) => void }) {
   const grupos = (["aceptado", "denegado", "en_espera"] as const).map((d) => ({ d, lista: elegidos.filter((i) => i.decision === d) }));
@@ -606,108 +552,6 @@ function Resumen({ r, elegidos, abrirProducto }: { r: Reunion; elegidos: Item[];
         <BotonActa r={r} />
       </div>
     </div>
-  );
-}
-
-/** El producto nuevo contra los 3 parecidos más cercanos que ya vendemos: precio y cómo se venden de verdad (SMNBI). */
-function ContraParecidos({ i }: { i: Item }) {
-  const [d, setD] = useState<Parecidos | null>(null);
-  useEffect(() => {
-    let vivo = true;
-    api<Parecidos>(`${RUTA}/productos/${i.id}/parecidos`).then((x) => vivo && setD(x)).catch(() => vivo && setD({ ventana: null, productos: [] }));
-    return () => {
-      vivo = false;
-    };
-  }, [i.id]);
-  if (!d || (d.productos.length === 0 && !d.internet?.length)) return null;
-  const nuevo = i.precio ? Number(i.precio) : null;
-  // Con tamaño se compara por gramo, mililitro o pieza; sin tamaño, por el precio total (Diego, 11 nov 2026)
-  const porUnidad = d.unidad && d.este_por_unidad ? Number(d.este_por_unidad) : null;
-  const corta: Record<string, string> = { gramo: "g", mililitro: "ml", pieza: "pz", metro: "m" };
-  const dinero = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
-  const unidad = (x: string | null | undefined) => {
-    if (!x) return null;
-    const n = Number(x);
-    return n >= 0.1 ? `${dinero(n)} por ${d.unidad}` : `${dinero(n * 100)} por 100 ${corta[d.unidad ?? ""] ?? d.unidad}`;
-  };
-  return (
-    <section className="rounded-3xl border border-smn-gris-100 p-5">
-      <h2 className="text-sm font-semibold tracking-wide text-smn-gris-500 uppercase">Contra qué se comparó el precio</h2>
-      <div className="mt-3 flex items-center gap-3 rounded-2xl bg-smn-naranja/10 px-3 py-2.5">
-        <Foto i={i} className="h-11 w-11 shrink-0 rounded-xl" />
-        <p className="min-w-0 flex-1 font-semibold">Este producto{d.este_tamano && <span className="block text-xs font-normal text-smn-gris-500">{d.este_tamano}</span>}</p>
-        <p className="shrink-0 text-right tabular-nums">
-          <span className="block text-lg font-semibold">{i.precio ? pesos(i.precio) : "—"}</span>
-          <span className="block text-xs text-smn-gris-500">{porUnidad ? unidad(d.este_por_unidad) : "todavía sin venta"}</span>
-        </p>
-      </div>
-      <ul className="mt-1 divide-y divide-smn-gris-100">
-        {d.productos.map((p) => {
-          const dif =
-            porUnidad && p.por_unidad && p.cuenta
-              ? Math.round((porUnidad / Number(p.por_unidad) - 1) * 100)
-              : !porUnidad && nuevo && p.precio
-                ? Math.round((nuevo / Number(p.precio) - 1) * 100)
-                : null;
-          return (
-            <li key={p.producto_id} className={`flex items-center gap-3 px-3 py-2.5 ${p.cuenta === false ? "opacity-70" : ""}`}>
-              <Miniatura liga={p.imagen} />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 leading-snug font-medium">{p.descripcion || p.sku}</p>
-                {porUnidad && (
-                  <p className={`text-[13px] ${p.cuenta ? "text-green-700 dark:text-green-400" : "text-smn-gris-500"}`}>
-                    {p.cuenta ? "Tamaño cercano: cuenta" : p.cuenta === false ? "Otro tamaño: no cuenta" : "Sin tamaño: no cuenta"}
-                  </p>
-                )}
-                <p className="mt-0.5 text-[13px] text-smn-gris-500">
-                  {p.por_tienda_mes !== null ? (
-                    <>
-                      <b className="font-semibold text-tinta tabular-nums">{p.por_tienda_mes.toLocaleString("es-MX", { maximumFractionDigits: 1 })}</b> pzas/tienda al mes · {p.tiendas} {p.tiendas === 1 ? "tienda" : "tiendas"}
-                      {p.cambio !== null && Math.abs(p.cambio) >= 5 && (
-                        <span className={`ml-1 inline-flex items-center ${p.cambio > 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
-                          {p.cambio > 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-                          {Math.abs(Math.round(p.cambio))} %
-                        </span>
-                      )}
-                    </>
-                  ) : d.ventana ? (
-                    "Sin venta en el periodo"
-                  ) : (
-                    "Sin ventas cargadas"
-                  )}
-                </p>
-              </div>
-              <p className="shrink-0 text-right tabular-nums">
-                <span className="block font-semibold">{p.precio ? pesos(p.precio) : "—"}</span>
-                {porUnidad && p.por_unidad && <span className="block text-xs text-smn-gris-500">{unidad(p.por_unidad)}</span>}
-                {dif !== null && dif !== 0 && (
-                  <span className={`block text-xs ${dif > 0 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}`}>nuevo {Math.abs(dif)} % {dif > 0 ? "más caro" : "más barato"}</span>
-                )}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-      {d.internet && d.internet.length > 0 && (
-        <div className="mt-3 border-t border-smn-gris-100 pt-3">
-          <h3 className="text-sm font-semibold">En internet</h3>
-          <ul className="mt-1 space-y-1 text-[15px]">
-            {d.internet.map((x, k) => (
-              <li key={k} className="flex justify-between gap-3">
-                <span className="min-w-0 truncate">{x.liga ? <a href={x.liga} target="_blank" rel="noreferrer" className="underline">{x.vendedor || "Tienda"}</a> : x.vendedor || "Tienda"}</span>
-                <span className="shrink-0 tabular-nums">{pesos(x.precio)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {d.quitados && (
-        <p className="mt-3 border-t border-dashed border-smn-gris-300 pt-3 text-sm text-smn-gris-700">
-          <b className="text-tinta">La IA quitó de la comparación:</b> {d.quitados}
-        </p>
-      )}
-      {d.ventana && <p className="mt-2 text-xs text-smn-gris-500 first-letter:uppercase">{d.ventana}. Flecha: últimas 13 semanas contra las 13 anteriores.</p>}
-    </section>
   );
 }
 

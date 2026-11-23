@@ -256,10 +256,42 @@ class Walmart(Tienda):
                     imagen = _primero(imagen, [("url",), ("src",)])
                 vendedor = _primero(it, [("sellerName",), ("sellerDisplayName",), ("seller", "displayName"), ("seller", "name")])
                 marca = _primero(it, [("brand",), ("brandName",)])
+                datos = {"vendedor": _texto(vendedor)} if vendedor else {}
+                if venta := venta_walmart(it):
+                    datos["venta"] = venta
                 salida.append(Resultado(clave, _texto(titulo), _decimal(precio), liga, _liga(imagen, self.base) if isinstance(imagen, str) else None,
-                                        None, _texto(marca) if isinstance(marca, str) else None, None,
-                                        {"vendedor": _texto(vendedor)} if vendedor else {}))
+                                        None, _texto(marca) if isinstance(marca, str) else None, None, datos))
         return salida
+
+
+_COMPRADO = re.compile(r"compr\w*\s+(?:m[aá]s\s+de\s+)?\+?\s*([\d][\d.,]*)\s*(mil|k)?\s*\+?\s*veces([^\"]{0,30})", re.I)
+
+
+def _cantidad(numero: str, mil: str | None) -> int | None:
+    try:
+        n = float(numero.replace(",", "")) if "," in numero and "." not in numero and len(numero.split(",")[-1]) == 3 \
+            else float(numero.replace(",", "."))
+    except ValueError:
+        return None
+    return int(n * 1000) if mil else int(n)
+
+
+def venta_walmart(it: dict) -> dict | None:
+    """Reseñas, calificación y «Comprado +X veces el mes pasado» de un resultado de Walmart, si los trae
+    (señal de venta en internet, Diego 22 nov 2026). Lo que no viene se deja fuera."""
+    venta = {}
+    resenas = _primero(it, [("numberOfReviews",), ("reviewCount",), ("rating", "numberOfReviews")])
+    calif = _primero(it, [("averageRating",), ("rating", "averageRating")])
+    if isinstance(resenas, (int, float)) and resenas > 0:
+        venta["resenas"] = int(resenas)
+    if isinstance(calif, (int, float)) and calif > 0:
+        venta["calificacion"] = round(float(calif), 1)
+    if m := _COMPRADO.search(json.dumps(it, ensure_ascii=False)):
+        if (n := _cantidad(m.group(1), m.group(2))) and n > 0:
+            venta["vendidos"] = n
+            venta["mes"] = "mes" in m.group(3).lower()
+            venta["texto"] = m.group(0).strip(" .,")[:80]
+    return venta or None
 
 
 TIENDAS: dict[str, type[Tienda]] = {"Walmart": Walmart, "Chedraui": Chedraui, "San Pablo": SanPablo, "Soriana": Soriana}

@@ -38,6 +38,9 @@ class ProductoIdea(Base):
     porciones: Mapped[int | None] = mapped_column(Integer)  # porciones por envase
     donde_se_vio: Mapped[str | None] = mapped_column(Unicode(300))
     costo_estimado: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # sin IVA, si alguien lo sabe
+    # Migración 0055 (22 nov 2026): tipo de producto = lista de márgenes A–F de Compras, y precio de membresía con IVA
+    lista_margen: Mapped[str | None] = mapped_column(Unicode(1))
+    precio_membresia: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     # Captura corta con proveedor (migración 0041): su clave en Intelisis, o el nombre si es nuevo
     proveedor_intelisis: Mapped[str | None] = mapped_column(Unicode(10))
     proveedor_nuevo: Mapped[str | None] = mapped_column(Unicode(200))
@@ -82,6 +85,8 @@ class ProductoEvaluacion(Base):
     investigacion: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de investigar.Investigacion (0049)
     pronostico: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de pronostico.Pronostico (0049)
     politicas: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de politicas_producto.Revision
+    pantalla: Mapped[str | None] = mapped_column(UnicodeText)  # JSON de pantalla_comite (0053)
+    pantalla_venta: Mapped[str | None] = mapped_column(Unicode(100))  # semanas de venta con que se armó
     color_final: Mapped[str | None] = mapped_column(Unicode(10))  # el que puso Compras, con motivo
     motivo_cambio: Mapped[str | None] = mapped_column(Unicode(1000))
     cambiado_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))

@@ -13,8 +13,11 @@ class Configuracion(BaseSettings):
     # Dirección pública de la web; se usa para armar las ligas de invitación y de contraseña
     web_url: str = "http://localhost:3000"
     sesion_horas: int = 12
-    # Para cifrar los secretos guardados desde la pantalla de Configuración. Vacío = se deriva de MSSQL_SA_PASSWORD.
+    # Llave para cifrar los secretos de Configuración y lo confidencial de Innovación Vidanat.
+    # Vacía = se deriva de MSSQL_SA_PASSWORD (forma vieja, menos segura). Para ponerla o cambiarla: scripts/rotar_llave.py.
     clave_cifrado: str = ""
+    # La llave anterior, solo mientras se corre scripts/rotar_llave.py al cambiar CLAVE_CIFRADO por otra.
+    clave_cifrado_anterior: str = ""
 
     bd_servidor: str = "localhost"
     bd_puerto: int = 1433
@@ -129,6 +132,7 @@ class Configuracion(BaseSettings):
     precios_ia_siempre: bool = True  # la IA elige entre los resultados de Google (decisión de Diego, 2026-10-19)
     precios_tarifa_usd: float = 0.001  # por bloque de resultados, prioridad normal (DataForSEO, 2026-10-06)
     precios_tope_mensual_usd: float = 0.0  # 0 = no corre
+    busqueda_web_tope_usd: float = 2.0  # buscar en internet (radar de noticias y más vendidos), aparte del tope general
     precios_tope_corrida_usd: float = 2.0
     precios_alerta_pct: float = 5.0
     precios_dominios_propios: str = "supernaturista.com"
@@ -148,8 +152,15 @@ class Configuracion(BaseSettings):
 
     # Radar de productos (Compras): margen mínimo provisional mientras Compras no captura su regla de margen.
     radar_productos_margen_minimo: float = 30.0
+    # Lista de márgenes A–F de Compras («MARGENES PARA CALCULO DE PRECIOS.xlsx», 29 oct 2026): lista/membresía en %
+    radar_productos_listas_margen: str = "A=31/28; B=45/35; C=39/31; D=36/31; E=31/26; F=41/34"
     # Buscar el producto nuevo en Google Shopping (DataForSEO, con el tope del radar de precios) y en las tiendas clave
     radar_productos_buscar_mercado: bool = True
+    # Señal de venta en internet (Diego, 22 nov 2026): Mercado Libre con su API oficial (aplicación registrada por SMN)
+    # y Amazon México con DataForSEO (cuenta para el tope del mes)
+    mercado_libre_app_id: str = ""
+    mercado_libre_clave: str = ""
+    radar_productos_amazon: bool = True
     # «Buscar oportunidades»: cuántas subcategorías se buscan en Google Shopping para ver lo que vende la competencia
     oportunidades_busquedas: int = 60
     oportunidades_tendencias: int = 5  # búsquedas del agente por tendencia (2026-11-09)

@@ -18,7 +18,7 @@ echo "=== Primera vez - $(date '+%Y-%m-%d %H:%M') ==="
 # 1. Carpetas
 sudo mkdir -p /datos/sqlserver /datos/respaldos /datos/ollama /datos/archivos /datos/caddy/data /datos/caddy/config $BASE/versiones
 sudo chown -R 10001:0 /datos/sqlserver /datos/respaldos      # usuario interno de SQL Server
-sudo chmod 755 /datos/respaldos
+sudo chgrp docker /datos/respaldos && sudo chmod 750 /datos/respaldos   # solo SQL Server y el grupo docker
 sudo chown "$USER":"$USER" $BASE $BASE/versiones
 sudo chgrp -R docker $BASE && sudo chmod -R g+rwX $BASE
 
@@ -59,7 +59,7 @@ sqlsa -d "$(bd)" -Q "DELETE FROM nucleo.configuracion WHERE clave IN ('web_url',
 CLAVE_APP="Smn-$(openssl rand -hex 16)-A1"
 CLAVE_LEC="Lec-$(openssl rand -hex 12)-B2"
 sqlsa -Q "CREATE LOGIN smn_app WITH PASSWORD='$CLAVE_APP', DEFAULT_DATABASE=[$(bd)]; CREATE LOGIN smn_lectura WITH PASSWORD='$CLAVE_LEC', DEFAULT_DATABASE=[$(bd)];"
-sqlsa -d "$(bd)" -Q "CREATE USER smn_app FOR LOGIN smn_app; ALTER ROLE db_owner ADD MEMBER smn_app; CREATE USER smn_lectura FOR LOGIN smn_lectura; ALTER ROLE db_datareader ADD MEMBER smn_lectura;"
+sqlsa -d "$(bd)" -Q "CREATE USER smn_app FOR LOGIN smn_app; ALTER ROLE db_owner ADD MEMBER smn_app; CREATE USER smn_lectura FOR LOGIN smn_lectura; ALTER ROLE db_datareader ADD MEMBER smn_lectura; IF SCHEMA_ID('innovacion') IS NOT NULL DENY SELECT ON SCHEMA::innovacion TO smn_lectura;"
 poner_env BD_USUARIO smn_app
 poner_env BD_CONTRASENA "$CLAVE_APP"
 echo "smn_lectura / $CLAVE_LEC" > ~/clave_smn_lectura.txt; chmod 600 ~/clave_smn_lectura.txt

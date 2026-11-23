@@ -16,6 +16,8 @@ Table compras.producto_idea {
   porciones int [note: 'migración 0046: porciones por envase']
   donde_se_vio nvarchar(300)
   costo_estimado decimal(12,2) [note: 'sin IVA']
+  lista_margen nvarchar(1) [null, note: 'Tipo de producto = lista de márgenes A–F (migración 0055)']
+  precio_membresia decimal(12,2) [null, note: 'con IVA; vacío = se calcula con la regla de la lista']
   estado nvarchar(20) [not null, note: 'nueva / buscar_proveedor / vigilar / descartada']
   creada_por int [not null, ref: > nucleo.usuario.usuario_id]
   creada_en datetime [not null]
@@ -46,6 +48,8 @@ Table compras.producto_evaluacion {
   explicacion_ia bit [not null]
   mercado nvarchar(max) [note: 'JSON: precios de internet del producto nuevo (radar de precios, corrida origen producto); se reusa 7 días']
   politicas nvarchar(max) [note: 'JSON: revisión de la IA contra políticas vigentes y reglas de rechazo/umbral, rechazo directo y casos parecidos']
+  pantalla nvarchar(max) [note: 'JSON: pantalla por niveles ya armada (comité y radar); se arma al terminar la evaluación (0053)']
+  pantalla_venta nvarchar(100) [note: 'semanas de venta con que se armó la pantalla; si cambian se vuelve a armar']
   color_final nvarchar(10) [note: 'el que puso Compras']
   motivo_cambio nvarchar(1000)
   cambiado_por int [ref: > nucleo.usuario.usuario_id]

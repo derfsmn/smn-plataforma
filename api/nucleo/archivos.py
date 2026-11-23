@@ -36,6 +36,8 @@ TIPOS = {
     ".csv": ("text/csv", None),
 }
 BLOQUE = 1024 * 1024
+# Módulos cuyos archivos solo se bajan por su propia ruta, que revisa su filtro de acceso (Innovación Vidanat: fórmulas)
+DESCARGA_PROPIA = {"innovacion"}
 
 
 class ArchivoSalida(BaseModel):
@@ -137,6 +139,8 @@ def descargar(archivo_id: int, ctx: Contexto = Depends(usuario_actual), bd: Sess
     a = bd.get(Archivo, archivo_id)
     if not a or not (a.subido_por == ctx.usuario.usuario_id or ctx.puede("nucleo.usuarios.administrar")):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese archivo.")
+    if a.modulo_id and bd.scalar(select(Modulo.codigo).where(Modulo.modulo_id == a.modulo_id)) in DESCARGA_PROPIA:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe ese archivo.")  # se baja por la ruta de su módulo
     raiz = _raiz()
     ruta = (raiz / a.ruta_almacenamiento).resolve()
     if raiz not in ruta.parents or not ruta.is_file():

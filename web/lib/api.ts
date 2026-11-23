@@ -53,7 +53,7 @@ export const mensajeDe = (e: unknown) => (e instanceof Error ? e.message : "Algo
 // ---- Tipos que devuelve la API (api/nucleo/esquemas.py)
 
 export type EstadoModulo = "en_diseno" | "piloto" | "activo" | "retirado";
-export type Icono = "carrito" | "personas" | "radar" | "tienda" | "fiscal" | "libro" | "mas";
+export type Icono = "carrito" | "personas" | "radar" | "tienda" | "fiscal" | "libro" | "matraz" | "mas";
 
 export type Usuario = {
   id: number;

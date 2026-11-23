@@ -6,6 +6,18 @@
 https://172.31.104.4 {
 	tls internal
 
+	# Encabezados de seguridad (revisión de seguridad 2026-11-22, M5). El micrófono queda permitido para Naturi.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(self), geolocation=()"
+		Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
+		-Server
+		-X-Powered-By
+	}
+
 	# Todas las rutas de la API ya empiezan con /api
 	handle /api/* {
 		reverse_proxy api:8000

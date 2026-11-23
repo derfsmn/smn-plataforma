@@ -2,6 +2,16 @@
 
 Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arriba.
 
+## Novedades (2026-11-22)
+
+- **Nuevo (2026-11-22): TD005 Innovación Vidanat, Entrega 1** (Diego aprobó el plan v2: «puedes comenzar el desarrollo»). Módulo aparte `innovacion` (esquema `innovacion`, migración **0052**, cuelga de 0051), rutas `/api/innovacion` y pantallas `/innovacion`. Ficha completa en `docs/iniciativas/TD005_innovacion_vidanat.md`.
+  - **Base de conocimiento:** fuentes con versiones, archivos completos (todo es comprado), OCR con Tesseract, descripción de imágenes con Ollama, datos sugeridos por la IA que una persona confirma, revisión (pendiente → revisada / rechazada), vínculos y uso. Búsqueda híbrida (BM25 + vectores) compartida en `api/nucleo/busqueda.py`.
+  - **Expedientes por folio** con equipo: ficha, fórmula cifrada (solo con permiso **y** ser del equipo), evidencia citada, comparables, escenarios, pendientes, evaluaciones inmutables, dictámenes, excepciones (nadie aprueba la propia) y **Filtro** que decide un directivo con foto congelada.
+  - **Reglas** con motor propio (borrador → revisión → publicada → retirada, choques al publicar, severidad bloqueante / mayor / menor). El módulo funciona sin ninguna regla publicada.
+  - **Consulta con IA** (respuestas con citas verificadas o «evidencia insuficiente») e **investigador en internet** (PubMed, Europe PMC, ClinicalTrials.gov, OpenAlex, Crossref gratis; sitios oficiales y web con DataForSEO dentro del tope del mes). A internet solo salen términos de búsqueda; la fórmula y los datos del folio nunca salen. Toda la IA del módulo tiene candado a Ollama (`SOLO_LOCAL` en `api/ia/puerta.py`).
+  - 7 roles `innovacion_*` (investigador, líder, formulación, regulatorio, calidad, directivo, marketing) en la semilla. Datos de ejemplo con `python -m scripts.ejemplos_innovacion` (`--quitar` los borra). Pruebas `tests/test_innovacion.py` (13).
+  - **Pendiente de Diego:** copiar el paquete, `docker compose up --build -d api web` (instala Tesseract y corre la 0052), asignar roles y probar.
+
 ## Novedades (2026-11-17)
 
 - **Nuevo (2026-11-17): radar de precios que se valida solo, revisión de noche, «qué conviene» y reporte a Excel** (Diego aprobó el plan: «entonces comienza a trabajar por favor»; regla: «Compras no valida nada… son los usuarios finales»). Migración **0050** (cuelga de 0049b del radar de productos inteligente; cadena 0047 → 0049 → 0049b → 0050).

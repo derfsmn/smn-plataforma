@@ -1,13 +1,16 @@
 "use client";
-// Buscador de comandos (Ctrl + K / ⌘ K): brinca a cualquier pantalla que la persona puede ver, pregunta a los
-// manuales o cambia el tema. Solo lista lo que su menú ya le permite; no consulta datos.
+// Buscador de comandos (Ctrl + K / ⌘ K o «/»): brinca a cualquier pantalla que la persona puede ver, pregunta a los
+// manuales o cambia el tema. Quien tiene acceso a Compras también encuentra aquí productos (nombre, SKU, código de
+// barras, marca o proveedor) y abre su ficha (22 nov 2026).
 
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { CornerDownLeft, LogOut, Moon, Search, Sparkles, Sun, UserRound } from "lucide-react";
+import { CornerDownLeft, Lightbulb, Loader2, LogOut, Moon, Package, Search, Sparkles, Sun, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cambiarTema } from "@/lib/tema";
 import { sinAcentos } from "@/lib/inicio";
+import { api } from "@/lib/api";
+import { RUTA_BUSCADOR, hrefDe, type Busqueda } from "@/lib/buscador";
 
 export type EntradaPaleta = { texto: string; grupo: string; href: string; icono: typeof Search; palabras?: string };
 
@@ -20,6 +23,14 @@ export function usePaleta() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setAbierta((v) => !v);
+        return;
+      }
+      // «/» también abre, salvo cuando se está escribiendo en un campo
+      const destino = e.target as HTMLElement | null;
+      const escribiendo = destino && (destino.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(destino.tagName));
+      if (e.key === "/" && !escribiendo && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setAbierta(true);
       }
     };
     window.addEventListener("keydown", tecla);
@@ -33,18 +44,44 @@ export function Paleta({
   cerrar,
   entradas,
   preguntar,
+  productos = false,
   salir,
 }: {
   abierta: boolean;
   cerrar: () => void;
   entradas: EntradaPaleta[];
   preguntar: boolean;
+  productos?: boolean;
   salir: () => void;
 }) {
   const router = useRouter();
   const [texto, setTexto] = useState("");
   const [indice, setIndice] = useState(0);
   const refLista = useRef<HTMLUListElement>(null);
+  const [hallados, setHallados] = useState<Busqueda | null>(null);
+  const [buscando, setBuscando] = useState(false);
+
+  // Productos: se piden 250 ms después de la última tecla; una respuesta vieja no pisa a la nueva
+  useEffect(() => {
+    const q = texto.trim();
+    if (!productos || !abierta || q.length < 2) {
+      setHallados(null);
+      setBuscando(false);
+      return;
+    }
+    let vigente = true;
+    setBuscando(true);
+    const t = setTimeout(() => {
+      api<Busqueda>(`${RUTA_BUSCADOR}?q=${encodeURIComponent(q)}&limite=6`)
+        .then((r) => vigente && setHallados(r))
+        .catch(() => vigente && setHallados(null))
+        .finally(() => vigente && setBuscando(false));
+    }, 250);
+    return () => {
+      vigente = false;
+      clearTimeout(t);
+    };
+  }, [texto, productos, abierta]);
 
   useEffect(() => {
     if (abierta) {
@@ -67,6 +104,30 @@ export function Paleta({
     const lista: Opcion[] = entradas
       .filter((e) => coincide(`${e.texto} ${e.grupo} ${e.palabras ?? ""}`))
       .map((e) => ({ id: e.href, texto: e.texto, grupo: e.grupo, icono: e.icono, hacer: () => ir(e.href) }));
+    // Productos justo después de las pantallas: casi siempre es lo que se busca
+    const prods: Opcion[] = [];
+    if (hallados && hallados.q.trim() === texto.trim()) {
+      const todos = [...hallados.catalogo, ...hallados.nuevos.slice(0, 3)];
+      for (const r of todos)
+        prods.push({
+          id: `${r.tipo}-${r.id}`,
+          texto: r.titulo,
+          grupo: "Productos",
+          icono: r.tipo === "catalogo" ? Package : Lightbulb,
+          detalle: r.tipo === "catalogo" ? r.detalle.split(" · ")[0] : r.tipo === "idea" ? "Idea" : "Propuesta",
+          hacer: () => ir(hrefDe(r)),
+        });
+      if (hallados.catalogo_total > hallados.catalogo.length || hallados.nuevos.length > 3)
+        prods.push({
+          id: "todos-productos",
+          texto: `Ver todos los productos con «${texto.trim()}»`,
+          grupo: "Productos",
+          icono: Search,
+          detalle: `${hallados.catalogo_total} en el catálogo`,
+          hacer: () => ir(`/compras/buscar?q=${encodeURIComponent(texto.trim())}`),
+        });
+    }
+    lista.push(...prods);
     if (preguntar && q.length >= 3) {
       lista.push({
         id: "preguntar",
@@ -84,7 +145,7 @@ export function Paleta({
       { id: "salir", texto: "Cerrar sesión", grupo: "Acciones", icono: LogOut, hacer: () => { cerrar(); salir(); } },
     ];
     return [...lista, ...acciones.filter((a) => coincide(a.texto))];
-  }, [entradas, texto, preguntar, ir, cerrar, salir]);
+  }, [entradas, texto, preguntar, ir, cerrar, salir, hallados]);
 
   useEffect(() => setIndice(0), [texto]);
   useEffect(() => {
@@ -129,14 +190,15 @@ export function Paleta({
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
                 onKeyDown={tecla}
-                placeholder={preguntar ? "Busca una pantalla o escribe una pregunta…" : "Busca una pantalla…"}
+                placeholder={productos ? "Busca un producto o una pantalla…" : preguntar ? "Busca una pantalla o escribe una pregunta…" : "Busca una pantalla…"}
                 className="h-12 flex-1 bg-transparent text-[15px] outline-none placeholder:text-smn-gris-500"
                 aria-controls="paleta-lista"
               />
+              {buscando && <Loader2 className="h-4 w-4 animate-spin text-smn-gris-500" aria-label="Buscando productos" />}
               <kbd className="rounded border border-smn-gris-100 px-1.5 text-[13px] text-smn-gris-500">Esc</kbd>
             </div>
             <ul id="paleta-lista" ref={refLista} role="listbox" className="max-h-[50vh] overflow-y-auto p-1.5">
-              {opciones.length === 0 && <li className="px-3 py-8 text-center text-sm text-smn-gris-500">No encontré nada con «{texto}».</li>}
+              {opciones.length === 0 && !buscando && <li className="px-3 py-8 text-center text-sm text-smn-gris-500">No encontré nada con «{texto}».</li>}
               {opciones.map((o, i) => {
                 const titulo = o.grupo !== grupoAnterior ? o.grupo : null;
                 grupoAnterior = o.grupo;
@@ -164,7 +226,7 @@ export function Paleta({
             <div className="flex items-center gap-4 border-t border-smn-gris-100 px-4 py-2 text-[13px] text-smn-gris-500">
               <span>↑ ↓ para moverte</span>
               <span>Enter para abrir</span>
-              <span className="ml-auto">Ctrl K para abrir o cerrar</span>
+              <span className="ml-auto">Ctrl K o / para abrir</span>
             </div>
           </motion.div>
         </motion.div>

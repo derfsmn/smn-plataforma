@@ -187,6 +187,12 @@ def test_proveedor_envia_y_compras_revisa(admin: TestClient):
     assert vista["editable"] and vista["comentario"] == "Falta la tabla nutrimental legible"
     assert vista["revisiones"] == []  # las revisiones automáticas son de Compras
     assert prov.post(f"{R}/{pid}/enviar").json()["folio"] == folio
+    # 22 nov 2026: sin tipo de producto (lista de márgenes) no pasa a evaluación; el proveedor no lo puede poner ni verlo
+    assert admin.post(f"{R}/{pid}/estado", json={"estado": "lista"}).status_code == 400
+    assert prov.patch(f"{R}/{pid}/margen", json={"lista_margen": "D"}).status_code == 403
+    assert admin.patch(f"{R}/{pid}/margen", json={"lista_margen": "G"}).status_code == 422
+    assert admin.patch(f"{R}/{pid}/margen", json={"lista_margen": "D", "precio_membresia": "420.50"}).json()["lista_margen"] == "D"
+    assert prov.get(f"{R}/{pid}").json()["lista_margen"] is None
     assert admin.post(f"{R}/{pid}/estado", json={"estado": "lista"}).json()["estado"] == "lista"
     eventos = admin.get(f"{R}/{pid}").json()["eventos"]
     assert [e["estado_despues"] for e in eventos] == ["recibida", "devuelta", "recibida", "lista"]

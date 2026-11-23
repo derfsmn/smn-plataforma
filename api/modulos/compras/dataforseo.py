@@ -31,9 +31,13 @@ POR_ENVIO = 100  # DataForSEO acepta hasta 100 tareas por POST
 ESPERA = 10  # segundos entre revisiones de tareas listas
 LIMITE = 900  # segundos máximos esperando resultados
 RUTA = {"productos": "merchant/google/products", "vendedores": "merchant/google/sellers",
-        "organico": "serp/google/organic"}  # organico: búsqueda normal de Google para investigar afuera (17 nov 2026)
-BLOQUE = {"productos": 40, "vendedores": 10, "organico": 10}  # se cobra por cada bloque de resultados
-TARIFA = {"organico": Decimal("0.0006")}  # USD por bloque; las demás usan la tarifa de Configuración
+        "organico": "serp/google/organic",  # organico: búsqueda normal de Google para investigar afuera (17 nov 2026)
+        "noticias": "serp/google/news",  # Google Noticias para el radar de noticias (18 nov 2026)
+        "amazon": "merchant/amazon/products"}  # amazon: más vendidos y compras del mes en Amazon México (22 nov 2026)
+BLOQUE = {"productos": 40, "vendedores": 10, "organico": 10, "noticias": 10, "amazon": 100}  # se cobra por cada bloque de resultados
+# USD por bloque; las demás usan la tarifa de Configuración. Amazon: US$0.0015 por página en prioridad normal
+# (dataforseo.com/amazon-product-api, revisado el 22 nov 2026)
+TARIFA = {"organico": Decimal("0.0006"), "noticias": Decimal("0.0006"), "amazon": Decimal("0.0015")}
 
 
 class ErrorDataForSEO(Exception):

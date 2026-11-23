@@ -106,7 +106,7 @@ def test_parecidos_en_otro_departamento_y_misma_marca():
                       descripcion="Suplemento alimenticio que ayuda a controlar el apetito y a quemar grasa")
         parecidos = rp.buscar_parecidos(bd, s, None)
         assert parecidos[0][0].sku == mismo.sku and parecidos[0][1] >= Decimal("0.8")
-        assert "ya vendemos este producto" in rp.f_categoria(bd, s, None, parecidos).detalle
+        assert "misma marca y línea" in rp.f_categoria(bd, s, None, parecidos).detalle
         assert rp.f_precio(s, parecidos).puntaje is not None
         assert rp.f_rentabilidad(bd, s).detalle.startswith("Sin datos: falta el costo estimado.")
 
@@ -116,7 +116,8 @@ def test_parecidos_en_otro_departamento_y_misma_marca():
 def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     depto, skus = catalogo_ficticio()
     foto = subir(admin, "frente.png", PNG)
-    datos = {"nombre": "Citrato de magnesio en polvo", "marca": "Marca Ficticia", "departamento": depto,
+    # Marca única: otra idea con la misma marca y nombre (de una corrida anterior) daría su subcategoría («variante»)
+    datos = {"nombre": "Citrato de magnesio en polvo", "marca": f"Marca Ficticia {depto[-4:]}", "departamento": depto,
              "ingrediente": "Magnesio", "forma": "Polvo", "precio_visto": "150", "costo_estimado": "80",
              "donde_se_vio": "Tienda de ejemplo", "fotos": [foto]}
 
@@ -141,7 +142,7 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     f = {x["factor"]: x for x in e["factores"]}
     assert f["proveedor"]["puntaje"] is None and f["demanda"]["puntaje"] is None
     assert f["rentabilidad"]["valor"] == "Deja 38.1 % de margen, 8.1 puntos arriba del mínimo (30 %)"
-    assert f["precio"]["provisional"] and "parecido" in f["precio"]["detalle"]
+    assert not f["precio"]["provisional"] and "parecido" in f["precio"]["detalle"]  # anaquel es una mitad del Precio (22 nov 2026)
     assert e["color"] in {"verde", "amarillo", "rojo"} and e["puntaje"] is not None and e["explicacion"]
     assert [x["archivo_id"] for x in e["fotos"]] == [foto]
     # Las fotos las ve Compras aunque no las haya subido; una foto que no es de la idea, no
@@ -193,6 +194,7 @@ def test_propuesta_lista_se_evalua_sola(admin: TestClient, sincrono):
     pid = lista_para_enviar(prov)["id"]
     prov.post(f"/api/compras/propuestas/{pid}/enviar")
     assert admin.get(f"{R}/propuestas/{pid}").json() is None
+    admin.patch(f"/api/compras/propuestas/{pid}/margen", json={"lista_margen": "A"})
     assert admin.post(f"/api/compras/propuestas/{pid}/estado", json={"estado": "lista"}).status_code == 200
 
     e = admin.get(f"{R}/propuestas/{pid}").json()
@@ -200,7 +202,7 @@ def test_propuesta_lista_se_evalua_sola(admin: TestClient, sincrono):
     assert e["sujeto"]["tipo"] == "propuesta" and e["sujeto"]["folio"].startswith("PN-")
     assert e["sujeto"]["proveedor"] == "Proveedor de Prueba S.A."
     f = {x["factor"]: x for x in e["factores"]}
-    assert f["rentabilidad"]["valor"] == "Deja 50 % de margen, 20 puntos arriba del mínimo (30 %)"
+    assert f["rentabilidad"]["valor"] == "Deja 50 % de margen, 19 puntos arriba del mínimo (31 %)"
     # Proveedor nuevo 50 + registro sanitario 10 + un apoyo de lanzamiento 5
     assert f["proveedor"]["puntaje"] == 65 and f["proveedor"]["provisional"]
     assert e["id"] in [x["id"] for x in admin.get(f"{R}/evaluaciones", params={"tipo": "propuesta"}).json()]
@@ -237,7 +239,7 @@ def test_producto_nuevo_se_busca_en_internet(admin: TestClient, sincrono, monkey
     notas = " ".join(m["notas"])
     assert "Google Shopping: no se buscó" in notas and "Soriana: bloqueó" in notas
     f = {x["factor"]: x for x in e["factores"]}["precio"]
-    assert f["valor"] == "Buen precio: 10 % más barato que en internet" and not f["provisional"] and "Walmart" in f["detalle"]
+    assert "10 % más barato que en internet" in f["valor"] and "nuestro anaquel" in f["valor"] and not f["provisional"] and "Walmart" in f["detalle"]  # dos mitades (22 nov 2026)
 
     # Recalcular dentro de la semana reusa la búsqueda: no se vuelve a consultar la tienda
     antes = len(walmart.consultas)
@@ -359,7 +361,7 @@ def test_factores_con_ventas_compras_e_inventario_de_smnbi():
 
             d = rp.f_demanda(bd, s, parecidos, v)
             assert d.puntaje is not None and not d.provisional, d.detalle
-            assert "sin mayoreo" in d.detalle and "+100 %" in d.detalle and "de 2 tiendas" in d.detalle
+            assert "sin mayoreo" in d.detalle and "+100 %" not in d.detalle and "se venden en 2 de " in d.detalle  # el total depende de otras pruebas
 
             r = rp.f_rentabilidad(bd, s, sub, v)
             assert f"«{sub.capitalize()}» (2 productos) deja 40 %" in r.detalle  # (100 − 60) / 100
@@ -540,3 +542,40 @@ def test_dictamen_de_comprador():
     assert "subirle el precio no conviene" in rp.dictamen(s, "rojo", factores, par, Decimal("31"))
     assert rp.dictamen(s, "rojo", factores, [], Decimal("31"), {"titulo": "Regla X"}).startswith("Dictamen: No meter")
     assert rp.dictamen(rp.Sujeto(tipo="idea", nombre="x"), "verde", factores, [], None) == "Dictamen: Meter."
+
+
+def test_rentabilidad_con_lista_de_margen_y_membresia():
+    """Diego, 22 nov 2026: el tipo de producto (lista A–F) fija el mínimo, y cuenta también el precio de membresía."""
+    from decimal import Decimal as D
+
+    from modulos.compras import radar_productos as rp
+
+    ls = rp.listas()
+    assert (ls["D"].lista, ls["D"].membresia) == (D(36), D(31)) and (ls["B"].lista, ls["B"].membresia) == (D(45), D(35))
+    # membresía = lista × (1 − 36 %) / (1 − 31 %): con la regla deja justo los dos mínimos
+    assert rp.membresia_de(D("100"), ls["D"]) == D("92.75")
+    s = rp._con_lista(rp.Sujeto(tipo="idea", nombre="Proteína ficticia", precio=D("100"), margen=D("36")), "D", None)
+    assert s.membresia_calculada and s.precio_membresia == D("92.75") and abs(s.margen_membresia - D("31")) < D("0.05")
+    f = rp.f_rentabilidad(None, s)
+    assert f.puntaje == 60 and "lista D, Nutrición deportiva nacional" in f.detalle and "cuenta el de lista" in f.calculo
+    # Compras capturó una membresía más baja: cuenta la peor de las dos
+    s2 = rp._con_lista(rp.Sujeto(tipo="idea", nombre="Proteína ficticia", precio=D("100"), margen=D("40")), "D", D("80"))
+    assert not s2.membresia_calculada and s2.margen_membresia == D("25.00")
+    f2 = rp.f_rentabilidad(None, s2)
+    assert f2.puntaje < 60 and f2.valor.startswith("Margen bajo con membresía: deja 25 %")
+    assert "al precio de lista deja 40 % (mínimo 36 %)" in f2.valor
+
+
+def test_precio_mitad_lista_y_mitad_membresia():
+    from decimal import Decimal as D
+
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import radar_productos as rp
+
+    internet = mp.Mercado(precios=[{"vendedor": "Tienda ficticia", "precio": 100.0, "titulo": "x", "liga": None}])
+    s = rp.Sujeto(tipo="idea", nombre="Producto ficticio", precio=D("100"), precio_membresia=D("90"))
+    f = rp.f_precio(s, [], internet)
+    # lista igual al mercado = 75; membresía 10 % abajo = 85; promedio 80
+    assert f.puntaje == 80 and "con membresía" in f.valor and "Con precio de membresía ($90" in f.detalle
+    sin = rp.f_precio(rp.Sujeto(tipo="idea", nombre="Producto ficticio", precio=D("100")), [], internet)
+    assert sin.puntaje == 75

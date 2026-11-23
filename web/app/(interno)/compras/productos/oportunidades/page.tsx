@@ -32,6 +32,7 @@ const PASOS = [
   { inicio: "Buscando lo que vende la competencia", texto: "Buscar lo que vende la competencia", competencia: true },
   { inicio: "La IA está eligiendo", texto: "Elegir los productos" },
   { inicio: "Revisando que no", texto: "Quitar lo que ya vendemos y buscar fotos" },
+  { inicio: "Evaluando cada oportunidad", texto: "Evaluar cada producto en el semáforo" },
 ];
 
 const COMO_BUSCA = [
@@ -234,14 +235,14 @@ export default function Oportunidades() {
               <>De dónde salieron: {Object.entries(corrida.fuentes).map(([f, n]) => `${f} ${n}`).join(" · ")}. </>
             )}
             {corrida.con_ia ? "Redactado por la IA con estos datos" : "Sin IA: salen directo de los datos"}
-            {corrida.competencia && ` · competencia US$ ${Number(corrida.costo_usd).toFixed(3)}`}
+            {evalua && corrida.competencia && ` · competencia US$ ${Number(corrida.costo_usd).toFixed(3)}`}
             {corrida.programada
               ? " · corrida programada"
               : corrida.disparada_por && ` · buscó ${corrida.disparada_por}`}.
           </p>
 
           {corrida.notas.length > 0 && (
-            <details open={!corrida.con_ia} className="mb-4 rounded-xl border border-smn-gris-100 bg-superficie px-4 py-3 text-[14px] text-smn-gris-700">
+            <details open={visibles.length === 0} className="mb-4 rounded-xl border border-smn-gris-100 bg-superficie px-4 py-3 text-[14px] text-smn-gris-700">
               <summary className="cursor-pointer font-medium text-tinta">Notas de la búsqueda ({corrida.notas.length})</summary>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {corrida.notas.map((n, i) => <li key={i}>{n}</li>)}
@@ -396,7 +397,9 @@ function Avance({ corrida }: { corrida: CorridaOportunidadesDetalle }) {
     const t = setInterval(() => setAhora(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const seg = Math.max(0, Math.round((ahora - new Date(corrida.creada_en).getTime()) / 1000));
+  // La API manda la hora en UTC sin «Z»; sin ella el navegador la toma como hora local y el reloj se quedaba en 0:00
+  const creada = corrida.creada_en.endsWith("Z") ? corrida.creada_en : `${corrida.creada_en}Z`;
+  const seg = Math.max(0, Math.round((ahora - new Date(creada).getTime()) / 1000));
   return (
     <div className="rounded-2xl border border-smn-gris-100 bg-superficie p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">

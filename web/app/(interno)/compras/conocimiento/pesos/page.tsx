@@ -12,6 +12,13 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Esqueleto, Insignia } from "@/componentes/ui";
 import { EDITAR, MensajeError, Pie } from "../piezas";
 
+const DIRECCION = [
+  { nombre: "Demanda", peso: 50, que: "Cuánto se venderá por tienda, comparado con los lanzamientos de su departamento." },
+  { nombre: "Categoría", peso: 25, que: "Si el surtido lo necesita o ya está cubierto." },
+  { nombre: "Rentabilidad", peso: 12.5, que: "Margen contra el mínimo de su lista de márgenes, con precio de lista y de membresía." },
+  { nombre: "Precio", peso: 12.5, que: "Nuestro precio contra el de afuera y contra el anaquel." },
+];
+
 export default function PaginaPesos() {
   const avisar = useAvisos();
   const [p, setP] = useState<Pesos | null>(null);
@@ -25,21 +32,37 @@ export default function PaginaPesos() {
   if (!p || !pv) return <Esqueleto className="h-64" />;
   return (
     <div className="max-w-3xl space-y-10">
+      {/* Desde el 20 nov 2026 el semáforo usa los pesos de Dirección, fijos en el sistema (rp.PESOS_DIRECCION).
+          Antes aquí había seis deslizadores que ya no movían nada: se ven como referencia, sin editar. */}
       <section>
-        <p className="mb-4 text-sm text-smn-gris-500">
-          El semáforo califica cada producto en seis factores. Reparte 100 puntos según cuánto pesa cada uno cuando Compras decide. Si un factor no se toma en cuenta hoy, déjalo en 0.
-        </p>
-        <Reparto
-          inicial={p.factores}
-          ruta="/api/compras/conocimiento/pesos"
-          guardado={(n: Pesos) => {
-            setP(n);
-            return n.factores;
-          }}
-        />
-        <p className="mt-2 text-[13px] text-smn-gris-500">
-          <Pie por={p.actualizado_por} en={p.actualizado_en} />
-        </p>
+        <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
+          Semáforo de productos nuevos
+          <Insignia className="bg-tinta text-superficie">Fijados por Dirección</Insignia>
+        </h2>
+        <p className="mt-1 mb-4 text-sm text-smn-gris-500">Así se reparten los 100 puntos de cada producto desde el 20 de noviembre de 2026. Los cambia Dirección.</p>
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {DIRECCION.map((f) => (
+            <li key={f.nombre} className="rounded-2xl border border-smn-gris-100 bg-superficie p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[16px] font-semibold">{f.nombre}</p>
+                <p className="text-2xl font-semibold tabular-nums">{f.peso.toLocaleString("es-MX")}<span className="text-base text-smn-gris-500"> %</span></p>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-smn-gris-100">
+                <div className="h-full rounded-full bg-[var(--resalte)]" style={{ width: `${f.peso * 2}%` }} />
+              </div>
+              <p className="mt-2 text-[13.5px] text-smn-gris-700">{f.que}</p>
+            </li>
+          ))}
+        </ul>
+        <details className="mt-4 rounded-xl border border-smn-gris-100 bg-superficie px-4 py-3 text-[14px]">
+          <summary className="cursor-pointer font-medium text-smn-gris-700">Lo que contestó Compras el 28 de octubre (ya no se usa)</summary>
+          <ul className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-smn-gris-700 sm:grid-cols-3">
+            {p.factores.map((f) => (
+              <li key={f.factor} className="flex justify-between"><span>{f.nombre}</span><span className="tabular-nums">{Number(f.puntos)}</span></li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[13px] text-smn-gris-500">Tendencia ahora cuenta dentro de Demanda y Proveedor se muestra solo como contexto.</p>
+        </details>
       </section>
 
       <section>

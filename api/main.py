@@ -21,12 +21,17 @@ from datos import rutas as datos_rutas
 from datos import proveedores as datos_proveedores
 from datos import clientes, grupos_tiendas, rutas_centro, rutas_clientes, rutas_etl, rutas_grupos_tiendas, rutas_inventario, rutas_fichas, rutas_proveedores, rutas_tiendas
 from modulos.compras import rutas_busquedas
+from modulos.compras import rutas_buscador
 from modulos.compras import (
     oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos, rutas_tablero_precios,
     rutas_propuestas, rutas_radar,
 )
 from modulos.contraloria import diot, rutas_conocimiento_fiscal, rutas_diot
 from modulos.metodos import rutas as metodos_rutas
+from modulos.innovacion import rutas as innovacion_rutas
+from modulos.innovacion import rutas_expedientes as innovacion_expedientes
+from modulos.innovacion import rutas_reglas as innovacion_reglas
+from modulos.innovacion import trabajos as innovacion_trabajos
 from modulos.kiosco import rutas as kiosco_rutas
 
 log = logging.getLogger("uvicorn.error")
@@ -102,12 +107,16 @@ def _revisar_costos() -> None:
         revisar(bd)
 
 
+def _revisar_innovacion() -> None:
+    innovacion_trabajos.procesar_en_fondo()  # lectura, huellas e investigaciones de Innovación Vidanat con sus reintentos
+
+
 async def programador() -> None:
     """Corre solo lo programado (Radar de tendencias, carga del catálogo, Radar de precios, Buscar oportunidades, ETL de ventas y costo real de la IA). Revisa cada minuto si ya toca.
     Vive dentro de la API, así que no depende de nadie: en el servidor corre mientras la API esté arriba."""
     while True:
         for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_precios_noche, _revisar_oportunidades,
-                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_costos):
+                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_costos, _revisar_innovacion):
             try:
                 await asyncio.to_thread(tarea)
             except Exception:  # noqa: BLE001 - un error no debe detener el programador
@@ -144,6 +153,8 @@ async def arranque(_: FastAPI):
                 log.warning("Se cerraron %s cálculos de tipos de cliente que quedaron a medias", n)
             if n := diot.cerrar_huerfanas(bd):
                 log.warning("Se cerraron %s corridas de la DIOT que quedaron a medias", n)
+            if n := innovacion_trabajos.cerrar_huerfanas(bd):
+                log.warning("Volvieron a la cola %s trabajos de Innovación Vidanat que quedaron a medias", n)
     except Exception as e:  # noqa: BLE001
         log.warning("No se revisaron corridas a medias: %s", e)
     tarea = asyncio.create_task(programador()) if configuracion().programador_activo else None
@@ -196,7 +207,11 @@ app.include_router(rutas_productos.router)
 app.include_router(rutas_oportunidades.router)
 app.include_router(rutas_comite.router)
 app.include_router(rutas_busquedas.router)
+app.include_router(rutas_buscador.router)
 app.include_router(kiosco_rutas.router)
 app.include_router(rutas_diot.router)
 app.include_router(rutas_conocimiento_fiscal.router)
 app.include_router(metodos_rutas.router)
+app.include_router(innovacion_rutas.router)
+app.include_router(innovacion_expedientes.router)
+app.include_router(innovacion_reglas.router)

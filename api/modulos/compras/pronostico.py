@@ -7,14 +7,18 @@ Cómo se calcula:
    1–4, 5–8 y 9–12, contra lo que vendía en esas mismas semanas lo típico de su subcategoría (la mediana de los SKU
    que ya estaban). Esa razón dice «un producto nuevo arranca vendiendo X veces lo típico de su subcategoría».
 2. Pronóstico: lo que venden por tienda al mes los parecidos de precio cercano (o, sin ellos, lo típico de la
-   subcategoría) × las razones de arranque (cuartil bajo, mediana y cuartil alto = rango bajo / medio / alto). Es un
-   rango, no un número seguro.
+   subcategoría) × las razones de arranque (percentil 10, mediana y percentil 90 = rango bajo / medio / alto). Es un
+   rango, no un número seguro. Si ya hay prueba con lanzamientos reales (paso 5), el bajo y el alto salen de cuánto se
+   equivocó de verdad (percentil 10 y 90 de lo vendido ÷ lo pronosticado). Hasta el 20 nov 2026 eran cuartil bajo y alto, y en la prueba con 12 lanzamientos reales
+   solo 3 cayeron dentro: el rango era demasiado estrecho.
 3. Por grupo de tiendas (última corrida de Datos → Mapa de tiendas): lo mismo con la venta de los parecidos en las
    tiendas de cada grupo.
 4. Venta nueva contra canibalizada: en los lanzamientos, cuánto bajaron los demás SKU de su subcategoría en las 12
    semanas después del lanzamiento contra las 12 de antes, como parte de lo que vendió el nuevo.
 5. Examen: a cada lanzamiento se le pronostica con las razones de los demás (sin verlo) y se mide cuántas veces cayó
-   dentro del rango y el error de la mediana. Se muestra tal cual, sea bueno o malo.
+   dentro del rango y el error de la mediana. Además, la prueba completa (`validacion_demanda`): a lanzamientos reales
+   se les pronostica con sus parecidos y la venta de antes de salir, y se cuenta en cuántos atinó el color de la Demanda
+   y la clase AA–E. Se muestra tal cual, sea bueno o malo.
 6. Cada producto aceptado que se revisa a las 4, 8 y 12 semanas entra como un lanzamiento más (aprende solo).
 """
 import json
@@ -39,7 +43,8 @@ MIN_LANZAMIENTOS = 5
 _CACHE: dict = {}
 
 
-def _cuartiles(xs: list[float]) -> tuple[float, float, float] | None:
+def _cuartiles(xs: list[float], ps: tuple[float, float, float] = (0.25, 0.5, 0.75)
+               ) -> tuple[float, float, float] | None:
     if not xs:
         return None
     xs = sorted(xs)
@@ -50,7 +55,14 @@ def _cuartiles(xs: list[float]) -> tuple[float, float, float] | None:
         a, b = int(i), min(int(i) + 1, n - 1)
         return xs[a] + (xs[b] - xs[a]) * (i - a)
 
-    return q(0.25), q(0.5), q(0.75)
+    return q(ps[0]), q(ps[1]), q(ps[2])
+
+
+BANDA = (0.10, 0.50, 0.90)  # pesimista / esperado / optimista (20 nov 2026, antes 25/50/75)
+
+
+def _banda(xs: list[float]) -> tuple[float, float, float] | None:
+    return _cuartiles(xs, BANDA)
 
 
 @dataclass
@@ -70,6 +82,7 @@ class Modelo:
     canibal: float | None = None
     examen: dict = field(default_factory=dict)
     fin: date | None = None
+    prueba: dict | None = None  # validacion_demanda.prueba: en cuántos lanzamientos reales atinó
 
 
 def _semanales(bd: Session) -> tuple[dict[str, dict[date, tuple[float, int]]], date, date] | None:
@@ -95,6 +108,30 @@ def _por_tienda_mes(semanas: dict[date, tuple[float, int]], desde: date, hasta: 
     tiendas = max(t for _, t in filas)
     n = (hasta - desde).days // 7 + 1
     return piezas / max(1, tiendas) / n * rr.SEMANAS_MES
+
+
+def _por_tienda_como_demanda(bd: Session, lanzamientos: list[Lanzamiento], datos: dict, fin: date) -> None:
+    """Piezas por tienda al mes de cada lanzamiento medidas igual que la Demanda (19 nov 2026): entre todas las tiendas
+    que ya lo habían vendido desde su lanzamiento, no entre las de la semana con más tiendas. Así el pronóstico de un
+    producto nuevo y lo que vendieron los lanzamientos se comparan en la misma unidad (Wonu salía «más que 0 de cada
+    100 lanzamientos» con 0.9 piezas por tienda)."""
+    v = rr.ventana(bd, semanas=200) if lanzamientos else None
+    if not v:
+        return
+    primera: dict[str, list[date]] = defaultdict(list)
+    skus = [x.sku for x in lanzamientos]
+    for i in range(0, len(skus), 1000):
+        q = (select(VentaSemanal.sku, VentaSemanal.tienda, func.min(VentaSemanal.semana))
+             .where(*v.filtro(), VentaSemanal.sku.in_(skus[i:i + 1000]), rr.NETAS > 0)
+             .group_by(VentaSemanal.sku, VentaSemanal.tienda))
+        for sku, _, semana in bd.execute(q):
+            primera[sku].append(semana)
+    for x in lanzamientos:
+        for tramo in list(x.por_tienda):
+            desde, hasta = x.inicio + timedelta(weeks=tramo - 4), x.inicio + timedelta(weeks=tramo - 1)
+            tiendas = sum(1 for d in primera[x.sku] if d <= hasta)
+            piezas = sum(p for s, (p, _) in datos[x.sku].items() if desde <= s <= hasta)
+            x.por_tienda[tramo] = piezas / max(1, tiendas) / 4 * rr.SEMANAS_MES
 
 
 def entrenar(bd: Session) -> Modelo:
@@ -138,8 +175,9 @@ def entrenar(bd: Session) -> Modelo:
             if nuevo > 0:
                 canibal = max(0.0, min(1.0, (antes - despues) / nuevo))
         m.lanzamientos.append(Lanzamiento(sku, sub.get(sku), ini, razon, por_tienda, canibal))
+    _por_tienda_como_demanda(bd, m.lanzamientos, datos, fin)
     for tramo in TRAMOS:
-        if c := _cuartiles([x.razon[tramo] for x in m.lanzamientos if tramo in x.razon]):
+        if c := _banda([x.razon[tramo] for x in m.lanzamientos if tramo in x.razon]):
             m.razones[tramo] = c
     canibales = [x.canibal for x in m.lanzamientos if x.canibal is not None]
     m.canibal = median(canibales) if len(canibales) >= MIN_LANZAMIENTOS else None
@@ -147,6 +185,13 @@ def entrenar(bd: Session) -> Modelo:
         # Casi todo «quitado» no es creíble: la subcategoría completa bajó por temporada, no por el nuevo (Wonu, 17 nov)
         m.canibal = None
     m.examen = examen(m)
+    if isinstance(bd, Session) and len(m.lanzamientos) >= MIN_LANZAMIENTOS:
+        try:
+            from modulos.compras import validacion_demanda
+
+            m.prueba = validacion_demanda.prueba(bd, m)
+        except Exception as ex:  # noqa: BLE001  sin prueba el pronóstico sigue
+            log.warning("Pronóstico: no se pudo hacer la prueba con lanzamientos reales: %s", ex)
     _CACHE.update(dia=hoy, modelo=m)
     return m
 
@@ -158,7 +203,7 @@ def examen(m: Modelo, tramo: int = 12) -> dict:
         return {"lanzamientos": len(con), "suficientes": False}
     dentro, errores = 0, []
     for x in con:
-        otros = _cuartiles([y.razon[tramo] for y in con if y is not x])
+        otros = _banda([y.razon[tramo] for y in con if y is not x])
         bajo, medio, alto = otros
         real = x.razon[tramo]
         dentro += bajo <= real <= alto
@@ -187,8 +232,11 @@ class Pronostico:
     grupos: list[PorGrupo] = field(default_factory=list)
     canibal_pct: float | None = None
     lanzamientos: int = 0
-    examen: dict = field(default_factory=dict)
+    examen: dict = field(default_factory=dict)  # incluye "prueba" con lanzamientos reales si se pudo hacer
     nota: str | None = None
+    misma_sub: list[dict] = field(default_factory=list)  # lanzamientos de 2026 de su subcategoría: sku, descripcion, por_tienda
+    contra: list[float] = field(default_factory=list)  # lanzamientos contra los que se calificó la Demanda (piezas por tienda al mes)
+    contra_depto: bool = False  # si `contra` son solo los de su departamento
 
     def a_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -224,8 +272,15 @@ def _grupos(bd: Session) -> tuple[dict[str, int], dict[int, str]]:
 def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None) -> Pronostico:
     """Rango de piezas por tienda al mes a 4, 8 y 12 semanas, en total y por grupo de tiendas."""
     m = entrenar(bd)
-    p = Pronostico(lanzamientos=len(m.lanzamientos), examen=m.examen,
+    p = Pronostico(lanzamientos=len(m.lanzamientos), examen={**m.examen, **({"prueba": m.prueba} if m.prueba else {})},
                    canibal_pct=round(m.canibal * 100) if m.canibal is not None else None)
+    if subcategoria:  # para decir contra qué productos reales se compara (Diego, 20 nov 2026)
+        suyos = sorted((x for x in m.lanzamientos if x.subcategoria == subcategoria and 12 in x.por_tienda),
+                       key=lambda x: -x.por_tienda[12])
+        nombres = dict(bd.execute(select(Producto.sku, Producto.descripcion).where(
+            Producto.sku.in_([x.sku for x in suyos]))).all()) if suyos else {}
+        p.misma_sub = [{"sku": x.sku, "descripcion": nombres.get(x.sku) or x.sku, "por_tienda": round(x.por_tienda[12], 2)}
+                       for x in suyos]
     if len(m.lanzamientos) < MIN_LANZAMIENTOS or not m.razones:
         p.nota = (f"Todavía no hay suficientes lanzamientos en la venta cargada para pronosticar ({len(m.lanzamientos)}; "
                   f"hacen falta {MIN_LANZAMIENTOS}).")
@@ -245,7 +300,10 @@ def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None
     if not p.base:
         p.nota = "No hay venta de parecidos ni de su subcategoría para pronosticar."
         return p
+    ajuste = (m.prueba or {}).get("ajuste")  # rango con los errores reales de la prueba (20 nov 2026)
     for tramo, (bajo, medio, alto) in m.razones.items():
+        if ajuste:
+            bajo, alto = medio * ajuste[0], medio * ajuste[1]
         p.tramos[str(tramo)] = [round(p.base * bajo, 2), round(p.base * medio, 2), round(p.base * alto, 2)]
     # Por grupo de tiendas: la venta de los parecidos en las tiendas de cada grupo
     de, nombres = _grupos(bd)
@@ -258,11 +316,44 @@ def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None
             if (g := de.get(tienda)) is not None:
                 por_grupo[g].append(float(piezas or 0) / len(venta) / semanas * rr.SEMANAS_MES)
         bajo, medio, alto = m.razones[12]
+        if ajuste:
+            bajo, alto = medio * ajuste[0], medio * ajuste[1]
         for g, xs in sorted(por_grupo.items()):
             b = sum(xs) / len(xs)
             p.grupos.append(PorGrupo(g, nombres.get(g, f"Grupo {g}"), len(xs), round(b * bajo, 2), round(b * medio, 2),
                                      round(b * alto, 2)))
     return p
+
+
+def lugar_entre_lanzamientos(bd: Session, por_tienda_mes: float, departamento: str | None = None
+                             ) -> tuple[float, int, bool] | None:
+    """Qué tan arriba quedaría un producto que vende `por_tienda_mes` entre los lanzamientos de 2026 a 12 semanas:
+    (de cada 100 lanzamientos, cuántos vendieron igual o menos; cuántos lanzamientos; si son solo del departamento).
+    Con 20 o más lanzamientos en el departamento se compara contra ellos; si no, contra todos. Plan de Demanda aprobado
+    por Diego el 19 nov 2026: la calificación sale del pronóstico, no del promedio de los parecidos."""
+    lista, del_depto = lanzamientos_contra(bd, departamento)
+    if len(lista) < MIN_LANZAMIENTOS:
+        return None
+    lugar = sum(1 for x in lista if x <= por_tienda_mes) / len(lista) * 100
+    return lugar, len(lista), del_depto
+
+
+def modelo_de_hoy() -> "Modelo | None":
+    """El modelo ya medido hoy en este proceso, sin volver a medirlo (la pantalla del comité no debe esperar)."""
+    return _CACHE.get("modelo") if _CACHE.get("dia") == ahora().date() else None
+
+
+def lanzamientos_contra(bd: Session, departamento: str | None = None) -> tuple[list[float], bool]:
+    """Piezas por tienda al mes en las semanas 9 a 12 de los lanzamientos contra los que se califica la Demanda: los
+    del departamento si son 20 o más; si no, todos. (venta, si son solo del departamento)."""
+    m = entrenar(bd)
+    todos = [x for x in m.lanzamientos if 12 in x.por_tienda]
+    if departamento:
+        del_suyo = set(bd.scalars(select(Producto.sku).where(Producto.departamento == departamento)))
+        suyos = [x for x in todos if x.sku in del_suyo]
+        if len(suyos) >= 20:
+            return [x.por_tienda[12] for x in suyos], True
+    return [x.por_tienda[12] for x in todos], False
 
 
 # ---------------------------------------------------------------- tiendas para una prueba

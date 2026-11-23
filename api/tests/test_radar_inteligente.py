@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 from core.bd import motor
 from datos.modelos import Carga, Tienda, VentaSemanal
+from datos.modelos import Producto
 from modulos.compras import pronostico as pn
+from modulos.compras import radar_productos as rp
 from modulos.compras import seguimiento as sg
 from modulos.compras.modelos_comite import ComiteProducto, ProductoSeguimiento
 from modulos.compras.modelos_productos import ProductoEvaluacion
@@ -168,6 +170,7 @@ def test_pronostico_aprende_de_los_lanzamientos(monkeypatch):
         datos[f"N{k}"] = {ini + timedelta(weeks=w): (10.0 * factor * 4, 4) for w in range(14)}
         sub[f"N{k}"] = "S"
     monkeypatch.setattr(pn, "_semanales", lambda bd: (datos, inicio, inicio + timedelta(weeks=39)))
+    monkeypatch.setattr(pn, "_por_tienda_como_demanda", lambda *a: None)  # sin base real de tiendas
     pn._CACHE.clear()
     m = pn.entrenar(_Bd(sub))
     pn._CACHE.clear()
@@ -247,3 +250,99 @@ def test_gs1_se_decide_con_lo_capturado_no_con_el_codigo():
     assert pp.gs1(regla, {"inscrito_gs1": "si"})["resultado"] == "cumple"
     assert pp.gs1(regla, {"inscrito_gs1": "no"})["resultado"] == "no_cumple"
     assert pp.gs1({"tipo": "politica", "titulo": "Ficha técnica"}, {}) is None
+
+
+def test_demanda_cuenta_tiendas_surtidas_y_semanas_desde_la_primera_venta():
+    """Plan de Demanda (19 nov 2026): 1 pieza en 1 tienda en 1 semana ya no sale como 4.3 piezas por tienda al mes."""
+    from datetime import date, timedelta
+
+    from datos.modelos import Carga, Inventario, VentaSemanal
+    from modulos.compras import realidad_producto as rr
+
+    h = uuid.uuid4().hex[:6]
+    fin, sku = date(2020, 6, 1), f"DM-{h}"  # antes de todo: no mueve la ventana de otras pruebas
+    tiendas = [f"D{h}{i}" for i in range(4)]
+    with Session(motor()) as bd:
+        carga = Carga(fuente="ETL_VENTAS", disparada_por="manual", estado="completa")
+        bd.add(carga)
+        bd.flush()
+        # Otro producto vende en las 4 tiendas (así cuentan como tiendas); el nuestro, 1 pieza hace 9 semanas
+        for i, t in enumerate(tiendas):
+            bd.add(VentaSemanal(mes=fin.replace(day=1), sku=f"OT-{h}", tienda=t, semana=fin, empresa="EJ", piezas=Decimal(1),
+                                piezas_devueltas=Decimal(0), importe_bruto=Decimal(10), descuento=Decimal(0),
+                                importe=Decimal(10), costo=Decimal(6), tickets=1, carga_id=carga.carga_id))
+        semana = fin - timedelta(weeks=9)
+        bd.add(VentaSemanal(mes=semana.replace(day=1), sku=sku, tienda=tiendas[0], semana=semana, empresa="EJ",
+                            piezas=Decimal(1), piezas_devueltas=Decimal(0), importe_bruto=Decimal(10),
+                            descuento=Decimal(0), importe=Decimal(10), costo=Decimal(6), tickets=1, carga_id=carga.carga_id))
+        from sqlalchemy import func
+
+        corte = bd.scalar(select(func.max(Inventario.fecha_corte))) or date(2020, 6, 5)  # el último corte que exista
+        for t in tiendas[1:3]:
+            bd.add(Inventario(fecha_corte=corte, empresa="EJ", almacen=t, sku=sku, existencia=Decimal(3), carga_id=carga.carga_id))
+        bd.commit()
+        v = rr.Ventana(desde=fin - timedelta(weeks=25), fin=fin, mayoreo=set())
+        x = rr.venta_por_sku(bd, v, [sku])[sku]
+        assert x.tiendas == 3 and x.semanas == 10  # vendió en 1 y tenía existencia en 2; 10 semanas desde la venta
+        assert round(x.por_tienda_mes, 3) == round(1 / 3 / 10 * rr.SEMANAS_MES, 3)
+
+
+def test_precio_cercano_por_pieza_y_por_gramo():
+    """Un sobre de $47 se compara con un sobre de $45, no con un bote de 5 lb ni con un sobre de $25 de creatina."""
+    s = rp.Sujeto(tipo="idea", nombre="Proteína sobre", contenido="40 g", precio=Decimal("47"))
+
+    def prod(desc, precio):
+        p = Producto(sku="x", descripcion=desc, precio_lista_con_impuestos=Decimal(precio))
+        p._ficha = None
+        return p
+
+    assert rp.precio_cercano(s, prod("PROWINNER PROTEINA SOBRE 50 G", "44.80"))
+    assert not rp.precio_cercano(s, prod("MGN WHEY PROTEIN 2270 G", "810"))  # por pieza, muy lejos
+    assert not rp.precio_cercano(s, prod("PROTEINA SOBRE 200 G", "45"))  # por pieza cerca, por gramo 4 veces
+
+
+def test_demanda_sale_del_pronostico(monkeypatch):
+    """Una sola cifra: la Demanda califica el pronóstico a 12 semanas contra los lanzamientos de 2026."""
+    from datetime import date
+
+    from modulos.compras import pronostico as pn
+    from modulos.compras import realidad_producto as rr
+
+    monkeypatch.setattr(rr, "venta_por_sku", lambda *a, **k: {})
+    monkeypatch.setattr(pn, "lugar_entre_lanzamientos", lambda bd, x, depto=None: (80.0, 120, True))
+    pron = pn.Pronostico(base=2.0, base_de="2 parecido(s) que ya vendemos", tramos={"12": [1.5, 2.0, 2.6]})
+    s = rp.Sujeto(tipo="idea", nombre="Proteína", departamento="DEPORTES", precio=Decimal("47"))
+    f = rp.f_demanda(None, s, [], rr.Ventana(date(2026, 4, 6), date(2026, 9, 28), set()), None, pron)
+    assert f.puntaje == 89  # 50 + (80 − 50) × 1.3, sin ajuste por tendencia
+    assert "2.0 piezas por tienda" in f.valor and "lanzamientos" in f.valor and "entre 1.5 y 2.6" in f.detalle
+
+
+def test_lanzamientos_se_miden_como_la_demanda(monkeypatch):
+    """Caso Wonu (19 nov 2026): el lanzamiento se divide entre las tiendas que ya lo habían vendido, no entre las de su
+    mejor semana; así el pronóstico de un nuevo y los lanzamientos se comparan en la misma unidad."""
+    from datetime import date, timedelta
+
+    from datos.modelos import Carga, VentaSemanal
+    from modulos.compras import pronostico as pn
+    from modulos.compras import realidad_producto as rr
+
+    h = uuid.uuid4().hex[:6]
+    ini, sku = date(2019, 1, 7), f"LZ-{h}"
+    with Session(motor()) as bd:
+        carga = Carga(fuente="ETL_VENTAS", disparada_por="manual", estado="completa")
+        bd.add(carga)
+        bd.flush()
+        # Tienda A desde la semana 0, B desde la 2, C hasta la 10: a las 4 semanas lo habían vendido 2 tiendas
+        for t, w in (("A", 0), ("B", 2), ("C", 10)):
+            semana = ini + timedelta(weeks=w)
+            bd.add(VentaSemanal(mes=semana.replace(day=1), sku=sku, tienda=f"L{h}{t}", semana=semana, empresa="EJ",
+                                piezas=Decimal(2), piezas_devueltas=Decimal(0), importe_bruto=Decimal(10),
+                                descuento=Decimal(0), importe=Decimal(10), costo=Decimal(6), tickets=1,
+                                carga_id=carga.carga_id))
+        bd.commit()
+        monkeypatch.setattr(rr, "ventana", lambda bd, semanas=0: rr.Ventana(ini, ini + timedelta(weeks=30), set()))
+        x = type("L", (), {})()
+        x.sku, x.inicio, x.por_tienda = sku, ini, {4: 0.0}
+        datos = {sku: {ini: (2.0, 1), ini + timedelta(weeks=2): (2.0, 1), ini + timedelta(weeks=10): (2.0, 1)}}
+        pn._por_tienda_como_demanda(bd, [x], datos, ini + timedelta(weeks=30))
+    assert round(x.por_tienda[4], 2) == round(4 / 2 / 4 * rr.SEMANAS_MES, 2)  # 4 piezas, 2 tiendas, 4 semanas

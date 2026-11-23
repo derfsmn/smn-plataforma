@@ -14,7 +14,7 @@ type PrecioComparado = "lista" | "membresia";
 import { useAvisos } from "@/componentes/avisos";
 import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { EstaMal } from "./esta-mal";
-import { Miniatura, precio } from "./piezas";
+import { Miniatura, monto, precio } from "./piezas";
 
 const GRUPOS: GrupoTablero[] = ["accion", "rojo", "amarillo", "verde", "sin_referencia", "subir", "todos"];
 // Ligas viejas (avisos de la campana)
@@ -227,10 +227,10 @@ function Resumen() {
               <table className="hidden w-full text-[14px] lg:table">
                 <thead className="text-left text-[13px] text-smn-gris-500">
                   <tr className="border-b border-smn-gris-100">
-                    <th className="px-4 py-2.5 font-medium">Producto</th>
-                    <th className="px-2 py-2.5 text-right font-medium">Nuestro</th>
-                    <th className="px-2 py-2.5 text-right font-medium">Mercado</th>
-                    <th className="px-2 py-2.5 font-medium">Diferencia</th>
+                    <th className="w-[34%] px-4 py-2.5 font-medium">Producto</th>
+                    <th className="px-2 py-2.5 text-right font-medium">Nuestro <span className="font-normal">(MXN)</span></th>
+                    <th className="px-2 py-2.5 text-right font-medium">Mercado <span className="font-normal">(MXN)</span></th>
+                    <th className="px-3 py-2.5 font-medium">Diferencia</th>
                     <th className="px-2 py-2.5 font-medium">Qué conviene</th>
                     <th className="px-4 py-2.5" />
                   </tr>
@@ -242,17 +242,17 @@ function Resumen() {
                         <Producto f={f} />
                       </td>
                       <td className="px-2 py-3 text-right whitespace-nowrap tabular-nums">
-                        <span className="block font-semibold">{precio(f.nuestro)}</span>
-                        {f.membresia && <span className="block text-[13px] text-smn-gris-500">Memb. {precio(f.membresia)}</span>}
+                        <span className="block font-semibold">{monto(f.nuestro)}</span>
+                        {f.membresia && <span className="block text-[13px] text-smn-gris-500">Memb. {monto(f.membresia)}</span>}
                       </td>
                       <td className="px-2 py-3 text-right tabular-nums">
-                        <span className="whitespace-nowrap">{precio(f.mercado)}</span>
+                        <span className="whitespace-nowrap font-semibold">{monto(f.mercado)}</span>
                         <Tiendas f={f} />
                       </td>
-                      <td className="px-2 py-3">
+                      <td className="px-3 py-3">
                         <Difs f={f} />
                       </td>
-                      <td className="max-w-[340px] px-2 py-3">
+                      <td className="max-w-[300px] px-2 py-3">
                         <Accion f={f} />
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -319,7 +319,7 @@ function BandaAvance({ t }: { t: Tablero }) {
               <Moon className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-[15px] font-medium">{a.texto}</p>
+              <p className="text-[15px] font-medium">Revisión de precios de noche <span className="font-normal text-smn-gris-700">· {a.texto}</span></p>
               <p className="text-[13px] text-smn-gris-500">
                 {a.activo ? `Se revisa cada noche de ${a.desde}:00 a ${a.hasta}:00, primero los AA.` : "La revisión de noche está apagada en Configuración."}
                 {t.actualizado && ` Última actualización: ${haceCuanto(t.actualizado).toLowerCase()}.`}
@@ -391,8 +391,8 @@ function Tiendas({ f }: { f: FilaTablero }) {
   if (!lista.length && !f.otras) return null;
   return (
     <span className="mt-1 block text-[12.5px] font-normal text-smn-gris-500">
-      {lista.map(([k, v]) => `${k} ${precio(v)}`).join(" · ")}
-      {f.otras > 0 && `${lista.length ? " · " : ""}+${f.otras} tiendas`}
+      {lista.slice(0, 2).map(([k, v]) => `${k} ${monto(v)}`).join(" · ")}
+      {lista.length + f.otras > 2 && ` · +${lista.length + f.otras - 2} más`}
     </span>
   );
 }
@@ -421,7 +421,7 @@ function Accion({ f }: { f: FilaTablero }) {
   return (
     <div>
       <b className={`font-semibold ${CLASE_ACCION[f.accion] ?? ""}`}>{f.accion_texto}</b>
-      {f.detalle && <p className="text-[13px] leading-snug text-smn-gris-700">{f.detalle}</p>}
+      {f.detalle && <p title={f.detalle} className="line-clamp-2 text-[13px] leading-snug text-smn-gris-700">{f.detalle}</p>}
     </div>
   );
 }

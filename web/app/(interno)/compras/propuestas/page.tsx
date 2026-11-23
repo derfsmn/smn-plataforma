@@ -68,7 +68,8 @@ export default function BandejaPropuestas() {
       </Entrada>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        {FILTROS.filter((f) => f.valor !== "borrador" || datos?.por_estado.borrador || estado === "borrador").map((f) => {
+        {/* Solo los filtros que tienen algo (y el que está elegido): «Rechazadas 0» no ayuda a nadie */}
+        {FILTROS.filter((f) => !f.valor || estado === f.valor || (datos?.por_estado[f.valor] ?? 0) > 0).map((f) => {
           const n = f.valor ? datos?.por_estado[f.valor] ?? 0 : total;
           return (
             <button

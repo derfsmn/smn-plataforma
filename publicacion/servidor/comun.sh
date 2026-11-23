@@ -41,7 +41,8 @@ salud_ok(){
 
 respaldar(){ # nombre_de_archivo (sin ruta)
   sqlsa -Q "BACKUP DATABASE [$(bd)] TO DISK='/respaldos/$1' WITH INIT, CHECKSUM" >/dev/null
-  sudo chmod 644 "/datos/respaldos/$1"
+  # Solo SQL Server y el grupo docker (tus usuarios de SSH) lo leen; nadie más del servidor (revisión de seguridad, M2)
+  sudo chgrp docker "/datos/respaldos/$1" && sudo chmod 640 "/datos/respaldos/$1"
   echo "[respaldo] /datos/respaldos/$1 ($(du -h "/datos/respaldos/$1" | cut -f1))"
 }
 

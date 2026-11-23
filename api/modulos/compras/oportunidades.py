@@ -448,9 +448,77 @@ def _rango(perfil: dict | None, departamento: str) -> dict:
     return {"precio_que_paga_nuestro_cliente": {"de": p25, "a": p75, "moneda": "MXN con IVA"}} if p25 and p75 else {}
 
 
+INSTRUCCIONES_LEER_VENDIDOS = f"""{radar.CONTEXTO_SMN}
+
+Eres comprador senior de una cadena de tiendas naturistas en México. Te doy el texto de UNA página de internet que salió
+en Google al buscar lo que más se vende de un tema. Saca de la página hasta 3 productos concretos que la página muestre
+con prueba de venta: lugar en una lista de más vendidos, «más vendido», número de vendidos, número de reseñas.
+- nombre: marca + ingrediente + forma + presentación, como se le pide a un proveedor; nunca una categoría.
+- prueba_de_venta: copia EXACTA de la página (de 2 a 15 palabras, sin cambiar letras) que prueba que se vende.
+- precio: el precio en pesos que dice la página, o null.
+Solo productos que vendería una tienda naturista física (suplementos, herbolaria, vitaminas, alimentos saludables,
+cuidado personal natural). Nada de lo que «ya vendemos» si te lo doy. Si la página no prueba ventas, la lista va vacía.
+No inventes nada. Responde solo JSON: {{"productos": [{{"nombre": "...", "marca": null, "prueba_de_venta": "...",
+"precio": null}}]}}"""
+
+
+def _preguntar_web(bd: Session, encargo: dict):
+    """Lo mismo que el agente con internet, sin API externa (18 nov 2026): la IA local escribe las búsquedas, Google
+    (DataForSEO) da las páginas y la IA local lee cada una. Un producto solo cuenta si su prueba de venta está escrita
+    en la página (o en lo que Google mostró de ella, si no se deja leer); su liga es la de esa página."""
+    from types import SimpleNamespace
+
+    from modulos.compras import buscar_web as bw
+
+    m, notas = encargo["mensaje"], encargo["notas"]
+    tema = m.get("tendencia") or m.get("departamento") or encargo["tema"]
+    fijas = [f"más vendidos {tema} México", f"{tema} más vendidos Amazon México", f"{tema} más vendido Mercado Libre"]
+    que = (f"Productos de «{tema}» que hoy más se venden en México (listas de más vendidos de Amazon, Mercado Libre, "
+           f"farmacias y tiendas naturistas)." + (f" De qué trata: {m['de_que_trata']}" if m.get("de_que_trata") else ""))
+    b = bw.google(bd, bw.frases(bd, TAREA_VENDIDOS, que, fijas), "organico", f"más vendidos: {tema}")
+    notas.notas.extend(f"Más vendidos: {n}" for n in b.notas)
+    productos, citas, sin_cita, sin_nombre, ejemplo = [], [], 0, 0, ""
+    ya = {"lo_que_mas_vendemos": m.get("lo_que_mas_vendemos", [])[:30]}
+    for r in bw.elegir(b.resultados):
+        citas.append({"url": r.url, "titulo": r.titulo})
+        texto = bw.leer(r.url) or f"{r.titulo}\n{r.descripcion}"
+        try:
+            resp = puerta.ejecutar(bd, TAREA_VENDIDOS, usuario_id=None, instrucciones=INSTRUCCIONES_LEER_VENDIDOS,
+                                   mensaje=json.dumps({"tema": tema, "sitio": r.dominio, "titulo": r.titulo,
+                                                       "lo_que_google_muestra": r.descripcion,
+                                                       "texto": bw.recorte(texto, f"{tema} vendido vendidos reseñas"), **ya},
+                                                      ensure_ascii=False),
+                                   max_tokens=1200, contexto=8192)
+            lista = (radar._json_de(resp.texto) or {}).get("productos") or []
+        except (puerta.ErrorIA, ValueError, TypeError, AttributeError) as e:
+            notas.notas.append(f"Más vendidos: la IA local no pudo leer {r.dominio} ({str(e)[:80]}).")
+            continue
+        for x in (lista if isinstance(lista, list) else [])[:3]:
+            if not isinstance(x, dict):
+                continue
+            prueba = str(x.get("prueba_de_venta") or "").strip()
+            pagina = f"{r.titulo}\n{r.descripcion}\n{texto}"
+            if not prueba or not bw.cita_ok(prueba, pagina):
+                sin_cita += 1  # la frase no está en la página: no se puede comprobar
+                ejemplo = ejemplo or f"«{prueba[:80]}» en {r.dominio}"
+                continue
+            if not (_que_pesan(x.get("nombre")) & _que_pesan(pagina)):
+                sin_nombre += 1  # la página ni siquiera nombra el producto: lo inventó la IA
+                continue
+            productos.append({**x, "prueba_de_venta": prueba, "tienda": r.dominio, "url": r.url})
+    if sin_cita:
+        notas.notas.append(f"Más vendidos: se quitaron {sin_cita} producto(s) cuya prueba de venta no está escrita en la página"
+                           f" (por ejemplo {ejemplo}).")
+    if sin_nombre:
+        notas.notas.append(f"Más vendidos: se quitaron {sin_nombre} producto(s) que la página ni siquiera nombra.")
+    return SimpleNamespace(texto="", citas=citas, completa=True), {"productos": productos}
+
+
 def _preguntar(encargo: dict):
     """Cada búsqueda con su propia conexión, para correr varias a la vez."""
     with _sesion() as bd:
+        if encargo.get("web"):
+            return _preguntar_web(bd, encargo)
         r = puerta.ejecutar(bd, TAREA_VENDIDOS, usuario_id=None, instrucciones=encargo["instrucciones"],
                             mensaje=json.dumps(encargo["mensaje"], ensure_ascii=False), max_tokens=MAX_TOKENS_AGENTE,
                             esfuerzo="low", busqueda_web=True)
@@ -467,11 +535,15 @@ def mas_vendidos(bd: Session, f: Fuentes, cat: Catalogo, avance=None) -> None:
     if not encargos:
         f.notas.append("Internet: no hay tendencias fuertes ni departamentos con venta para buscar.")
         return
+    from modulos.compras import buscar_web as bw
+
+    web = bw.usar_web(bd, TAREA_VENDIDOS)  # Google por DataForSEO + IA local (18 nov 2026)
     for e in encargos:
         e["notas"] = Fuentes()  # cada hilo junta sus avisos aparte
+        e["web"] = web
     hechos = 0
     resultados: list[tuple[dict, object, dict | None, Exception | None]] = []
-    with ThreadPoolExecutor(max_workers=AGENTES_A_LA_VEZ) as ex:
+    with ThreadPoolExecutor(max_workers=bw.A_LA_VEZ if web else AGENTES_A_LA_VEZ) as ex:
         futuros = {ex.submit(_preguntar, e): e for e in encargos}
         for fut in as_completed(futuros):
             e = futuros[fut]
@@ -652,6 +724,23 @@ def foto(f: Fuentes, evidencia: list[str]) -> tuple[str | None, str | None]:
     return None, None
 
 
+_SIN_PESO = {"con", "de", "del", "la", "el", "en", "para", "y", "sin", "por", "mas", "plus", "caps", "capsulas", "tabletas",
+             "tab", "polvo", "sabor", "pzas", "piezas", "mg", "gr", "g", "ml"}
+
+
+def _que_pesan(t: str | None) -> set[str]:
+    return {w for w in co.normalizar(t or "").split() if len(w) > 2 and not w.replace(".", "").isdigit() and w not in _SIN_PESO}
+
+
+def _mismo_nombre(propuesto: str, visto: str | None) -> bool:
+    """El producto que propone la IA es el que traía la prueba de venta: comparten al menos la mitad de las palabras que
+    pesan del más corto (Diego, 18 nov 2026: la IA propuso «Vitamina D liposomal» con la prueba de un citrato de magnesio)."""
+    a, b = _que_pesan(propuesto), _que_pesan(visto)
+    if not a or not b:
+        return True  # sin palabras para comparar no se quita
+    return len(a & b) * 2 >= min(len(a), len(b))
+
+
 def _ya_lo_tenemos(bd: Session, p: Propuesta) -> Producto | None:
     s = rp.Sujeto(tipo="idea", nombre=p.nombre, marca=p.marca, departamento=p.departamento)
     return rp.mismo_de(s, rp.buscar_parecidos(bd, s, p.subcategoria))
@@ -787,6 +876,11 @@ def correr(bd: Session, corrida_id: int) -> OportunidadCorrida:
             if p.encaje == "no":
                 f.notas.append(f"Se quitó «{p.nombre}»: no encaja con nuestro cliente ({objetivo['nivel']}). "
                                f"{p.encaje_motivo or 'La IA no dio el motivo.'}")
+                continue
+            vendidos_ev = [f.datos[k] for k in p.evidencia if k[0] == "V" and k in f.datos]
+            if vendidos_ev and not any(_mismo_nombre(p.nombre, x.get("producto")) for x in vendidos_ev):
+                f.notas.append(f"Se quitó «{p.nombre}»: la IA le puso un nombre que no es el del producto con prueba de "
+                               f"venta («{vendidos_ev[0].get('producto')}»).")
                 continue
             if (mismo := _ya_lo_tenemos(bd, p)):
                 f.notas.append(f"Se quitó «{p.nombre}»: ya lo vendemos ({mismo.sku} {mismo.descripcion}).")

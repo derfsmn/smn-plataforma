@@ -20,6 +20,7 @@ from ia import puerta
 from modulos.compras import coincidencia as co
 from modulos.compras import dataforseo as dfs
 from modulos.compras import precios as pc
+from modulos.compras import senal_venta as sv
 from modulos.compras import tiendas as td
 from modulos.compras.modelos_precios import PrecioCorrida
 from nucleo.modelos import ahora
@@ -39,13 +40,15 @@ class Mercado:
     costo_usd: Decimal = Decimal("0")
     buscado_en: str | None = None
     clave: str = ""  # qué se buscó; si cambia, no se reusa
+    senales: list[dict] = field(default_factory=list)  # señal de venta en internet (senal_venta.Senal), 22 nov 2026
 
     def mediana(self) -> Decimal | None:
         return Decimal(str(median([Decimal(str(p["precio"])) for p in self.precios]))) if self.precios else None
 
     def a_json(self) -> str:
         return json.dumps({"precios": self.precios, "notas": self.notas, "publicacion": self.publicacion,
-                           "costo_usd": str(self.costo_usd), "buscado_en": self.buscado_en, "clave": self.clave},
+                           "costo_usd": str(self.costo_usd), "buscado_en": self.buscado_en, "clave": self.clave,
+                           "senales": self.senales},
                           ensure_ascii=False)
 
     @classmethod
@@ -54,7 +57,8 @@ class Mercado:
             return None
         d = json.loads(texto)
         return cls(precios=d.get("precios") or [], notas=d.get("notas") or [], publicacion=d.get("publicacion"),
-                   costo_usd=Decimal(d.get("costo_usd") or "0"), buscado_en=d.get("buscado_en"), clave=d.get("clave") or "")
+                   costo_usd=Decimal(d.get("costo_usd") or "0"), buscado_en=d.get("buscado_en"), clave=d.get("clave") or "",
+                   senales=d.get("senales") or [])
 
     def vigente(self, clave: str) -> bool:
         if self.clave != clave or not self.buscado_en:
@@ -82,8 +86,12 @@ def _agregar(m: Mercado, candidatos: list[co.Candidato], fuente: str) -> None:
         if precio is None or (vendedor, float(precio)) in vistos or len(m.precios) >= MAX_PRECIOS:
             continue
         vistos.add((vendedor, float(precio)))
-        m.precios.append({"precio": float(precio), "vendedor": vendedor, "fuente": fuente, "titulo": c.titulo[:200],
-                          "liga": (c.datos.get("shopping_url") or c.datos.get("url") or "")[:500] or None})
+        fila = {"precio": float(precio), "vendedor": vendedor, "fuente": fuente, "titulo": c.titulo[:200],
+                "liga": (c.datos.get("shopping_url") or c.datos.get("url") or "")[:500] or None}
+        venta = c.datos.get("venta") or (sv.venta_google(c.datos) if fuente == "google" else None)
+        if venta:
+            fila["venta"] = venta
+        m.precios.append(fila)
 
 
 def _con_ia(bd: Session, nombre: str, marca: str | None, dudosos: list[co.Candidato]) -> co.Candidato | None:
@@ -158,6 +166,8 @@ def _tiendas(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas:
             for estrategia, texto in consultas:
                 for i, r in enumerate(td.buscar_con_pausa(tienda, texto, ultima)):
                     c = cands.setdefault(r.clave, pc.candidato_tienda(tienda, r, i + 1))
+                    if r.datos.get("venta"):  # reseñas y «Comprado +X veces» de Walmart (22 nov 2026)
+                        c.datos["venta"] = r.datos["venta"]
                     c.estrategias.add(estrategia)
         except td.ErrorTienda as e:
             m.notas.append(f"{tienda.nombre}: {e}")
@@ -184,4 +194,27 @@ def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | Non
     marcas = pc._marcas(bd)
     _google(bd, m, nombre, marca, consultas, marcas, referencia)
     _tiendas(bd, m, nombre, marca, consultas, marcas)
+    senal_de_venta(bd, m, nombre, marca, consultas, marcas, referencia)
     return m
+
+
+def senal_de_venta(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: list[tuple[str, str]],
+                   marcas: set[str], referencia: str) -> None:
+    """¿Se vende afuera? Mercado Libre y Amazon México, más lo que ya trajeron Walmart y Google Shopping. Sus precios
+    cuentan como unos más de afuera. Nunca lanza (22 nov 2026)."""
+    def elegir(cands):
+        return _elegir(bd, nombre, marca, cands, marcas)
+
+    ml, notas_ml, elegidos_ml = sv.mercado_libre(bd, nombre, marca, consultas, elegir)
+    _agregar(m, elegidos_ml, "mercadolibre")
+    try:
+        az, notas_az, elegidos_az, costo = sv.amazon(bd, nombre, marca, consultas, elegir, referencia)
+    except Exception:  # noqa: BLE001
+        # Sin rollback la sesión quedaba inservible y la evaluación entera fallaba (22 nov 2026, ck_precio_envio_tipo)
+        bd.rollback()
+        log.exception("Radar de productos: falló Amazon para «%s»", nombre)
+        az, notas_az, elegidos_az, costo = [], ["Amazon: no se pudo leer su respuesta."], [], Decimal(0)
+    _agregar(m, elegidos_az, "amazon")
+    m.costo_usd += costo
+    m.notas += notas_ml + notas_az
+    m.senales = sv.a_dicts(sv.de_precios(m.precios) + ml + az)

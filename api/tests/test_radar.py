@@ -40,6 +40,7 @@ def simulado(monkeypatch, limpio):
     cfg = configuracion()
     monkeypatch.setattr(cfg, "radar_busquedas_por_dia", 2)
     monkeypatch.setattr("ia.puerta.motivos_api_apagada", lambda bd: [])
+    monkeypatch.setattr("modulos.compras.buscar_web.usar_web", lambda bd, tarea: False)  # aquí se prueba el camino con API
     hoy, viejo = _hoy(), _hoy() - timedelta(days=40)
     rss = [
         {"url": "https://www.nutraingredients.com/articulo/ashwagandha?utm_source=rss", "titulo": "Ashwagandha gana terreno en EUA",
@@ -156,7 +157,7 @@ def test_sin_ia_el_reporte_lo_dice(admin: TestClient, limpio, monkeypatch):
         reporte = radar.correr(bd, radar.tomar_reporte(bd, _hoy(), "programado"), enviar_correo=False)
         assert reporte.estado == "listo"
         avisos = json.loads(reporte.avisos)
-        assert any("apagada" in a for a in avisos)  # sin llave no hay búsqueda abierta
+        assert any("DataForSEO" in a for a in avisos)  # sin DataForSEO no hay búsqueda abierta (18 nov 2026)
         assert not reporte.hallazgos and reporte.articulos_nuevos == 1
 
 

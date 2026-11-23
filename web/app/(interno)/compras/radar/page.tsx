@@ -205,7 +205,7 @@ function Hoy() {
           <section>
             <h3 className="mb-3 text-lg font-semibold">Hallazgos</h3>
             {reporte.detalle_hallazgos.length === 0 ? (
-              <Vacio icono={<Sparkles className="h-8 w-8" />} titulo="Sin hallazgos" texto="Este día no hubo notas nuevas relevantes, o la IA no estuvo disponible (revisa los avisos abajo)." />
+              <Vacio icono={<Sparkles className="h-8 w-8" />} titulo="Sin hallazgos" texto={puede("compras.radar.administrar") ? "Este día no hubo notas nuevas relevantes, o la IA no estuvo disponible (revisa los avisos abajo)." : "Este día no hubo notas nuevas relevantes."} />
             ) : (
               <ol className="space-y-4">
                 {reporte.detalle_hallazgos.map((h, i) => (
@@ -251,7 +251,7 @@ function Hoy() {
             </Entrada>
           )}
 
-          {reporte.avisos.length > 0 && (
+          {reporte.avisos.length > 0 && puede("compras.radar.administrar") && (
             <details className="rounded-2xl bg-aviso-fondo p-4 text-sm text-aviso-texto">
               <summary className="flex cursor-pointer items-center gap-2 font-semibold">
                 <AlertTriangle className="h-4 w-4" /> {reporte.avisos.length} aviso{reporte.avisos.length > 1 ? "s" : ""} de la corrida
@@ -273,7 +273,8 @@ function Hoy() {
 }
 
 function BarraEstado({ estado, correr, lanzando }: { estado: EstadoRadar; correr?: () => void; lanzando: boolean }) {
-  const pendientes = [
+  // Los avisos técnicos (llaves, correo, destinatarios) solo los ve quien administra el radar; Compras solo consulta
+  const pendientes = !correr ? [] : [
     !estado.ia_encendida && `IA externa apagada: ${estado.ia_motivos.join(" ")}`,
     !estado.correo_configurado && "Sin correo de salida: el reporte se ve aquí, pero no se envía.",
     estado.correo_configurado && estado.destinatarios_activos === 0 && "No hay destinatarios activos.",
@@ -306,7 +307,7 @@ function BarraEstado({ estado, correr, lanzando }: { estado: EstadoRadar; correr
           </p>
         )}
         <p className="text-sm text-smn-gris-500">
-          {estado.fuentes_activas} fuentes · {estado.temas_activos} temas · IA {estado.ia_proveedor}
+          {estado.fuentes_activas} fuentes · {estado.temas_activos} temas{correr && ` · IA ${estado.ia_proveedor}`}
         </p>
         {correr && (
           <Boton onClick={correr} cargando={lanzando} disabled={estado.en_curso} className="ml-auto">

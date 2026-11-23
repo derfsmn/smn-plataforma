@@ -11,7 +11,7 @@ decisión, en una línea; muchas recomendaciones concretas; diseño cuidado con 
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -22,8 +22,8 @@ from reportlab.graphics.shapes import Circle, Drawing, Rect
 from reportlab.lib.colors import Color, HexColor
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import case, func, select, true
+from reportlab.platypus import Flowable, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from datos.modelos import Producto, Proveedor, Tienda, VentaSemanal
@@ -31,6 +31,7 @@ from modulos.compras import mercado_producto as mp
 from modulos.compras import politicas_producto as pp
 from modulos.compras import radar_productos as rp
 from modulos.compras import realidad_producto as rr
+from modulos.compras import senal_venta as sv
 from modulos.compras.modelos_productos import ProductoEvaluacion, ProductoIdea
 from modulos.compras.modelos_propuestas import Propuesta
 from modulos.metodos import diagrama
@@ -147,6 +148,13 @@ class Reporte:
     fuentes: list[str]
     fotos: list[bytes] = field(default_factory=list)
     ventana: str | None = None
+    # 22 nov 2026: tipo de producto (lista A–F) y el precio de membresía con su margen y su mínimo
+    lista: str | None = None  # «lista D, Nutrición deportiva nacional»; None si va por omisión
+    precio_membresia: Decimal | None = None
+    membresia_calculada: bool = False
+    margen_membresia: Decimal | None = None
+    minimo_membresia: Decimal | None = None
+    anaquel: float | None = None  # % de nuestro precio contra los parecidos que ya vendemos
 
 
 def _sujeto(bd: Session, e: ProductoEvaluacion) -> tuple[rp.Sujeto, str | None, list[int]]:
@@ -242,17 +250,7 @@ def de_la_marca(bd: Session, marca: str | None, fuera: set[str]) -> list[Product
 
 
 def tendencia_subcategoria(bd: Session, v: rr.Ventana, subcategoria: str) -> tuple[float, float, int] | None:
-    """Piezas de la subcategoría en las últimas 13 semanas, en las 13 anteriores y cuántos SKU tuvieron venta."""
-    mitad = v.fin - timedelta(weeks=rr.SEMANAS_TENDENCIA)
-    recientes, anteriores, skus = bd.execute(
-        select(func.sum(case((VentaSemanal.semana > mitad, rr.NETAS), else_=0)),
-               func.sum(case((VentaSemanal.semana <= mitad, rr.NETAS), else_=0)),
-               func.count(VentaSemanal.sku.distinct()))
-        .join(Producto, Producto.sku == VentaSemanal.sku)
-        .where(*v.filtro(), Producto.subcategoria == subcategoria)).one()
-    if not recientes or not anteriores or anteriores <= 0:
-        return None
-    return float(recientes), float(anteriores), skus
+    return rr.tendencia_subcategoria(bd, v, subcategoria)
 
 
 def categorias_tienda(bd: Session, v: rr.Ventana, skus: list[str]) -> list[str]:
@@ -266,22 +264,26 @@ def categorias_tienda(bd: Session, v: rr.Ventana, skus: list[str]) -> list[str]:
     return [c for c, piezas in filas if piezas and piezas > 0]
 
 
-def _estimado(s: rp.Sujeto, parecidos: list[Fila], prueba: bool, margen: Decimal | None) -> dict | None:
-    """Piezas por tienda al mes de los parecidos de precio parecido × número de tiendas. Los de precio muy distinto
-    (un sobre de $25 contra una caja de $599) solo cuentan si no hay otros."""
+def _estimado(s: rp.Sujeto, parecidos: list[Fila], prueba: bool, margen: Decimal | None,
+              pronostico: list[float] | None = None, usados: set[str] | None = None) -> dict | None:
+    """Piezas por tienda al mes × número de tiendas. Desde el 19 nov 2026 (plan de Demanda: una sola cifra) sale del
+    pronóstico a 12 semanas, la misma que califica la Demanda; sin pronóstico, de los parecidos de precio parecido (los
+    de precio muy distinto, un sobre de $25 contra una caja de $599, solo cuentan si no hay otros)."""
     con = [f for f in parecidos if f.por_tienda]
-    if not con:
+    if not con and not pronostico:
         return None
-    cerca = [f for f in con if s.precio and f.precio and rp.RANGO_PRECIO[0] <= s.precio / f.precio <= rp.RANGO_PRECIO[1]]
+    # Los mismos parecidos que usan la Demanda y el pronóstico (precio cercano por pieza y por unidad, 19 nov 2026)
+    cerca = ([f for f in con if f.sku in usados] if usados is not None else
+             [f for f in con if s.precio and f.precio and rp.RANGO_PRECIO[0] <= s.precio / f.precio <= rp.RANGO_PRECIO[1]])
     base = cerca or con
-    por_tienda = float(median([f.por_tienda for f in base]))
+    por_tienda = float(pronostico[1]) if pronostico else float(median([f.por_tienda for f in base]))
     tiendas = TIENDAS_PRUEBA if prueba else max(TIENDAS_PRUEBA, int(median([f.tiendas for f in base if f.tiendas] or [0])))
     piezas = por_tienda * tiendas
     venta = float(s.precio / IVA) * piezas if s.precio else None
     cercanos = sorted(base, key=lambda f: abs(f.por_tienda - por_tienda))
     return {"por_tienda": por_tienda, "tiendas": tiendas, "piezas": piezas, "venta": venta,
             "margen": venta * float(margen) / 100 if venta and margen is not None else None,
-            "como": [f.descripcion for f in cercanos[:2]], "prueba": prueba}
+            "como": [f.descripcion for f in cercanos[:2]], "prueba": prueba, "rango": pronostico}
 
 
 def _veredicto(dictamen: str, color: str) -> tuple[str, bool]:
@@ -298,24 +300,29 @@ def _veredicto(dictamen: str, color: str) -> tuple[str, bool]:
     return {"verde": "METER", "amarillo": f"PROBAR EN {TIENDAS_PRUEBA} TIENDAS", "rojo": "NO METER"}[color], color == "amarillo"
 
 
-def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> Reporte:
+def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con_fotos: bool = True) -> Reporte:
     s, proveedor, foto_ids = _sujeto(bd, e)
     ahora = ahora or datetime.now()
     color = e.color_final or e.color or "amarillo"
     v = rr.ventana(bd)
-    minimo, _ = rp.margen_minimo(bd, s.departamento)
+    mins = rp.minimos(bd, s)
+    minimo = mins.lista
     factores = {f.factor: f for f in e.factores}
     lineas = (e.explicacion or "").split("\n\n")
     dictamen = next((x for x in lineas if x.startswith(rp.DICTAMEN)), "")
     veredicto, prueba = _veredicto(dictamen, color)
     mercado_ = mp.Mercado.de_json(e.mercado)
-    precios = [Decimal(str(p["precio"])) for p in (mercado_.precios if mercado_ else [])] + [x for x, _ in s.mercado]
-    precio_f = factores.get("precio")
-    referencia = Decimal(str(median(precios))) if precios else None
+    # El mismo precio de mercado con que se califica la mitad de afuera: sin la página de la marca ni lo que vio Compras
+    # (Wonu 22 nov 2026: Rentabilidad usaba $626 con Chedraui y Precio $599)
+    con_sim = [(p, c.similitud) for c in e.comparables if (p := bd.get(Producto, c.producto_id))]
+    mismo = next((p for p, sim in con_sim if sim == 1), None)
+    referencia = rp.precio_afuera(s, con_sim, mercado_, mismo).meta
     margen = s.margen
     margen_sub = None
     if v and e.subcategoria and (real := rr.margen_real(bd, v, e.subcategoria)):
         margen_sub = real[0]
+    if mismo:  # ya lo vendemos: la membresía es la de su SKU
+        s.precio_membresia, s.membresia_calculada = mismo.precio_membresia_con_impuestos, False
 
     # 1. Qué es
     tam = rp.tamano(s.contenido, s.nombre, s.descripcion)
@@ -342,9 +349,14 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         etiqueta = ("ya lo vendemos" if any(c.similitud == 1 and c.producto_id == p.producto_id for c in e.comparables)
                     else "mismo formato" if su and su == formato else "")
         filas.append(_fila(p, venta, etiqueta))
-    # Los dos con los que se compara en el dictamen van primero; los demás, de más a menos venta
+    # Los dos con los que se compara en el dictamen van primero; luego los de precio cercano (los que usan la Demanda y
+    # el pronóstico, para que el reporte enseñe los productos que cita), y al final los demás; cada grupo de más a
+    # menos venta (19 nov 2026: BASMAC salía en el pronóstico y no en la tabla, la tapaban los más vendidos)
     citados = [f for f, p in zip(filas, productos) if p.precio_lista_con_impuestos][:2]
-    filas = citados + sorted((f for f in filas if f not in citados), key=lambda f: -(f.al_mes or 0))
+    usados = {p.sku for p in rp.parecidos_para_demanda(s, [(p, Decimal(0)) for p in productos], None)}
+    cercanos = {id(f) for f, p in zip(filas, productos) if p.sku in usados and len(usados) < len(productos)}
+    filas = citados + sorted((f for f in filas if f not in citados),
+                             key=lambda f: (id(f) not in cercanos, -(f.al_mes or 0)))
     filas_marca = sorted((_fila(p, venta, "misma marca") for p in marca), key=lambda f: -(f.al_mes or 0))
     filas_marca = [f for f in filas_marca if f.al_mes][:4]
 
@@ -370,7 +382,10 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         precio = Decimal(str(p["precio"]))
         suyo = rp.tamano(p.get("titulo"))
         por = rp._precio_unidad(precio / suyo[dim], dim) if dim and dim in suyo and suyo[dim] else None
-        afuera.append((p.get("titulo") or s.nombre, p.get("vendedor") or "—", precio, por))
+        donde = p.get("vendedor") or "—"
+        if rp.es_de_la_marca(p, s.marca):  # no es competencia: es lo que sugiere la marca (22 nov 2026)
+            donde = f"{donde} (precio sugerido de la marca)"
+        afuera.append((p.get("titulo") or s.nombre, donde, precio, por))
     for precio, donde in s.mercado:
         if s.activo_g:  # es el mismo producto que vio Compras: mismo contenido
             por = f"{_pesos(precio / s.activo_g)} por gramo de {s.ingrediente.lower() if s.ingrediente else 'activo'}"
@@ -384,22 +399,47 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
     peso, _ = rp.pesos(bd)
     lista_f = [(rp.NOMBRES[f], factores[f].peso if f in factores else peso[f], factores[f].puntaje if f in factores else None,
                 factores[f].valor if f in factores else None) for f in rp.FACTORES]
+    # Solo los que pesan (Dirección, 20 nov 2026: Tendencia va dentro de la Demanda y Proveedor es contexto), del que
+    # más pesa al que menos
+    lista_f = sorted((x for x in lista_f if x[1]), key=lambda x: -x[1])
     tend = tendencia_subcategoria(bd, v, e.subcategoria) if v and e.subcategoria else None
-    estimado = _estimado(s, filas, prueba, margen)
+    try:
+        from modulos.compras import pronostico as pn
+
+        pron = pn.Pronostico.de_json(e.pronostico)
+    except (ValueError, TypeError, KeyError):
+        pron = None
+    estimado = _estimado(s, filas, prueba, margen, pron.rango(12) if pron else None, usados)
     kpis = []
     if margen is not None:
         kpis.append((_pct(margen), f"margen a {_pesos(s.precio)} con costo {_pesos(s.costo)} (mínimo {_n(minimo)} %"
                      + (f"; {e.subcategoria.lower()} en SMN {_pct(margen_sub)})" if margen_sub else ")"), margen < minimo))
+        if (mm := s.margen_membresia) is not None and not mismo and mins.membresia is not None:
+            kpis.append((_pct(mm), f"margen con membresía a {_pesos(s.precio_membresia)}"
+                         + (", calculada con su lista" if s.membresia_calculada else "") + f" (mínimo {_n(mins.membresia)} %)",
+                         mm < mins.membresia))
     if tend:
         cambio = (tend[0] / tend[1] - 1) * 100
         kpis.append((f"{cambio:+.0f} %", f"piezas de {e.subcategoria.lower()} en SMN, últimas 13 semanas contra las 13 "
                      "anteriores", cambio < 0))
     if estimado:
         kpis.append((f"~{_n(estimado['piezas'])}", f"piezas al mes esperadas en {estimado['tiendas']} tiendas "
-                     f"(~{_n(estimado['por_tienda'])} por tienda, como sus parecidos)", False))
+                     f"(~{_n(estimado['por_tienda'])} por tienda"
+                     + (", según el pronóstico)" if estimado["rango"] else ", como sus parecidos)"), False))
+    # Precio contra nuestro anaquel (Dirección, 22 nov 2026): la misma mitad que usa la calificación
+    anaquel = None
+    if s.precio and productos and not any(c.similitud == 1 for c in e.comparables):
+        rp.cargar_fichas(bd, productos)
+        sims = {c.producto_id: c.similitud for c in e.comparables}
+        f_an = rp.precio_anaquel(s, [(p, sims.get(p.producto_id) or Decimal(0)) for p in productos])
+        if f_an.puntaje is not None and f_an.meta:
+            anaquel = (s.precio / f_an.meta - 1) * 100
     if referencia and s.precio:
         dif = (s.precio / referencia - 1) * 100
-        kpis.append((f"{dif:+.0f} %", f"nuestro precio contra el de en medio del mercado ({_pesos(referencia)})", dif > 5))
+        kpis.append((f"{dif:+.0f} %", f"nuestro precio contra el de en medio del mercado ({_pesos(referencia)})"
+                     + (f"; contra nuestro anaquel {anaquel:+.0f} %" if anaquel is not None else ""), dif > 5))
+    elif anaquel is not None:
+        kpis.append((f"{anaquel:+.0f} %", "nuestro precio contra los parecidos que ya vendemos", anaquel > 5))
     elif unidad:
         kpis.append((unidad.split(" por ")[0], "por " + unidad.split(" por ", 1)[1], False))
 
@@ -443,25 +483,32 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         q["tendencia"].append(f"Afuera: {_t(_sin_metodo(t.detalle))}")
     elif t:
         q["tendencia"].append("Afuera: el radar de tendencias no tiene señales que hablen de este producto.")
+    for x in sorted(sv.de_lista(mercado_.senales if mercado_ else []), key=lambda x: -x.puntos())[:3]:
+        if x.texto():
+            q["tendencia"].append(f"Se vende afuera: <b>{_t(sv.frase(x))}</b>.")
     d = factores.get("demanda")
     if d and d.valor:
-        q["tendencia"].append(f"Sus parecidos: {_t(d.valor[0].lower() + d.valor[1:])}.")
+        q["tendencia"].append(f"Demanda: {_t(d.valor[0].lower() + d.valor[1:])}.")
     q["venta"] = []
     if estimado:
         como = " y ".join(_t(x) for x in estimado["como"])
-        q["venta"].append(f"Unas <b>{_n(estimado['por_tienda'])} piezas por tienda al mes</b>, como {como}. En "
-                          f"{estimado['tiendas']} tiendas: <b>~{_n(estimado['piezas'])} piezas al mes</b>"
+        if r12 := estimado["rango"]:
+            texto = (f"Unas <b>{_n(r12[1])} piezas por tienda al mes</b> en sus primeras 12 semanas, entre {_n(r12[0])} y "
+                     f"{_n(r12[2])}, según cómo arrancaron los productos nuevos de 2026" + (f" y lo que venden {como}" if como else ""))
+        else:
+            texto = f"Unas <b>{_n(estimado['por_tienda'])} piezas por tienda al mes</b>, como {como}"
+        q["venta"].append(f"{texto}. En {estimado['tiendas']} tiendas: <b>~{_n(estimado['piezas'])} piezas al mes</b>"
                           + (f", unos {_pesos(estimado['venta'])[:-3]} de venta sin IVA" if estimado["venta"] else "")
                           + (f" y {_pesos(estimado['margen'])[:-3]} de margen." if estimado["margen"] else "."))
-    try:
-        from modulos.compras import pronostico as pn
-
-        pron = pn.Pronostico.de_json(e.pronostico)
-    except (ValueError, TypeError, KeyError):
-        pron = None
-    if pron and (r12 := pron.rango(12)):
-        q["venta"].append(f"Pronóstico a 12 semanas: <b>{_n(r12[1])} piezas por tienda al mes</b>, entre {_n(r12[0])} "
-                          f"y {_n(r12[2])}, según cómo arrancaron los productos nuevos de 2026.")
+    if pron and pron.rango(12):
+        if pron.misma_sub:  # contra productos reales de su subcategoría (Diego, 20 nov 2026)
+            q["venta"].append("Lanzamientos de 2026 de su misma subcategoría, piezas por tienda al mes en sus semanas 9 a "
+                              "12: " + "; ".join(f"{_t(x['descripcion'])} {_n(x['por_tienda'])}" for x in pron.misma_sub[:6])
+                              + (f" y {len(pron.misma_sub) - 6} más" if len(pron.misma_sub) > 6 else "") + ".")
+        if (pr := pron.examen.get("prueba")) and pr.get("probados"):
+            q["venta"].append(f"Qué tan seguido atina: a {pr['probados']} productos que lanzamos en 2026 se les pronosticó "
+                              f"como si fueran nuevos y atinó el color de la Demanda en {pr['color']} y la clase AA–E en "
+                              f"{pr['clase']}.")
         if pron.grupos:
             mejores = sorted(pron.grupos, key=lambda g: -g.medio)[:3]
             q["venta"].append("Donde más venderá: " + "; ".join(
@@ -486,9 +533,12 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None) -> 
         codigo_barras=s.codigo_barras, proveedor=proveedor, tipo=s.tipo, fecha=ahora, puntaje=e.puntaje, color=color,
         confianza=e.confianza, veredicto=veredicto, dictamen=dictamen.removeprefix(rp.DICTAMEN), precio=s.precio,
         costo=s.costo, margen=margen, minimo=minimo, margen_sub=margen_sub, referencia=referencia,
+        lista=mins.de_lista.texto() if s.lista and mins.de_lista else None, precio_membresia=s.precio_membresia,
+        membresia_calculada=s.membresia_calculada, margen_membresia=s.margen_membresia if not mismo else None,
+        minimo_membresia=mins.membresia, anaquel=float(anaquel) if anaquel is not None else None,
         precio_unidad=unidad, escenarios=escenarios, mercado=afuera, parecidos=filas[:7], de_marca=filas_marca,
         factores=lista_f, kpis=kpis[:4], preguntas=q, estimado=estimado, acciones=acciones, fuentes=fuentes,
-        fotos=_fotos(bd, foto_ids), ventana=v.texto() if v else None)
+        fotos=_fotos(bd, foto_ids) if con_fotos else [], ventana=v.texto() if v else None)
 
 
 def _acciones(s, veredicto, prueba, minimo, margen, referencia, metas, filas, filas_marca, proveedor, estimado, cats,
@@ -537,6 +587,112 @@ def _acciones(s, veredicto, prueba, minimo, margen, referencia, metas, filas, fi
 
 # ---------------------------------------------------------------- PDF
 
+# Los mismos colores y la misma regla que la pantalla del comité (web/lib/pantalla.ts)
+HEX_FACTOR = {"verde": "#2E8B57", "amarillo": "#D99A1B", "rojo": "#C8412F"}
+SIN_COLOR, PISTA = "#9B9B96", "#ECECEA"
+
+
+def _color_puntaje(p: int | None) -> str | None:
+    return None if p is None else "verde" if p > 80 else "amarillo" if p >= 60 else "rojo"
+
+
+def _arco(c, cx: float, cy: float, r: float, desde: float, grados: float, ancho: float, color: str, redondo: bool = False):
+    """Arco en el sentido del reloj; `desde` en grados contados desde las 12."""
+    if grados <= 0:
+        return
+    c.setStrokeColor(HexColor(color))
+    c.setLineWidth(ancho)
+    c.setLineCap(1 if redondo else 0)
+    if grados >= 359.9:
+        c.circle(cx, cy, r, stroke=1, fill=0)
+        return
+    c.arc(cx - r, cy - r, cx + r, cy + r, startAng=90 - desde, extent=-grados)
+
+
+class Anillo(Flowable):
+    """Anillo de aporte, como en la pantalla del comité: cada factor ocupa lo que aporta a la calificación, con el color
+    de su calificación; en medio el número y el color."""
+
+    def __init__(self, puntaje: int | None, color: str, partes: list[tuple[float, str | None]], tam: float = 128):
+        super().__init__()
+        self.puntaje, self.color, self.partes, self.tam = puntaje, color, partes, tam
+        self.width = self.height = tam
+
+    def draw(self):
+        c, t = self.canv, self.tam
+        cx = cy = t / 2
+        grueso = t * 0.085
+        r = t / 2 - grueso / 2 - 1
+        _arco(c, cx, cy, r, 0, 360, grueso, PISTA)
+        con = [(a, col) for a, col in self.partes if a > 0]
+        hueco = 2.2 if len(con) > 1 else 0
+        inicio = 0.0
+        for aporte, col in con:
+            g = max(0.0, aporte / 100 * 360 - hueco)
+            _arco(c, cx, cy, r, inicio, g, grueso, HEX_FACTOR.get(col or "", SIN_COLOR))
+            inicio += g + hueco
+        c.setFillColor(NEGRO)
+        c.setFont(LB, t * 0.27)
+        c.drawCentredString(cx, cy + t * 0.03, str(self.puntaje) if self.puntaje is not None else "—")
+        c.setFillColor(GRIS)
+        c.setFont(L, t * 0.075)
+        c.drawCentredString(cx, cy - t * 0.07, "de 100")
+        # Píldora del color
+        texto = self.color.upper()
+        c.setFont(LB, t * 0.068)
+        w = c.stringWidth(texto, LB, t * 0.068) + t * 0.12
+        h = t * 0.11
+        base = HexColor(HEX_FACTOR.get(self.color, SIN_COLOR))
+        c.setFillColor(Color(base.red, base.green, base.blue, alpha=0.14))
+        c.setStrokeColor(base)
+        c.setLineWidth(0.6)
+        c.roundRect(cx - w / 2, cy - t * 0.215, w, h, h / 2, stroke=1, fill=1)
+        c.setFillColor(HexColor(COLOR_TEXTO.get(self.color, "#555555")))
+        c.drawCentredString(cx, cy - t * 0.215 + h * 0.3, texto)
+
+
+class Dona(Flowable):
+    """Dona del factor, como en la pantalla del comité: el anillo de afuera es lo que pesa; el de adentro, su
+    calificación; la marca es el corte de verde (80)."""
+
+    def __init__(self, puntaje: int | None, peso: float, tam: float = 62):
+        super().__init__()
+        self.puntaje, self.peso, self.tam = puntaje, peso, tam
+        self.width = self.height = tam
+
+    def draw(self):
+        c, t = self.canv, self.tam
+        cx = cy = t / 2
+        r1, r2 = t * 0.46, t * 0.37
+        _arco(c, cx, cy, r1, 0, 360, t * 0.02, PISTA)
+        _arco(c, cx, cy, r1, 0, self.peso / 100 * 360, t * 0.02, "#6B6B67", True)
+        _arco(c, cx, cy, r2, 0, 360, t * 0.09, PISTA)
+        if self.puntaje is not None:
+            col = HEX_FACTOR[_color_puntaje(self.puntaje)]
+            _arco(c, cx, cy, r2, 0, self.puntaje / 100 * 360, t * 0.09, col, True)
+        import math
+        a = math.radians(90 - 0.8 * 360)
+        c.setStrokeColor(NEGRO)
+        c.setLineWidth(0.8)
+        c.setLineCap(0)
+        c.line(cx + (r2 - t * 0.07) * math.cos(a), cy + (r2 - t * 0.07) * math.sin(a),
+               cx + (r2 + t * 0.07) * math.cos(a), cy + (r2 + t * 0.07) * math.sin(a))
+        c.setFillColor(NEGRO)
+        c.setFont(LB, t * 0.26)
+        c.drawCentredString(cx, cy - t * 0.02, str(self.puntaje) if self.puntaje is not None else "—")
+        c.setFillColor(GRIS)
+        c.setFont(L, t * 0.1)
+        c.drawCentredString(cx, cy - t * 0.17, "de 100" if self.puntaje is not None else "sin datos")
+
+
+def _corto(x: str | None, largo: int = 95) -> str:
+    """La primera idea del porqué, como en la tarjeta de la pantalla."""
+    if not x:
+        return "Sin datos todavía."
+    t = re.split(r"(?<=[^0-9])\. |; ", x, maxsplit=1)[0].rstrip(".")
+    return t + "." if len(t) <= largo else t[: largo - 1].rsplit(" ", 1)[0].rstrip(",;(") + "…"
+
+
 def _semaforo(color: str) -> Drawing:
     d = Drawing(34, 92)
     d.add(Rect(0, 0, 34, 92, rx=15, ry=15, fillColor=NEGRO, strokeColor=None))
@@ -583,6 +739,15 @@ def _p(x: str, e: str = "c") -> Paragraph:
     return Paragraph(x, E[e])
 
 
+def _dif(x: float) -> str:
+    return "igual" if abs(x) < 1 else f"{abs(x):.0f} % {'más caro' if x > 0 else 'más barato'}"
+
+
+def _contra(precio: Decimal, ref: Decimal) -> str:
+    d = float((precio / ref - 1) * 100)
+    return "igual que el" if abs(d) < 1 else f"{abs(d):.0f} % {'arriba' if d > 0 else 'abajo'} del"
+
+
 def generar(r: Reporte) -> bytes:
     hay: list = []
     sub = [x for x in (_t(r.presentacion), f"Proveedor: {_t(r.proveedor)}" if r.proveedor else None,
@@ -593,11 +758,16 @@ def generar(r: Reporte) -> bytes:
 
     # Semáforo + dictamen
     color_txt = COLOR_TEXTO.get(r.color, "#555555")
-    numero = [Paragraph(f"{r.puntaje if r.puntaje is not None else '—'}<font size=9 color='#555555'> de 100</font>", E["num"]),
-              Paragraph(f"<font color='{color_txt}'><b>{r.color.upper()}</b></font>", E["h2"]),
-              Paragraph("Verde: más de 80<br/>Amarillo: 60 a 80<br/>Rojo: menos de 60", E["gris"])]
-    sem = Table([[_semaforo(r.color), numero]], colWidths=[44, 92])
-    sem.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 2)]))
+    # Lo que aporta cada factor, con la misma cuenta que la pantalla: sobre el peso de los que tienen datos
+    cubierto = sum(float(b) for _, b, c_, _ in r.factores if c_ is not None) or 1.0
+    partes = [(float(b) * c_ / cubierto, _color_puntaje(c_)) for _, b, c_, _ in r.factores if c_ is not None]
+    leyenda = " · ".join(f"<font color='{HEX_FACTOR.get(_color_puntaje(c_) or '', SIN_COLOR)}'><b>{_t(a)}</b></font>"
+                         for a, _, c_, _ in r.factores)
+    sem = Table([[Anillo(r.puntaje, r.color, partes, 118)], [Paragraph(leyenda, E["gris"])],
+                 [Paragraph("Verde: más de 80<br/>Amarillo: 60 a 80 · Rojo: menos de 60", E["gris"])]], colWidths=[128])
+    sem.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                             ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 1),
+                             ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
     sem = _caja([sem], 146)
     tag = Table([[Paragraph(r.veredicto, E["tag"])]])
     tag.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NEGRO), ("ROUNDEDCORNERS", [4, 4, 4, 4]),
@@ -622,6 +792,28 @@ def generar(r: Reporte) -> bytes:
                                 ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     hay.append(arriba)
 
+    # Las 4 donas, del factor que más pesa al que menos (Nivel 1 de la pantalla del comité)
+    if r.factores:
+        n = 2  # dos por renglón, como la pantalla en anchos medianos
+        ancho = (UTIL - 6 * (n - 1)) / n
+        cajas = []
+        for a, b, c_, d in r.factores:
+            de = float(b) * 100 / cubierto if c_ is not None else None
+            aporta = (f"aporta {float(b) * c_ / cubierto:.1f} de {de:.1f} puntos" if c_ is not None else "no cuenta todavía")
+            texto = Table([[Paragraph(f"<b>{_t(a)}</b> <font color='#777777'>{_n(b)} %</font>", E["p"])],
+                           [_p(aporta, "gris")], [_p(_t(_corto(d, 150)), "c")]], colWidths=[ancho - 74])
+            texto.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                       ("TOPPADDING", (0, 0), (-1, -1), 0.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 0.5)]))
+            fila = Table([[Dona(c_, float(b), 56), texto]], colWidths=[62, ancho - 74])
+            fila.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                      ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+            cajas.append(_caja([fila], ancho))
+        renglones = [cajas[i:i + n] + [""] * (n - len(cajas[i:i + n])) for i in range(0, len(cajas), n)]
+        k = Table(renglones, colWidths=[ancho + 6] * n)
+        k.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 5), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        hay += [Spacer(1, 7), k]
+
     # Cuatro cifras
     if r.kpis:
         ancho = (UTIL - 6 * (len(r.kpis) - 1)) / len(r.kpis)
@@ -641,6 +833,8 @@ def generar(r: Reporte) -> bytes:
         datos.append(["Precio por unidad", _t(r.precio_unidad)])
     if r.clasificacion:
         datos.append(["Dónde iría", _t(r.clasificacion)])
+    datos.append(["Tipo de producto", (f"{_t(r.lista)[0].upper()}{_t(r.lista)[1:]}" if r.lista else
+                                       "Sin elegir: se evaluó con la lista A")])
     if r.codigo_barras:
         datos.append(["Código de barras", _t(r.codigo_barras)])
     hay.append(_tabla([[_p("Dato", "cab"), _p("Valor", "cab")]] + [[_p(f"<b>{a}</b>"), _p(b)] for a, b in datos],
@@ -651,10 +845,18 @@ def generar(r: Reporte) -> bytes:
         hay += [Spacer(1, 6), _h2("2. ¿Cuánto ganamos?"), Spacer(1, 3)]
         filas = [[_p("Escenario", "cab"), _p("Precio con IVA", "cabn"), _p("Costo sin IVA", "cabn"), _p("Margen", "cabn")]]
         filas += [[_p(_t(a)), _p(_pesos(b), "cn"), _p(_pesos(c), "cn"), _p(_pct(m), "cn")] for a, b, c, m in r.escenarios]
+        if r.precio_membresia and r.margen_membresia is not None:
+            que = ("Precio de membresía (con la regla de su lista)" if r.membresia_calculada else "Precio de membresía")
+            filas.insert(2, [_p(que), _p(_pesos(r.precio_membresia), "cn"), _p(_pesos(r.costo), "cn"),
+                             _p(_pct(r.margen_membresia), "cn")])
         if r.margen_sub is not None:
             filas.append([_p("Lo que deja hoy su subcategoría en SMN"), _p("—", "cn"), _p("—", "cn"), _p(_pct(r.margen_sub), "cn")])
         hay.append(_tabla(filas, [UTIL * 0.49, UTIL * 0.17, UTIL * 0.17, UTIL * 0.17], {1}))
-        hay.append(_p(f"Margen = (precio ÷ 1.16 − costo) ÷ (precio ÷ 1.16). Mínimo de Compras: {_n(r.minimo)} %.", "gris"))
+        minimos = f"{_n(r.minimo)} % al precio de lista"
+        if r.minimo_membresia is not None:
+            minimos += f" y {_n(r.minimo_membresia)} % al de membresía"
+        tipo = f" ({_t(r.lista)})" if r.lista else " (lista A, falta elegir el tipo de producto)"
+        hay.append(_p(f"Margen = (precio ÷ 1.16 − costo) ÷ (precio ÷ 1.16). Mínimo de Compras{tipo}: {minimos}.", "gris"))
 
     # 3. Afuera
     hay += [Spacer(1, 6), _h2("3. ¿A cuánto se vende afuera?"), Spacer(1, 3)]
@@ -663,13 +865,27 @@ def generar(r: Reporte) -> bytes:
         filas += [[_p(_t(a)), _p(_t(b)), _p(_pesos(c), "cn"), _p(_t(d) or "—", "cn")] for a, b, c, d in r.mercado]
         hay.append(_tabla(filas, [UTIL * 0.46, UTIL * 0.22, UTIL * 0.12, UTIL * 0.2]))
         if r.referencia and r.precio:
-            dif = float((r.precio / r.referencia - 1) * 100)
-            lectura = ("igual que el" if abs(dif) < 1 else f"{abs(dif):.0f} % {'arriba' if dif > 0 else 'abajo'} del")
-            hay.append(_p(f"<b>Lectura:</b> nuestro precio de {_pesos(r.precio)} queda {lectura} precio de en medio "
-                          f"del mercado ({_pesos(r.referencia)}).", "p"))
+            hay.append(_p(f"<b>Lectura:</b> nuestro precio de lista de {_pesos(r.precio)} queda {_contra(r.precio, r.referencia)} "
+                          f"precio de en medio del mercado ({_pesos(r.referencia)})"
+                          + (f"; contra lo parecido que ya vendemos, {_dif(r.anaquel)}" if r.anaquel is not None else "")
+                          + ".", "p"))
+            if r.precio_membresia:
+                hay.append(_p(f"Con membresía ({_pesos(r.precio_membresia)}"
+                              + (", con la regla de su lista" if r.membresia_calculada else "")
+                              + f") queda {_contra(r.precio_membresia, r.referencia)} precio de en medio del mercado.", "p"))
+        elif r.precio and r.anaquel is not None:
+            hay.append(_p(f"<b>Lectura:</b> ninguna tienda en línea lo tiene a la venta; nuestro precio de lista de "
+                          f"{_pesos(r.precio)} queda {_dif(r.anaquel)} que lo parecido que ya vendemos.", "p"))
+        if any("(lo vio Compras)" in b for _, b, _, _ in r.mercado):
+            hay.append(_p("Lo que vio Compras se enseña como referencia; no entra en la calificación.", "gris"))
+        if any("precio sugerido de la marca" in b for _, b, _, _ in r.mercado):
+            hay.append(_p("El precio de la página de la propia marca se enseña como precio sugerido; no cuenta como "
+                          "competencia.", "gris"))
     else:
         hay.append(_p("No se encontró a la venta en las tiendas en línea que revisa el radar de precios: se compara contra "
-                      "lo que ya vendemos.", "p"))
+                      "lo que ya vendemos"
+                      + (f" (nuestro precio de lista queda {_dif(r.anaquel)} contra lo parecido)" if r.anaquel is not None else "")
+                      + ".", "p"))
 
     # 4. Parecidos
     titulo = "4. ¿Qué vendemos hoy parecido?" + (" (SMNBI)" if r.ventana else "")
@@ -699,16 +915,17 @@ def generar(r: Reporte) -> bytes:
                                     [_p("• " + x, "p") for x in lineas]))
 
     # Calificación
-    filas = [[_p("Factor (peso)", "cab")] + [_p(f"{a} ({_n(b)})", "cab") for a, b, _, _ in r.factores] + [_p("Total", "cab")],
-             [_p("<b>Puntos</b>")] + [_p(str(c) if c is not None else "—") for _, _, c, _ in r.factores]
-             + [_p(f"<b>{r.puntaje if r.puntaje is not None else '—'}</b>")],
-             [_p("Por qué")] + [_p(_t(d) or "sin datos", "gris") for _, _, _, d in r.factores]
-             + [_p(f"<font color='{color_txt}'><b>{r.color}</b></font>")]]
-
-    ancho = (UTIL - UTIL * 0.12 - UTIL * 0.08) / 6
+    filas = [[_p("Factor", "cab"), _p("Peso", "cabn"), _p("Puntos", "cabn"), _p("Aporta", "cabn"), _p("Por qué", "cab")]]
+    for a, b, c, d in r.factores:
+        aporta = f"{float(c) * float(b) / 100:.1f}" if c is not None else "—"
+        filas.append([_p(f"<b>{_t(a)}</b>"), _p(f"{_n(b)} %", "cn"), _p(str(c) if c is not None else "—", "cn"),
+                      _p(aporta, "cn"), _p(_t(d) or "sin datos", "gris")])
+    filas.append([_p("<b>Total</b>"), _p("100 %", "cn"), _p("", "cn"),
+                  _p(f"<b>{r.puntaje if r.puntaje is not None else '—'}</b>", "cn"),
+                  _p(f"<font color='{color_txt}'><b>{r.color.capitalize()}</b></font>")])
     hay.append(KeepTogether([Spacer(1, 6), _h2(f"Calificación del radar: {r.puntaje if r.puntaje is not None else '—'} de 100, "
                                                f"{r.color}"), Spacer(1, 3),
-                             _tabla(filas, [UTIL * 0.12] + [ancho] * 6 + [UTIL * 0.08])]))
+                             _tabla(filas, [UTIL * x for x in (0.15, 0.09, 0.09, 0.09, 0.58)])]))
 
     # Acciones
     if r.acciones:

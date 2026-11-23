@@ -9,6 +9,9 @@ import { SEMAFORO, TEXTO_COINCIDENCIA, colorDe, dia, pct, type Coincidencia, typ
 import { Insignia } from "@/componentes/ui";
 
 export const precio = (v: string | null) => (v === null ? "—" : pesos(v));
+/** En tablas la moneda va una vez en el encabezado de la columna («Nuestro, MXN»), no en cada celda. */
+export const monto = (v: string | null) =>
+  v === null ? "—" : Number(v).toLocaleString("es-MX", { style: "currency", currency: "MXN", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function Miniatura({ liga, grande }: { liga: string | null; grande?: boolean }) {
   const [fallo, setFallo] = useState(false);

@@ -12,13 +12,14 @@ import { ElegirIntelisis, type Intelisis } from "@/componentes/proveedor-intelis
 import { Boton, Campo, Selector } from "@/componentes/ui";
 import { api, mensajeDe, subirArchivo } from "@/lib/api";
 import { RUTA as RUTA_PROPUESTAS, type Catalogos } from "@/lib/propuestas";
-import { FORMAS, RUTA, type Evaluacion } from "@/lib/productos";
+import { FORMAS, LISTAS_MARGEN, RUTA, type Evaluacion } from "@/lib/productos";
 
 type TipoProveedor = "ninguno" | "actual" | "nuevo";
 const VACIO = {
   nombre: "", marca: "", descripcion: "", departamento: "", ingrediente: "", forma: "", contenido: "",
   precio_visto: "", donde_se_vio: "", costo_estimado: "",
   precio_nuestro: "", codigo_barras: "", activo_g_porcion: "", porciones: "",
+  lista_margen: "", precio_membresia: "",
 };
 
 type Foto = { clave: string; nombre: string; vista: string; id?: number; avance: number; error?: string };
@@ -60,6 +61,8 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
   const numero = (v: string) => (v.trim() ? v.replace(/[$,\s]/g, "") : null);
 
   const faltaProveedor = (tipo === "actual" && !elegido) || (tipo === "nuevo" && nuevo.trim().length < 2);
+  // El contenido lleva su unidad (Diego, 18 nov 2026: «40» sin unidad hizo que el radar tomara los 30 g del nombre)
+  const sinUnidad = !!d.contenido.trim() && !/\d\s*[a-záéíóúñ]/i.test(d.contenido);
 
   const guardar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +75,7 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
           precio_visto: numero(d.precio_visto),
           costo_estimado: numero(d.costo_estimado),
           precio_nuestro: numero(d.precio_nuestro),
+          precio_membresia: numero(d.precio_membresia),
           activo_g_porcion: numero(d.activo_g_porcion),
           porciones: d.porciones.trim() ? Number(d.porciones) : null,
           fotos: fotos.filter((f) => f.id).map((f) => f.id),
@@ -83,7 +87,7 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
       if (otro) {
         // Se queda el proveedor y el departamento; lo demás se limpia para el siguiente.
         setCapturados((c) => [...c, d.nombre.trim()]);
-        setD({ ...VACIO, departamento: d.departamento });
+        setD({ ...VACIO, departamento: d.departamento, lista_margen: d.lista_margen });
         setFotos([]);
         setGuardando("");
         avisar(`«${d.nombre.trim()}» capturado; el radar ya lo está evaluando`);
@@ -171,8 +175,18 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
             cambiar={(v) => setD({ ...d, forma: v })}
             opciones={[{ valor: "", texto: "Sin elegir" }, ...FORMAS.map((x) => ({ valor: x, texto: x }))]}
           />
-          <Campo etiqueta="Contenido" value={d.contenido} onChange={poner("contenido")} maxLength={60} placeholder="Ej. 60 cápsulas, 500 g" />
+          <div>
+            <Campo etiqueta="Contenido (con su unidad)" value={d.contenido} onChange={poner("contenido")} maxLength={60} placeholder="Ej. 60 cápsulas, 500 g, 40 g" error={sinUnidad ? "x" : undefined} />
+            {sinUnidad && <p className="mt-1 text-[13px] text-red-700 dark:text-red-400">Escribe la unidad: «40 g», «500 ml» o «30 cápsulas».</p>}
+          </div>
           <Campo etiqueta="Nuestro precio de venta (con IVA)" value={d.precio_nuestro} onChange={poner("precio_nuestro")} inputMode="decimal" placeholder="$ al que lo venderíamos" />
+          <Campo etiqueta="Precio de membresía (con IVA, si lo sabes)" value={d.precio_membresia} onChange={poner("precio_membresia")} inputMode="decimal" placeholder="Si no, se calcula con su lista" />
+          <Selector
+            etiqueta="Tipo de producto (lista de márgenes) *"
+            valor={d.lista_margen}
+            cambiar={(v) => setD({ ...d, lista_margen: v })}
+            opciones={[{ valor: "", texto: "Elige uno" }, ...LISTAS_MARGEN]}
+          />
           <Campo etiqueta="Costo estimado sin IVA (si lo sabes)" value={d.costo_estimado} onChange={poner("costo_estimado")} inputMode="decimal" placeholder="$" />
           <Campo etiqueta="Precio que viste afuera (con IVA)" value={d.precio_visto} onChange={poner("precio_visto")} inputMode="decimal" placeholder="$ en otra tienda" />
           <Campo etiqueta="¿Dónde lo viste?" value={d.donde_se_vio} onChange={poner("donde_se_vio")} maxLength={300} placeholder="Ej. Chedraui, su página" />
@@ -255,11 +269,11 @@ export function CapturarIdea({ cerrar, alGuardar }: { cerrar: () => void; alGuar
             data-otro="si"
             variante="secundario"
             cargando={guardando === "otro"}
-            disabled={!!guardando || subiendo || faltaProveedor || d.nombre.trim().length < 2}
+            disabled={!!guardando || subiendo || faltaProveedor || sinUnidad || !d.lista_margen || d.nombre.trim().length < 2}
           >
             Guardar y capturar otro
           </Boton>
-          <Boton type="submit" cargando={guardando === "evaluar"} disabled={!!guardando || subiendo || faltaProveedor || d.nombre.trim().length < 2}>
+          <Boton type="submit" cargando={guardando === "evaluar"} disabled={!!guardando || subiendo || faltaProveedor || sinUnidad || !d.lista_margen || d.nombre.trim().length < 2}>
             {subiendo ? "Subiendo fotos…" : alGuardar ? "Guardar" : "Guardar y ver semáforo"}
           </Boton>
         </div>

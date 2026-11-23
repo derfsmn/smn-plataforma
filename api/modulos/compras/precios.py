@@ -290,13 +290,14 @@ def detener(bd: Session, c: PrecioCorrida, quien: str) -> None:
 PRUEBA = "prueba"  # corrida con una lista de SKU de un Excel: no cuenta como la última del radar ni para el programa
 PRODUCTO = "producto"  # búsqueda de un producto nuevo que lanzó el radar de productos: solo cuenta para el gasto
 OPORTUNIDAD = "oportunidad"  # búsqueda de lo que vende la competencia («Buscar oportunidades»): solo cuenta para el gasto
+WEB = "web"  # búsqueda en internet del radar de noticias o de los más vendidos (buscar_web.py): solo cuenta para el gasto
 NOCTURNA = "nocturna"  # lote de la noche (2026-11-17): cuenta como corrida del radar, solo con los productos de su lista
-REGULAR = PrecioCorrida.origen.not_in((PRUEBA, PRODUCTO, OPORTUNIDAD))
+REGULAR = PrecioCorrida.origen.not_in((PRUEBA, PRODUCTO, OPORTUNIDAD, WEB))
 
 
 def en_curso(bd: Session) -> PrecioCorrida | None:
     return bd.scalar(select(PrecioCorrida).where(PrecioCorrida.estado == "en_curso",
-                                                 PrecioCorrida.origen.not_in((PRODUCTO, OPORTUNIDAD)),
+                                                 PrecioCorrida.origen.not_in((PRODUCTO, OPORTUNIDAD, WEB)),
                                                  PrecioCorrida.iniciado_en > ahora() - timedelta(hours=4)))
 
 

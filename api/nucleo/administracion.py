@@ -47,7 +47,9 @@ def _usuario(bd: Session, usuario_id: int) -> Usuario:
 
 @router.get("/resumen", response_model=Resumen)
 def resumen(ctx: Contexto = Depends(usuario_actual), bd: Session = Depends(obtener_bd)) -> Resumen:
-    contar = lambda *condiciones: bd.scalar(select(func.count()).select_from(Usuario).where(*condiciones))  # noqa: E731
+    # Un proveedor no ve cuántos usuarios ni proveedores tiene la plataforma (revisión de seguridad 2026-11-22, B6)
+    contar = lambda *condiciones: (bd.scalar(select(func.count()).select_from(Usuario).where(*condiciones))  # noqa: E731
+                                   if ctx.usuario.tipo == "interno" else 0)
     return Resumen(
         iniciativas=len(modulos_visibles(bd, ctx.permisos)),
         usuarios_activos=contar(Usuario.estatus == "activo"),

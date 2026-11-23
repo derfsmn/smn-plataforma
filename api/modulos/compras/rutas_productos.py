@@ -5,6 +5,8 @@ un producto que vio, con fotos y descripción, para analizarlo sin proveedor. Co
 productos parecidos (eso recalcula) y es quien pone el color final, siempre con motivo. El proveedor no ve nada de esto.
 Reglas del motor en radar_productos.py.
 """
+import logging
+import threading
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -13,12 +15,13 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, true
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer, load_only
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, ip_de, requiere
+from datos.fichas import tamano
 from datos.modelos import Producto, Proveedor
 from modulos.compras import mercado_producto as mp
 from modulos.compras import politicas_producto as pp
@@ -36,6 +39,7 @@ AJUSTAR = "compras.productos.ajustar"
 MAX_FOTOS = 6
 ESTADOS_IDEA = {"nueva": "Nueva", "buscar_proveedor": "Buscar proveedor", "vigilar": "Vigilar", "descartada": "Descartada"}
 Color = Literal["verde", "amarillo", "rojo"]
+log = logging.getLogger("smn.compras.productos")
 
 
 def _bitacora(bd: Session, accion: str, ctx: Contexto, request: Request, entidad: str, entidad_id,
@@ -268,6 +272,9 @@ class EvaluacionDetalle(EvaluacionResumen):
     codigo_barras: str | None = None
     activo_g_porcion: Decimal | None = None
     porciones: int | None = None
+    # 22 nov 2026 (migración 0055): tipo de producto y precio de membresía, de la idea o de la propuesta
+    lista_margen: str | None = None
+    precio_membresia: Decimal | None = None
     historial: list[HistorialSalida]
     mercado: MercadoSalida | None
     investigacion: InvestigacionSalida | None = None
@@ -316,12 +323,15 @@ def _detalle(bd: Session, e: ProductoEvaluacion) -> EvaluacionDetalle:
     productos = {p.producto_id: p for p in bd.scalars(select(Producto).where(
         Producto.producto_id.in_([c.producto_id for c in e.comparables] or [0])))}
     idea = bd.get(ProductoIdea, e.idea_id) if e.idea_id else None
+    prop = bd.get(Propuesta, e.propuesta_id) if e.propuesta_id else None
     fotos = []
     if idea and idea.fotos:
         nombres = dict(bd.execute(select(Archivo.archivo_id, Archivo.nombre_original)
                                   .where(Archivo.archivo_id.in_([f.archivo_id for f in idea.fotos]))).all())
         fotos = [FotoSalida(archivo_id=f.archivo_id, nombre=nombres.get(f.archivo_id, "foto")) for f in idea.fotos]
-    q = select(ProductoEvaluacion).order_by(ProductoEvaluacion.evaluacion_id.desc())
+    q = select(ProductoEvaluacion).options(load_only(ProductoEvaluacion.evaluacion_id, ProductoEvaluacion.creada_en,
+                                                      ProductoEvaluacion.estado, ProductoEvaluacion.puntaje, ProductoEvaluacion.color,
+                                                      ProductoEvaluacion.color_final)).order_by(ProductoEvaluacion.evaluacion_id.desc())
     q = q.where(ProductoEvaluacion.propuesta_id == e.propuesta_id) if e.propuesta_id else q.where(
         ProductoEvaluacion.idea_id == e.idea_id)
     historial = [HistorialSalida(id=h.evaluacion_id, creada_en=h.creada_en, estado=h.estado, puntaje=h.puntaje,
@@ -350,6 +360,8 @@ def _detalle(bd: Session, e: ProductoEvaluacion) -> EvaluacionDetalle:
         donde_se_vio=idea.donde_se_vio if idea else None, costo_estimado=idea.costo_estimado if idea else None,
         precio_nuestro=idea.precio_nuestro if idea else None, codigo_barras=idea.codigo_barras if idea else None,
         activo_g_porcion=idea.activo_g_porcion if idea else None, porciones=idea.porciones if idea else None,
+        lista_margen=(idea or prop).lista_margen if (idea or prop) else None,
+        precio_membresia=(idea or prop).precio_membresia if (idea or prop) else None,
         historial=historial,
     )
 
@@ -377,13 +389,119 @@ def _relanzar(bd: Session, e: ProductoEvaluacion, ctx: Contexto, **kwargs) -> Pr
     return nueva
 
 
+# ---------------------------------------------------------------- pantallas por niveles (plan del 22 nov 2026)
+
+# Lo que va en segundo plano: preparar las pantallas guardadas y recalcular las que tienen los pesos anteriores.
+# Una a la vez, para no saturar el equipo (las evaluaciones usan la IA local).
+_TRABAJO: dict = {"tipo": None, "hechas": 0, "total": 0, "terminado": None, "resultado": None}
+_candado = threading.Lock()
+
+
+class EstadoPantallas(BaseModel):
+    evaluadas: int
+    sin_pantalla: int  # vigentes que todavía no tienen la pantalla guardada con la venta de hoy
+    pesos_anteriores: int  # vigentes calculadas con los pesos de antes de Dirección
+    trabajo: str | None  # «preparar» / «recalcular» mientras corre
+    hechas: int
+    total: int
+    resultado: str | None  # lo que salió de la última vez
+
+
+def _vigentes_listas(bd: Session) -> list[ProductoEvaluacion]:
+    return list(bd.scalars(select(ProductoEvaluacion).where(ProductoEvaluacion.vigente == true(),
+                                                            ProductoEvaluacion.estado == "lista")))
+
+
+@router.get("/pantallas", response_model=EstadoPantallas)
+def estado_pantallas(_: Contexto = Depends(requiere(AJUSTAR)), bd: Session = Depends(obtener_bd)) -> EstadoPantallas:
+    from modulos.compras import realidad_producto as rr
+
+    v = rr.ventana(bd)
+    texto = v.texto() if v else None
+    filas = _vigentes_listas(bd)
+    return EstadoPantallas(evaluadas=len(filas),
+                           sin_pantalla=sum(1 for e in filas if not e.pantalla or e.pantalla_venta != texto),
+                           pesos_anteriores=sum(1 for e in filas if e.pesos_origen != "direccion"),
+                           trabajo=_TRABAJO["tipo"], hechas=_TRABAJO["hechas"], total=_TRABAJO["total"],
+                           resultado=_TRABAJO["resultado"])
+
+
+def _arrancar(tipo: str, total: int, trabajo) -> None:
+    with _candado:
+        if _TRABAJO["tipo"]:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Ya hay un trabajo corriendo; espera a que termine.")
+        _TRABAJO.update(tipo=tipo, hechas=0, total=total, resultado=None)
+
+    def correr():
+        try:
+            with rp._sesion() as bd2:
+                _TRABAJO["resultado"] = trabajo(bd2)
+        except Exception:  # noqa: BLE001
+            log.exception("Falló el trabajo %s de pantallas", tipo)
+            _TRABAJO["resultado"] = "Se detuvo por un error; vuelve a intentarlo."
+        finally:
+            _TRABAJO["tipo"] = None
+
+    threading.Thread(target=correr, daemon=True, name=f"pantallas-{tipo}").start()
+
+
+@router.post("/pantallas/preparar", response_model=EstadoPantallas)
+def preparar_pantallas(request: Request, ctx: Contexto = Depends(requiere(AJUSTAR)),
+                       bd: Session = Depends(obtener_bd)) -> EstadoPantallas:
+    """Arma y guarda la pantalla de las evaluaciones que no la tienen (las de antes) o la tienen con otra venta."""
+    from modulos.compras import pantalla_comite
+
+    def trabajo(bd2: Session) -> str:
+        def avance(n: int, total: int) -> None:
+            _TRABAJO["hechas"], _TRABAJO["total"] = n, total
+
+        r = pantalla_comite.preparar(bd2, avance)
+        texto = f"Listas {r['armadas'] + r['ya_estaban']} de {r['total']} pantallas"
+        return texto + (f"; {r['fallidas']} no se pudieron armar." if r["fallidas"] else ".")
+
+    _arrancar("preparar", len(_vigentes_listas(bd)), trabajo)
+    _bitacora(bd, "preparar_pantallas", ctx, request, "producto_evaluacion", None)
+    bd.commit()
+    return estado_pantallas(ctx, bd)
+
+
+@router.post("/pantallas/recalcular", response_model=EstadoPantallas)
+def recalcular_anteriores(request: Request, ctx: Contexto = Depends(requiere(AJUSTAR)),
+                          bd: Session = Depends(obtener_bd)) -> EstadoPantallas:
+    """Vuelve a evaluar, una por una, las vigentes que se calcularon con los pesos anteriores a los de Dirección."""
+    viejas = [e.evaluacion_id for e in _vigentes_listas(bd) if e.pesos_origen != "direccion"]
+    if not viejas:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Todas las evaluaciones ya usan los pesos de Dirección.")
+    usuario_id = ctx.usuario.usuario_id
+
+    def trabajo(bd2: Session) -> str:
+        bien = 0
+        for n, i in enumerate(viejas, 1):
+            e = bd2.get(ProductoEvaluacion, i)
+            if e and e.vigente and e.estado == "lista":
+                nueva = rp.iniciar(bd2, propuesta_id=e.propuesta_id, idea_id=e.idea_id, usuario_id=usuario_id)
+                bd2.commit()
+                bien += rp.evaluar(bd2, nueva.evaluacion_id).estado == "lista"
+            _TRABAJO["hechas"] = n
+        return f"Recalculadas {bien} de {len(viejas)} evaluaciones con los pesos de Dirección."
+
+    _arrancar("recalcular", len(viejas), trabajo)
+    _bitacora(bd, "recalcular_pesos_anteriores", ctx, request, "producto_evaluacion", None, {"evaluaciones": len(viejas)})
+    bd.commit()
+    return estado_pantallas(ctx, bd)
+
+
 # ---------------------------------------------------------------- evaluaciones
 
 @router.get("/evaluaciones", response_model=list[EvaluacionResumen])
 def evaluaciones(tipo: Literal["propuesta", "idea"] | None = None, color: Color | None = None,
                  _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> list[EvaluacionResumen]:
     """Las evaluaciones vigentes, la más reciente primero. El filtro de color usa el color final si Compras lo cambió."""
-    q = select(ProductoEvaluacion).where(ProductoEvaluacion.vigente == true())
+    # La lista solo lee lo que enseña: sin los JSON pesados (mercado, investigación, pronóstico, políticas, pantalla)
+    q = select(ProductoEvaluacion).options(defer(ProductoEvaluacion.explicacion), defer(ProductoEvaluacion.mercado),
+                                           defer(ProductoEvaluacion.investigacion), defer(ProductoEvaluacion.pronostico),
+                                           defer(ProductoEvaluacion.politicas), defer(ProductoEvaluacion.pantalla)
+                                           ).where(ProductoEvaluacion.vigente == true())
     if tipo == "propuesta":
         q = q.where(ProductoEvaluacion.propuesta_id.is_not(None))
     elif tipo == "idea":
@@ -421,6 +539,19 @@ def _ascii(nombre: str) -> str:
 def evaluacion(evaluacion_id: int, _: Contexto = Depends(requiere(VER)),
                bd: Session = Depends(obtener_bd)) -> EvaluacionDetalle:
     return _detalle(bd, _evaluacion(bd, evaluacion_id))
+
+
+@router.get("/evaluaciones/{evaluacion_id}/pantalla")
+def pantalla(evaluacion_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
+    """La pantalla del comité de este producto (4 niveles), igual que en Presentar."""
+    from modulos.compras import pantalla_comite
+
+    e = _evaluacion(bd, evaluacion_id)
+    if e.estado != "lista":
+        raise HTTPException(status.HTTP_409_CONFLICT, "La pantalla sale cuando el semáforo termina de evaluar.")
+    fotos = ([f"/api/compras/productos/ideas/{e.idea_id}/fotos/{f.archivo_id}?ancho=900"
+              for f in bd.get(ProductoIdea, e.idea_id).fotos] if e.idea_id else [])
+    return pantalla_comite.armar(bd, e, fotos)
 
 
 def _ficha_fila(bd: Session, e: ProductoEvaluacion):
@@ -598,10 +729,21 @@ class IdeaEntrada(BaseModel):
     codigo_barras: str | None = Field(None, max_length=20, pattern=r"^\s*\d{6,14}\s*$")
     activo_g_porcion: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=3)
     porciones: int | None = Field(None, gt=0, le=10000)
+    # 22 nov 2026: tipo de producto (lista de márgenes de Compras) y precio de membresía con IVA (si se sabe)
+    lista_margen: Literal["A", "B", "C", "D", "E", "F"] | None = None
+    precio_membresia: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
     fotos: list[int] = Field(default_factory=list, max_length=MAX_FOTOS)  # archivo_id subidos con /api/archivos
     # Captura corta con proveedor (Diego, 2026-11-04): clave de Intelisis, o el nombre de un proveedor nuevo
     proveedor_codigo: str | None = Field(None, max_length=10)
     proveedor_nuevo: str | None = Field(None, max_length=200)
+
+    @field_validator("contenido")
+    @classmethod
+    def _con_unidad(cls, v: str | None) -> str | None:
+        """Diego, 18 nov 2026: «40» sin unidad hizo que el radar tomara los 30 g del nombre (Hybrix 5)."""
+        if v and v.strip() and not tamano(v):
+            raise ValueError("Escribe el contenido con su unidad: «40 g», «500 ml» o «30 cápsulas».")
+        return v
 
 
 @router.post("/ideas", response_model=EvaluacionDetalle, status_code=status.HTTP_201_CREATED)
@@ -632,6 +774,7 @@ def capturar_idea(datos: IdeaEntrada, request: Request, ctx: Contexto = Depends(
                      donde_se_vio=_texto(datos.donde_se_vio), costo_estimado=datos.costo_estimado, estado="nueva",
                      precio_nuestro=datos.precio_nuestro, codigo_barras=_texto(datos.codigo_barras),
                      activo_g_porcion=datos.activo_g_porcion, porciones=datos.porciones,
+                     lista_margen=datos.lista_margen, precio_membresia=datos.precio_membresia,
                      proveedor_intelisis=codigo, proveedor_nuevo=nuevo,
                      creada_por=ctx.usuario.usuario_id, creada_en=ahora(), actualizada_en=ahora())
     i.fotos = [ProductoIdeaFoto(archivo_id=f) for f in fotos]
@@ -645,6 +788,28 @@ def capturar_idea(datos: IdeaEntrada, request: Request, ctx: Contexto = Depends(
     e = rp.iniciar(bd, idea_id=i.idea_id, usuario_id=ctx.usuario.usuario_id)
     rp.en_hilo(e.evaluacion_id)
     return _detalle(bd, e)
+
+
+class CambioMargenIdea(BaseModel):
+    lista_margen: Literal["A", "B", "C", "D", "E", "F"]
+    precio_membresia: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
+
+
+@router.patch("/ideas/{idea_id}/margen", response_model=SujetoSalida)
+def poner_margen_idea(idea_id: int, datos: CambioMargenIdea, request: Request,
+                      ctx: Contexto = Depends(requiere(EVALUAR)), bd: Session = Depends(obtener_bd)) -> SujetoSalida:
+    """Tipo de producto (lista A–F) y precio de membresía de una idea ya capturada. Cuenta al «Recalcular»."""
+    i = bd.get(ProductoIdea, idea_id)
+    if not i:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa idea.")
+    antes = {"lista": i.lista_margen, "membresia": str(i.precio_membresia) if i.precio_membresia else None}
+    i.lista_margen, i.precio_membresia, i.actualizada_en = datos.lista_margen, datos.precio_membresia, ahora()
+    _bitacora(bd, "poner_margen_idea", ctx, request, "producto_idea", i.idea_id,
+              {"antes": antes, "despues": {"lista": i.lista_margen,
+                                           "membresia": str(i.precio_membresia) if i.precio_membresia else None}})
+    bd.commit()
+    return SujetoSalida(tipo="idea", id=i.idea_id, nombre=i.nombre, marca=i.marca, departamento=i.departamento,
+                        estado=i.estado)
 
 
 class CambioEstadoIdea(BaseModel):

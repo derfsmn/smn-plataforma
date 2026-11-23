@@ -32,6 +32,9 @@ class Propuesta(Base):
     revisiones: Mapped[str | None] = mapped_column(UnicodeText)
     alertas: Mapped[int] = mapped_column(Integer, default=0)
     comentario: Mapped[str | None] = mapped_column(Unicode(1000))
+    # Migración 0055 (22 nov 2026): los pone Compras al revisarla (el proveedor no ve nuestros márgenes)
+    lista_margen: Mapped[str | None] = mapped_column(Unicode(1))
+    precio_membresia: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # con IVA
     enviada_en: Mapped[datetime | None] = mapped_column(DateTime)
     creada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora)
     actualizada_en: Mapped[datetime] = mapped_column(DateTime, default=ahora, onupdate=ahora)

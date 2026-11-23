@@ -6,8 +6,8 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select, true
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, requiere
@@ -17,7 +17,7 @@ from modulos.compras import oportunidades as op
 from modulos.compras import radar_productos as rp
 from modulos.compras.modelos_busquedas import BusquedaProveedor
 from modulos.compras.modelos_comite import ComiteProducto, ComiteReunion
-from modulos.compras.modelos_productos import Oportunidad, ProductoIdea, ProductoIdeaFoto
+from modulos.compras.modelos_productos import Oportunidad, ProductoEvaluacion, ProductoIdea, ProductoIdeaFoto
 from modulos.compras.rutas_productos import EVALUAR, _bitacora, _texto, proveedor_de_idea
 from nucleo.modelos import Usuario, ahora
 
@@ -127,8 +127,8 @@ def _oportunidades(bd: Session, ideas: list[int]) -> dict[int, Oportunidad]:
 
 
 def _breve(bd: Session, b: BusquedaProveedor, idea: ProductoIdea, o: Oportunidad | None, gente: dict[int, Persona],
-           clase=BusquedaBreve, **extra):
-    e = rp.vigente(bd, idea_id=idea.idea_id)
+           clase=BusquedaBreve, evaluaciones: dict[int, ProductoEvaluacion] | None = None, **extra):
+    e = evaluaciones.get(idea.idea_id) if evaluaciones is not None else rp.vigente(bd, idea_id=idea.idea_id)
     contactos = [a for a in b.avances if a.tipo == "contacto"]
     return clase(
         id=b.busqueda_id, estado=b.estado, estado_texto=bq.ESTADOS[b.estado], origen=b.origen, idea_id=idea.idea_id,
@@ -205,12 +205,20 @@ def bandeja(vista: Literal["abiertas", "mias", "cerradas", "todas"] = "abiertas"
         q = q.where(BusquedaProveedor.estado.in_(bq.ABIERTAS), BusquedaProveedor.responsable_id == yo)
     elif vista == "cerradas":
         q = q.where(BusquedaProveedor.estado.not_in(bq.ABIERTAS))
-    filas = list(bd.scalars(q.order_by(BusquedaProveedor.busqueda_id.desc()).limit(300)))
+    filas = list(bd.scalars(q.options(selectinload(BusquedaProveedor.avances)).order_by(BusquedaProveedor.busqueda_id.desc()).limit(300)))
     ideas = {i.idea_id: i for i in bd.scalars(select(ProductoIdea).where(
         ProductoIdea.idea_id.in_({b.idea_id for b in filas} or {0})))}
     ops = _oportunidades(bd, list(ideas))
     gente = _personas(bd, {b.responsable_id for b in filas if b.responsable_id})
-    lista = [_breve(bd, b, ideas[b.idea_id], ops.get(b.idea_id), gente) for b in filas]
+    # Una sola consulta para el color de todas (sin los JSON pesados), en vez de una por renglón
+    evaluaciones: dict[int, ProductoEvaluacion] = {}
+    for e in bd.scalars(select(ProductoEvaluacion).options(load_only(
+            ProductoEvaluacion.evaluacion_id, ProductoEvaluacion.idea_id, ProductoEvaluacion.estado, ProductoEvaluacion.puntaje,
+            ProductoEvaluacion.color, ProductoEvaluacion.color_final, ProductoEvaluacion.confianza))
+            .where(ProductoEvaluacion.vigente == true(), ProductoEvaluacion.idea_id.in_(list(ideas) or [0]))
+            .order_by(ProductoEvaluacion.evaluacion_id)):
+        evaluaciones[e.idea_id] = e  # la más nueva gana
+    lista = [_breve(bd, b, ideas[b.idea_id], ops.get(b.idea_id), gente, evaluaciones=evaluaciones) for b in filas]
     if vista in ("abiertas", "mias"):  # primero las que nadie ha tomado, luego por color y puntaje
         orden = {"verde": 0, "amarillo": 1, "rojo": 2}
         lista.sort(key=lambda x: (x.estado != "sin_tomar", orden.get(x.color or "", 3), -(x.puntaje or 0)))

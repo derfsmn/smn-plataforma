@@ -2,6 +2,7 @@
 // Búsqueda de proveedores: lo que salió bien en el semáforo y no tiene quién nos lo surta. Quien busca proveedores toma
 // cada una, registra a quién contactó y la cierra con o sin proveedor.
 
+import { Imagen } from "@/componentes/imagen";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { ChevronRight, PackageSearch, Phone, UserRound } from "lucide-react";
@@ -11,7 +12,7 @@ import { InsigniaColor } from "@/componentes/semaforo-producto";
 import { useSesion } from "@/componentes/sesion";
 import { Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe } from "@/lib/api";
-import { ESTILO_ESTADO, PUERTA, RUTA, type Bandeja, type Vista } from "@/lib/busquedas";
+import { PUERTA, RUTA, type Bandeja, type Vista } from "@/lib/busquedas";
 
 const VISTAS: { valor: Vista; texto: string; conteo: keyof Bandeja["conteos"] | null }[] = [
   { valor: "abiertas", texto: "Abiertas", conteo: null },
@@ -20,6 +21,16 @@ const VISTAS: { valor: Vista; texto: string; conteo: keyof Bandeja["conteos"] | 
 ];
 
 const fecha = (f: string) => fechaLocal(f, { dateStyle: "medium" });
+
+/** Agrupa por estado en el orden en que llegan (la API ya las ordena). */
+function grupos(lista: Bandeja["busquedas"]) {
+  const m = new Map<string, [string, string, Bandeja["busquedas"]]>();
+  for (const b of lista) {
+    if (!m.has(b.estado)) m.set(b.estado, [b.estado, b.estado_texto, []]);
+    m.get(b.estado)![2].push(b);
+  }
+  return [...m.values()];
+}
 
 export default function Busquedas() {
   const { puede } = useSesion();
@@ -93,8 +104,15 @@ export default function Busquedas() {
           ) : vista === "mias" ? "No tienes búsquedas abiertas." : "Todavía no se ha cerrado ninguna."}
         </div>
       ) : (
+        // Agrupadas por estado: así «Sin responsable» y «0 proveedores contactados» no se repiten en cada renglón
+        <div className="space-y-6">
+          {grupos(datos.busquedas).map(([estado, texto, lista]) => (
+        <section key={estado}>
+          <h2 className="mb-2 text-[13px] font-semibold tracking-wide text-smn-gris-500 uppercase">
+            {texto} <span className="tabular-nums">({lista.length})</span>
+          </h2>
         <ul className="space-y-2">
-          {datos.busquedas.map((b, i) => (
+          {lista.map((b, i) => (
             <motion.li key={b.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}>
               <Link
                 href={`/compras/propuestas/busquedas/${b.id}`}
@@ -103,7 +121,7 @@ export default function Busquedas() {
                 <div className="hidden h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-smn-gris-50 sm:block">
                   {b.imagen ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={b.imagen} alt="" className="h-full w-full object-contain" loading="lazy" referrerPolicy="no-referrer" />
+                    <Imagen src={b.imagen} alt="" className="h-full w-full object-contain" loading="lazy" referrerPolicy="no-referrer" />
                   ) : (
                     <PackageSearch className="m-4 h-6 w-6 text-smn-gris-300" aria-hidden />
                   )}
@@ -111,7 +129,6 @@ export default function Busquedas() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{b.nombre}</p>
-                    <Insignia className={ESTILO_ESTADO[b.estado]}>{b.estado_texto}</Insignia>
                     {b.puertas.map((p) => (
                       <Insignia key={p} className="bg-smn-gris-100 text-smn-gris-700">{PUERTA[p] ?? p}</Insignia>
                     ))}
@@ -121,15 +138,21 @@ export default function Busquedas() {
                     {" · "}
                     {b.origen === "automatica" ? "abierta sola" : "pedida por Compras"} el {fecha(b.creada_en)}
                   </p>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-smn-gris-700">
-                    <span className="inline-flex items-center gap-1">
-                      <UserRound className="h-3.5 w-3.5" aria-hidden /> {b.responsable?.nombre ?? "Nadie la ha tomado"}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Phone className="h-3.5 w-3.5" aria-hidden /> {b.contactos} {b.contactos === 1 ? "proveedor contactado" : "proveedores contactados"}
-                    </span>
-                    {b.proveedor && <span className="font-medium text-tinta">Proveedor: {b.proveedor}</span>}
-                  </p>
+                  {(b.responsable || b.contactos > 0 || b.proveedor) && (
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-smn-gris-700">
+                      {b.responsable && (
+                        <span className="inline-flex items-center gap-1">
+                          <UserRound className="h-3.5 w-3.5" aria-hidden /> {b.responsable.nombre}
+                        </span>
+                      )}
+                      {b.contactos > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="h-3.5 w-3.5" aria-hidden /> {b.contactos} {b.contactos === 1 ? "proveedor contactado" : "proveedores contactados"}
+                        </span>
+                      )}
+                      {b.proveedor && <span className="font-medium text-tinta">Proveedor: {b.proveedor}</span>}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <InsigniaColor color={b.color} />
@@ -140,6 +163,9 @@ export default function Busquedas() {
             </motion.li>
           ))}
         </ul>
+        </section>
+          ))}
+        </div>
       )}
     </>
   );

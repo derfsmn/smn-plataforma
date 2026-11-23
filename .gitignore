@@ -46,3 +46,9 @@ docs/datos/*.zip
 # copia vieja que qued? en una ruta equivocada (29 oct); el c?digo bueno est? en api/ y web/
 plataforma/
 api_src.tgz
+
+# Archivos de trabajo en la raíz (datos o bitácoras locales; no van a GitHub)
+/logs_api.txt
+/validar_demanda.xlsx
+/api_src.tgz
+/salida/
