@@ -23,7 +23,7 @@ const CUADROS: { clave: Cuadro; titulo: string; texto: string; clase: string; pu
   { clave: "rojo", titulo: "Más caros que el mercado", texto: "Conviene bajar o negociar", clase: "border-red-600/30 bg-red-600/[0.06]", punto: "bg-red-600" },
   { clave: "amarillo", titulo: "Un poco más caros", texto: "Vigilar", clase: "border-yellow-500/40 bg-yellow-500/[0.08]", punto: "bg-yellow-500" },
   { clave: "verde", titulo: "Igual o más baratos", texto: "Bien", clase: "border-green-600/30 bg-green-600/[0.06]", punto: "bg-green-600" },
-  { clave: "sin_referencia", titulo: "Sin referencia", texto: "Todavía sin precios validados", clase: "border-smn-gris-100 bg-smn-gris-100/40", punto: "bg-smn-gris-300" },
+  { clave: "sin_referencia", titulo: "Sin referencia", texto: "Sin precios validados o con uno solo", clase: "border-smn-gris-100 bg-smn-gris-100/40", punto: "bg-smn-gris-300" },
 ];
 const TITULO_GRUPO: Record<GrupoTablero, string> = {
   accion: "Lo que pide acción",
@@ -115,7 +115,9 @@ function Resumen() {
               </button>
             ))}
           </div>
-          <span className="text-[13px] text-smn-gris-500">contra el mercado</span>
+          <span className="text-[13px] text-smn-gris-500">
+            contra el mercado · {n(Object.values(t.cuadros).reduce((x, y) => x + y, 0))} productos que ya tienen resultado de búsqueda
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {CUADROS.map((c) => {
@@ -326,7 +328,10 @@ function BandaAvance({ t }: { t: Tablero }) {
               </p>
             </div>
           </div>
-          <span className="text-2xl font-semibold tabular-nums">{hecho} %</span>
+          <div className="text-right">
+            <span className="text-2xl font-semibold tabular-nums">{hecho} %</span>
+            <p className="text-[12px] text-smn-gris-500 tabular-nums">{n(a.validados)} de {n(a.total)} productos ya validados</p>
+          </div>
         </div>
         <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-smn-gris-100" role="img" aria-label={`${n(a.validados)} de ${n(a.total)} con precios validados`}>
           <span className="bg-green-600" style={{ width: `${a.total ? (a.validados * 100) / a.total : 0}%` }} />
@@ -421,7 +426,7 @@ function Accion({ f }: { f: FilaTablero }) {
   return (
     <div>
       <b className={`font-semibold ${CLASE_ACCION[f.accion] ?? ""}`}>{f.accion_texto}</b>
-      {f.detalle && <p title={f.detalle} className="line-clamp-2 text-[13px] leading-snug text-smn-gris-700">{f.detalle}</p>}
+      {f.detalle && <p className="text-[13px] leading-snug text-smn-gris-700">{f.detalle}</p>}
     </div>
   );
 }

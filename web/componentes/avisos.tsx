@@ -46,15 +46,37 @@ export const useAvisos = () => useContext(ContextoAvisos);
 
 // Franja visible mientras la plataforma corre en el entorno de desarrollo
 let entornoEnCache: string | null = null;
+let versionEnCache: string | null = null;
+let saludPendiente: Promise<void> | null = null;
+
+/** Una sola consulta a /api/salud para la franja y la versión del menú. */
+function leerSalud(): Promise<void> {
+  saludPendiente ??= fetch(`${urlApi()}/api/salud`)
+    .then((r) => r.json())
+    .then((d) => {
+      entornoEnCache = d.entorno ?? null;
+      versionEnCache = d.version ?? null;
+    })
+    .catch(() => {});
+  return saludPendiente;
+}
+
+/** Versión publicada (v0.5.2) junto a «Transformación Digital» en el menú (Diego, 2026-11-23). */
+export function VersionPlataforma({ className = "" }: { className?: string }) {
+  const [version, setVersion] = useState(versionEnCache);
+  useEffect(() => {
+    if (versionEnCache) return;
+    leerSalud().then(() => setVersion(versionEnCache));
+  }, []);
+  if (!version) return null;
+  return <span className={className} title="Versión publicada de la plataforma">{version === "local" ? "local" : version}</span>;
+}
 
 export function FranjaEntorno() {
   const [entorno, setEntorno] = useState(entornoEnCache);
   useEffect(() => {
     if (entornoEnCache) return;
-    fetch(`${urlApi()}/api/salud`)
-      .then((r) => r.json())
-      .then((d) => setEntorno((entornoEnCache = d.entorno)))
-      .catch(() => {});
+    leerSalud().then(() => setEntorno(entornoEnCache));
   }, []);
   if (entorno !== "desarrollo") return null;
   return (

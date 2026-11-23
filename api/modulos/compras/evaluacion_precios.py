@@ -53,6 +53,11 @@ def _peso(v: Decimal) -> str:
     return f"${v:,.2f}"
 
 
+def _num(v: Decimal) -> str:
+    """31.0000 → «31»; 30.50 → «30.5»."""
+    return format(Decimal(v).normalize(), "f")
+
+
 def _redondear(v: Decimal) -> Decimal:
     """Precio de anaquel: a peso cerrado hacia abajo con ,.90 (149.90)."""
     entero = v.to_integral_value(rounding=ROUND_DOWN)
@@ -134,6 +139,7 @@ class Evaluador:
 
     def _evaluar(self, p: Producto, f: PrecioCorridaProducto | None, limite: Decimal | None = None) -> Evaluacion:
         minimo = self.minimo(p.departamento)
+        pct_min = _num(minimo)
         importe, piezas = self.ventas.get(p.sku, (Decimal(0), Decimal(0)))
         costo = self.costos.get(p.sku)
         factor = (Decimal(p.precio_lista_con_impuestos) / Decimal(p.precio_lista)
@@ -168,11 +174,11 @@ class Evaluador:
             if piso <= meta:
                 margen_meta = ((meta / factor - costo) / (meta / factor) * CIEN).quantize(Decimal("0.1"))
                 return Evaluacion(**evaluacion, accion="bajar", accion_texto=f"Bajar a {_peso(meta)}",
-                                  detalle=f"Queda en la mediana; el margen baja a {margen_meta} % (mínimo {minimo} %)",
+                                  detalle=f"Queda en la mediana; el margen baja a {margen_meta} % (mínimo {pct_min} %)",
                                   precio_sugerido=meta, costo_meta=None)
             if piso < base:
-                return Evaluacion(**evaluacion, accion="bajar_y_negociar", accion_texto=f"Bajar a {_peso(piso)}",
-                                  detalle=f"Más abajo pierde el margen de {minimo} %. Para quedar en la mediana, "
+                return Evaluacion(**evaluacion, accion="bajar_y_negociar", accion_texto=f"Bajar a {_peso(piso)} y negociar costo",
+                                  detalle=f"Más abajo pierde el margen de {pct_min} %. Para quedar en la mediana, "
                                           f"negociar costo a {_peso(costo_meta)} (hoy {_peso(costo)})",
                                   precio_sugerido=piso, costo_meta=costo_meta)
             return Evaluacion(**evaluacion, accion="negociar", accion_texto=f"Negociar costo a {_peso(costo_meta)}",

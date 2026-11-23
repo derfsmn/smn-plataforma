@@ -9,7 +9,7 @@ import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Home, LayoutGrid, Shield, UserRound, LogOut, Users, KeyRound, Boxes, Activity, ChevronDown, ChevronRight, CornerDownRight, ScrollText, Sparkles, Settings, Network, Package, DatabaseZap, Truck, MapPin, Warehouse, PanelLeftClose, PanelLeftOpen, Search, UsersRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { IconoModulo } from "./icono-modulo";
-import { FranjaEntorno, ProveedorAvisos } from "./avisos";
+import { FranjaEntorno, ProveedorAvisos, VersionPlataforma } from "./avisos";
 import { SelectorTema } from "./selector-tema";
 import { Campana } from "./campana";
 import { ProveedorSesion, useSesion } from "./sesion";
@@ -231,7 +231,10 @@ function Marco({ children }: { children: React.ReactNode }) {
               <Image src="/marca/logo-1linea-naranja-negro.png" alt="Súper Naturista" width={1200} height={171} className="h-auto w-40 dark:hidden marca:hidden" priority />
               <Image src="/marca/logo-1linea-naranja-blanco.png" alt="Súper Naturista" width={1200} height={171} className="hidden h-auto w-40 dark:block marca:hidden" priority />
               <LogoDeUnColor src="/marca/logo-1linea-naranja-blanco.png" className="hidden aspect-[1200/171] w-40 marca:block" />
-              <span className="mt-1.5 block text-[13px] text-[var(--menu-tenue)]">Transformación Digital</span>
+              <span className="mt-1.5 block text-[13px] text-[var(--menu-tenue)]">
+                Transformación Digital
+                <VersionPlataforma className="ml-1.5 rounded bg-[var(--menu-linea)] px-1.5 py-0.5 text-[12px] tabular-nums" />
+              </span>
             </span>
           )}
         </Link>

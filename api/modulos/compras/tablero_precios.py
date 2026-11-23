@@ -136,8 +136,10 @@ def renglones(bd: Session, productos: list[Producto], hasta: date | None = None)
         base = precios.nuestro(f)[0] if f else None
         cuentan = [o for o, v in obs.get(p.producto_id, []) if not no_cuenta(o, v, p.descripcion, base)]
         quedan, apartados, aviso = mercado_confiable(cuentan)
-        firme = f is not None and f.estado == "con_precios" and not aviso
-        mediana = _mediana([o.precio_comparable for o in quedan]) if firme and quedan else (f.mediana if firme else None)
+        # Solo se compara contra los precios que hoy cuentan (los mismos que se ven en la pantalla). Si ninguno cuenta
+        # (Compras marcó «Está mal», la noche los dejó dudosos), no hay referencia aunque la corrida guardara una mediana.
+        firme = f is not None and f.estado == "con_precios" and not aviso and bool(quedan)
+        mediana = _mediana([o.precio_comparable for o in quedan]) if firme else None
         if f is not None and f.estado == "con_precios" and not obs.get(p.producto_id):
             mediana, firme = f.mediana, True  # renglón sin observaciones guardadas (corridas viejas): se queda lo de la corrida
             aviso = None
