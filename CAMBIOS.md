@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.1 · 2026-11-23
+
+Radar de precios más rápido; solo compara con 2 precios o más
+
+**Cambios guardados:**
+- Radar de precios m├ís r├ípido y con m├¡nimo 2 precios; Excel sin caracteres raros
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5 · 2026-11-22
 
 Buscador de productos, Innovación Vidanat, radar por niveles, lista de margen y membresía, búsquedas web y arreglos de seguridad (llave de cifrado propia, límites de intentos, encabezados, contenedores sin root)
