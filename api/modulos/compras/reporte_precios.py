@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +26,15 @@ LIGA = Font(color="0563C1", underline="single")
 NEGRITA = Font(bold=True)
 
 
+def _limpio(v):
+    """Texto sin los caracteres de control que Excel no acepta (vienen en algunas descripciones del catálogo)."""
+    return ILLEGAL_CHARACTERS_RE.sub("", v) if isinstance(v, str) else v
+
+
+def _agregar(h, fila: list) -> None:
+    h.append([_limpio(v) for v in fila])
+
+
 def _f(v):
     return float(v) if isinstance(v, Decimal) else v
 
@@ -35,7 +45,7 @@ def _pct(v: Decimal | None) -> float | None:
 
 def _hoja(libro: Workbook, titulo: str, encabezados: list[str], anchos: list[int]):
     h = libro.create_sheet(titulo)
-    h.append(encabezados)
+    _agregar(h, encabezados)
     for c in h[1]:
         c.font = Font(bold=True, color="222221")
         c.fill = PatternFill("solid", fgColor=NARANJA)
@@ -81,7 +91,7 @@ def resumen(libro: Workbook, rs: list[Renglon]) -> None:
         h.freeze_panes = "B2"
         for nombre, g in sorted(grupos.items(), key=lambda kv: -sum(r.evaluacion.venta_importe for r in kv[1])):
             con = [r for r in g if r.evaluacion.indice is not None]
-            h.append([nombre, len(g), len(con), sum(r.color == "rojo" for r in g), sum(r.color == "amarillo" for r in g),
+            _agregar(h, [nombre, len(g), len(con), sum(r.color == "rojo" for r in g), sum(r.color == "amarillo" for r in g),
                       sum(r.color == "verde" for r in g), len(g) - len(con),
                       (sum(float(r.evaluacion.indice) for r in con) / len(con) / 100) if con else None,
                       sum(r.evaluacion.accion in ("bajar", "negociar", "bajar_y_negociar") for r in g),
@@ -107,14 +117,14 @@ def tiendas(libro: Workbook, rs: list[Renglon]) -> None:
     for r in sorted(rs, key=lambda r: -r.evaluacion.venta_importe):
         p = r.producto
         fila = [p.sku, p.descripcion, p.marca, p.subcategoria, r.evaluacion.clase, _f(r.base),
-                _f(r.fila.mediana) if r.color else None, _pct(r.dif), COLOR_TEXTO[r.color],
+                _f(r.mediana) if r.color else None, _pct(r.dif), COLOR_TEXTO[r.color],
                 _f(r.membresia), _pct(r.dif_membresia), COLOR_TEXTO[r.color_membresia]]
         for t in claves:
             precio, liga = r.tiendas.get(t, (None, None))
             fila += [_f(precio), "Ver" if liga else None]
         otra = r.otras[0] if r.otras else (None, None, None)
         fila += [otra[0], _f(otra[1]), "Ver" if otra[2] else None, len(r.tiendas) + len(r.otras)]
-        h.append(fila)
+        _agregar(h, fila)
         n = h.max_row
         _pintar(h.cell(n, 9), r.color)
         _pintar(h.cell(n, 12), r.color_membresia)
@@ -147,8 +157,8 @@ def accion(libro: Workbook, rs: list[Renglon]) -> None:
         e = r.evaluacion
         tendencia = ("Estable" if e.tendencia == "estable" else
                      f"{'Sube' if e.tendencia == 'sube' else 'Baja'} {e.tendencia_pct:+}%" if e.tendencia else "")
-        h.append([r.producto.sku, r.producto.descripcion, r.producto.marca, e.clase, e.accion_texto, e.detalle,
-                  _f(e.precio_sugerido), _f(r.base), _f(r.fila.mediana) if r.color else None, _pct(r.dif), _pct(e.margen),
+        _agregar(h, [r.producto.sku, r.producto.descripcion, r.producto.marca, e.clase, e.accion_texto, e.detalle,
+                  _f(e.precio_sugerido), _f(r.base), _f(r.mediana) if r.color else None, _pct(r.dif), _pct(e.margen),
                   _pct(e.margen_minimo), _f(e.costo), _f(e.costo_meta), _f(e.venta_importe), _f(e.venta_piezas), tendencia,
                   _f(r.membresia), _pct(r.dif_membresia)])
         n = h.max_row
@@ -181,7 +191,7 @@ def historial(libro: Workbook, bd: Session, rs: list[Renglon], hasta: date) -> N
         serie = [datos[r.producto.producto_id].get(s, (None, None))[0] for s in semanas]
         hay = [v for v in serie if v]
         cambio = ((hay[-1] - hay[0]) / hay[0]) if len(hay) >= 2 and hay[0] else None
-        h.append([r.producto.sku, r.producto.descripcion, r.producto.marca] + [_f(v) for v in serie] + [_f(r.base), _f(cambio)])
+        _agregar(h, [r.producto.sku, r.producto.descripcion, r.producto.marca] + [_f(v) for v in serie] + [_f(r.base), _f(cambio)])
     _formatos(h, {**{4 + i: PESOS for i in range(9)}, 13: PCT})
     _cerrar(h)
 
@@ -201,7 +211,7 @@ def armar(bd: Session, rs: list[Renglon], hojas: list[str], hasta: date, titulo:
               ("Se podrían subir", sum(r.evaluacion.accion == "subir" for r in rs))]
     for i, (k, v) in enumerate(cuenta, 5):
         portada.cell(i, 1, k).font = NEGRITA if i == 5 else Font()
-        portada.cell(i, 2, v)
+        portada.cell(i, 2, _limpio(v))
         _pintar(portada.cell(i, 1), {6: "rojo", 7: "amarillo", 8: "verde"}.get(i))
     portada.column_dimensions["A"].width, portada.column_dimensions["B"].width = 36, 12
     if "resumen" in hojas:

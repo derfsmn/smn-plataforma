@@ -6,7 +6,8 @@ name: smn
 
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    # Versiones fijas (las que corrían el 2026-11-23): una publicación no cambia de versión sin que lo decidas
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     restart: unless-stopped
     environment:
       ACCEPT_EULA: "Y"
@@ -20,7 +21,7 @@ services:
       - /datos/respaldos:/respaldos
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.14@sha256:ebaef4f4c5d93660e1f25f8ad085a112f51ccfb0e8458073e71793959dba91c9
     restart: unless-stopped
     gpus: all
     environment:
@@ -70,7 +71,7 @@ services:
 
   # Entrada única: https://172.31.104.4  (la web en /, la API en /api/...)
   caddy:
-    image: caddy:2
+    image: caddy:2@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf
     restart: unless-stopped
     ports:
       - "80:80"

@@ -66,6 +66,8 @@ def limpio(base_de_pruebas, monkeypatch):
             bd.execute(delete(t))
         bd.execute(delete(Notificacion).where(Notificacion.titulo.like("Radar de precios%")))
         bd.commit()
+    from modulos.compras import tablero_precios
+    tablero_precios.olvidar()  # lo calculado de otra prueba no sirve aquí
     cfg = configuracion()
     for clave, valor in (("dataforseo_usuario", "usuario-ej"), ("dataforseo_contrasena", "contrasena-ej"),
                          ("precios_tope_mensual_usd", 5.0), ("precios_tope_corrida_usd", 2.0), ("precios_umbral", 85),

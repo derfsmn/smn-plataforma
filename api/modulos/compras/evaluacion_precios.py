@@ -59,6 +59,9 @@ def _redondear(v: Decimal) -> Decimal:
     return entero - Decimal("0.10") if v - entero < Decimal("0.90") else entero + Decimal("0.90")
 
 
+_VENTAS: dict = {"llave": None, "datos": {}, "hora": 0.0}  # venta de todo el catálogo, 1 hora o hasta otra semana (6 s en producción)
+
+
 def ventas(bd: Session, skus: list[str]) -> dict[str, tuple[Decimal, Decimal]]:
     """{sku: (importe, piezas netas)} en las 26 semanas que terminan en la última semana cargada."""
     v = rp.ventana(bd)
@@ -67,9 +70,16 @@ def ventas(bd: Session, skus: list[str]) -> dict[str, tuple[Decimal, Decimal]]:
     from sqlalchemy import func
     q = (select(VentaSemanal.sku, func.sum(VentaSemanal.importe), func.sum(rp.NETAS)).where(*v.filtro())
          .group_by(VentaSemanal.sku))
-    if len(skus) < 1500:
+    if len(skus) < 300:  # pocos: directo
         q = q.where(VentaSemanal.sku.in_(skus))
-    return {s: (Decimal(i or 0), Decimal(p or 0)) for s, i, p in bd.execute(q)}
+        return {s: (Decimal(i or 0), Decimal(p or 0)) for s, i, p in bd.execute(q)}
+    import time
+    llave = (v.desde, v.fin, tuple(sorted(v.mayoreo)))
+    if _VENTAS["llave"] != llave or time.monotonic() - _VENTAS["hora"] > 3600:
+        _VENTAS.update(llave=llave, datos={s: (Decimal(i or 0), Decimal(p or 0)) for s, i, p in bd.execute(q)},
+                       hora=time.monotonic())
+    todas = _VENTAS["datos"]
+    return {s: todas[s] for s in skus if s in todas}
 
 
 def costos(bd: Session, skus: list[str]) -> dict[str, Decimal]:

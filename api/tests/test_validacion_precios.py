@@ -1,6 +1,8 @@
 """Validación automática, «Está mal», lotes de noche, evaluación y reporte a Excel del Radar de precios (2026-11-17).
 DataForSEO y la IA se simulan. Productos, vendedores y precios son ficticios (SKU con prefijo EJP)."""
 import io
+import json
+import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from core.bd import motor
 from core.config import configuracion
 from datos.modelos import CostoArticulo, Producto
+from modulos.compras import tablero_precios as tb
 from modulos.compras import coincidencia as co
 from modulos.compras import evaluacion_precios as ev
 from modulos.compras import nocturno_precios as noche
@@ -77,6 +80,14 @@ def test_validacion_en_la_corrida_esta_mal_y_salto(limpio, monkeypatch, admin):
         assert vals["Liverpool"].resultado == val.VALIDADO and vals["Farmacia EJ"].resultado == val.NO_CUENTA
         v = bd.scalar(select(PrecioVigilado).where(PrecioVigilado.producto_id == a))
         assert v.validacion == "validado" and v.proxima_revision > ahora() + timedelta(days=5)
+    # La pantalla se calcula una vez y se reutiliza mientras nada cambie
+    def mercado():
+        return next(x for x in admin.get("/api/compras/precios/tablero?grupo=todos").json()["filas"] if x["producto_id"] == a)["mercado"]
+    assert mercado() == "615.00"
+    original = tb.renglones
+    monkeypatch.setattr(tb, "renglones", lambda *x, **k: (_ for _ in ()).throw(AssertionError("recalculó sin cambios")))
+    assert mercado() == "615.00"
+    monkeypatch.setattr(tb, "renglones", original)
     # Compras: «Está mal» en Amazon (otro producto): deja de contar al momento
     detalle = admin.get(f"/api/compras/precios/productos/{a}/validacion").json()
     amazon = next(x for x in detalle["precios"] if x["vendedor"] == "Amazon")
@@ -89,9 +100,13 @@ def test_validacion_en_la_corrida_esta_mal_y_salto(limpio, monkeypatch, admin):
     d = r.json()
     assert next(x for x in d["precios"] if x["vendedor"] == "Amazon")["marcado_mal"] and d["marcas"][0]["motivo_texto"] == "Es otro producto"
     assert fila(c.corrida_id, a).mediana == Decimal("600.00")
+    # la marca cambió la huella: se recalculó solo. Queda un solo precio: sin color ni acción (referencia débil)
+    assert mercado() is None
+    renglon = next(x for x in admin.get("/api/compras/precios/tablero?grupo=todos").json()["filas"] if x["producto_id"] == a)
+    assert renglon["accion_texto"] == "Referencia débil" and "Solo un precio" in renglon["detalle"]
     # La siguiente noche Amazon sigue sin contar y Liverpool brinca 40 %: esa noche no cuenta
     limpio.vendedores["G-A"] = [vendedor("Liverpool", 840, "liverpool.com.mx"), vendedor("Amazon", 630, "amazon.com.mx"),
-                                vendedor("Walmart", 605, "walmart.com.mx")]
+                                vendedor("Walmart", 605, "walmart.com.mx"), vendedor("Soriana", 615, "soriana.com")]
     c2 = correr()
     with Session(motor()) as bd:
         vals = {o.vendedor: v for o, v in bd.execute(
@@ -99,13 +114,41 @@ def test_validacion_en_la_corrida_esta_mal_y_salto(limpio, monkeypatch, admin):
             .where(PrecioObservacion.corrida_id == c2.corrida_id))}
     assert vals["Amazon"].resultado == val.NO_CUENTA and vals["Amazon"].motivo.startswith("Compras lo marcó")
     assert vals["Liverpool"].resultado == val.DUDOSO and "brincó" in vals["Liverpool"].motivo
-    assert fila(c2.corrida_id, a).mediana == Decimal("605.00")
+    assert fila(c2.corrida_id, a).mediana == Decimal("610.00")
+    # Un lote de la noche no hace esperar: se ve lo anterior y se recalcula aparte
+    assert mercado() is None
+    for _ in range(100):
+        if not tb._CALCULADO["aparte"]:
+            break
+        time.sleep(0.1)
+    assert mercado() == "610.00"
     # A la tercera sigue en 840: ya no brinca contra la anterior y cuenta
     c3 = correr()
-    assert fila(c3.corrida_id, a).vendedores == 2
+    assert fila(c3.corrida_id, a).vendedores == 3
     # Deshacer la marca es de quien administra
     marca = d["marcas"][0]["id"]
     assert admin.delete(f"/api/compras/precios/productos/{a}/esta-mal/{marca}").json()["marcas"][0]["activo"] is False
+
+
+def test_mercado_confiable_un_precio_y_precios_que_se_salen():
+    """Diagnóstico de producción (23 nov): la mayoría de los errores grandes venían de un solo precio o de uno que se salía."""
+    from types import SimpleNamespace as N
+
+    def o(vendedor, precio, dominio=""):
+        return N(vendedor=vendedor, dominio=dominio, precio_comparable=Decimal(precio))
+    # Un solo precio: se muestra pero no se compara
+    quedan, apartados, aviso = tb.mercado_confiable([o("Mercado Libre", 399, "mercadolibre.com.mx")])
+    assert len(quedan) == 1 and "Solo un precio" in aviso and "mercado en línea" in aviso
+    # Dos muy distintos: falta un tercero
+    assert "muy distintos" in tb.mercado_confiable([o("Chedraui", 79), o("Walmart", 160)])[2]
+    # Dos solo de mercados en línea: falta una tienda
+    assert "mercados en línea" in tb.mercado_confiable([o("Amazon", 100, "amazon.com.mx"), o("SHEIN", 105)])[2]
+    # Tres o más: el que se sale mucho de los demás se aparta y no cuenta
+    quedan, apartados, aviso = tb.mercado_confiable([o("Walmart", 131), o("Soriana", 140), o("Chedraui", 150), o("Amazon", 399)])
+    assert aviso is None and [x.vendedor for x, _ in apartados] == ["Amazon"] and len(quedan) == 3
+    assert tb._mediana([x.precio_comparable for x in quedan]) == Decimal("140.00")
+    # Todos distintos entre sí: no hay mercado claro
+    assert "no coinciden" in tb.mercado_confiable([o("A", 50), o("B", 120), o("C", 300)])[2]
 
 
 def test_lote_de_noche_por_clase_y_venta(limpio, monkeypatch):
@@ -172,9 +215,10 @@ def test_evaluacion_accion_sugerida():
     assert co  # el módulo de coincidencia sigue importable para las reglas
 
 
-def test_tablero_y_reporte_a_excel(limpio, admin):
+def test_tablero_y_reporte_a_excel(limpio, admin, tmp_path):
     a = producto("COLAGENO EJ 300 G", lista="389.00", mem="300.00")
     b = producto("CREATINA EJ 450 G", lista="599.00", mem="550.00", marca="BIRDMAN EJ")
+    producto("GLUTAMINA EJ\x0b 300 G", lista="450.00", marca="BIRDMAN EJ")  # carácter de control del catálogo, sin revisar
     vigilar(a, b)
     with Session(motor()) as bd:
         for pid in (a, b):
@@ -200,7 +244,7 @@ def test_tablero_y_reporte_a_excel(limpio, admin):
     opciones = admin.get("/api/compras/precios/reporte/opciones?modo=marca&q=BIRDMAN EJ").json()
     assert opciones and opciones[0]["clave"] == "BIRDMAN EJ"
     sel = {"marcas": ["BIRDMAN EJ"], "categorias": ["PROTEINAS EJ"], "producto_ids": [a], "hojas": ["resumen", "tiendas", "accion", "historial"]}
-    assert admin.post("/api/compras/precios/reporte/contar", json=sel).json()["productos"] == 2
+    assert admin.post("/api/compras/precios/reporte/contar", json=sel).json()["productos"] == 3
     r = admin.post("/api/compras/precios/reporte/excel", json=sel)
     assert r.status_code == 200
     libro = load_workbook(io.BytesIO(r.content))
@@ -216,10 +260,17 @@ def test_tablero_y_reporte_a_excel(limpio, admin):
     assert fila_col[encabezados.index("Walmart liga")].hyperlink.target == "https://walmart.com.mx/p"
     # Guardar la selección y bajarla con un clic
     g = admin.post("/api/compras/precios/selecciones", json={"nombre": "Proteínas EJ", "seleccion": sel}).json()
-    assert g["productos"] == 2
+    assert g["productos"] == 3
     assert admin.get(f"/api/compras/precios/selecciones/{g['id']}/excel").status_code == 200
     assert [s["nombre"] for s in admin.get("/api/compras/precios/selecciones").json()] == ["Proteínas EJ"]
     assert admin.delete(f"/api/compras/precios/selecciones/{g['id']}").status_code == 200
+    # El diagnóstico de producción corre sobre los mismos datos (solo lee)
+    from scripts import diagnostico_radar_precios as dg
+    dg.SALIDA = str(tmp_path / "diag.json")
+    dg.main()
+    diag = json.loads((tmp_path / "diag.json").read_text(encoding="utf-8"))
+    assert diag["conteos"]["con_resultado"] >= 2 and "pantalla_resumen_completa" in diag["tiempos_seg"]
+    assert isinstance(diag["tiempos_seg"]["pantalla_resumen_completa"], float)
     with Session(motor()) as bd:
         assert bd.scalar(select(PrecioCorrida).where(PrecioCorrida.origen == "manual"))
         assert CostoArticulo  # el costo se toma de la tabla de SMNBI cuando existe

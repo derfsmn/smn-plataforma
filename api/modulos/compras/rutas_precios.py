@@ -637,6 +637,8 @@ def agregar(datos: Agregar, request: Request, ctx: Contexto = Depends(ADMIN), bd
     registrar(bd, "precios_vigilar", usuario_id=ctx.usuario.usuario_id, entidad="producto",
               detalle={"agregados": nuevos, "marca": datos.marca, "clase": datos.clase}, ip=ip_de(request))
     bd.commit()
+    from modulos.compras import tablero_precios
+    tablero_precios.olvidar()  # la pantalla Resumen lo refleja al momento
     return {"agregados": nuevos}
 
 
@@ -665,6 +667,8 @@ def cambiar(producto_id: int, datos: Cambio, request: Request, ctx: Contexto = D
         registrar(bd, "precios_limite", usuario_id=ctx.usuario.usuario_id, entidad="producto", entidad_id=producto_id,
                   detalle={"limite_pct": str(datos.limite_pct) if datos.limite_pct is not None else None}, ip=ip_de(request))
     bd.commit()
+    from modulos.compras import tablero_precios
+    tablero_precios.olvidar()  # la pantalla Resumen lo refleja al momento
     return {"ok": True}
 
 
@@ -677,6 +681,8 @@ def quitar(producto_id: int, request: Request, ctx: Contexto = Depends(ADMIN), b
     registrar(bd, "precios_dejar_de_vigilar", usuario_id=ctx.usuario.usuario_id, entidad="producto", entidad_id=producto_id,
               ip=ip_de(request))
     bd.commit()
+    from modulos.compras import tablero_precios
+    tablero_precios.olvidar()  # la pantalla Resumen lo refleja al momento
     return {"ok": True}
 
 
@@ -763,6 +769,8 @@ def rechazar_tienda(producto_id: int, tienda_coincidencia_id: int, request: Requ
     registrar(bd, "precios_tienda_rechazar", usuario_id=ctx.usuario.usuario_id, entidad="producto", entidad_id=producto_id,
               detalle={"tienda": m.tienda, "clave": m.clave, "titulo": m.titulo}, ip=ip_de(request))
     bd.commit()
+    from modulos.compras import tablero_precios
+    tablero_precios.olvidar()  # la pantalla Resumen lo refleja al momento
     precios.recalcular(bd, producto_id)
     return producto(producto_id, ctx, bd)
 

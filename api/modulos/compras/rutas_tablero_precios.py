@@ -133,7 +133,7 @@ def _fila(r: tb.Renglon) -> FilaTablero:
     return FilaTablero(
         producto_id=p.producto_id, sku=p.sku, descripcion=p.descripcion, marca=p.marca, categoria=p.subcategoria,
         imagen=p.liga_imagen, clase=e.clase, venta_importe=e.venta_importe, venta_piezas=e.venta_piezas, nuestro=r.base,
-        mercado=r.fila.mediana if r.color and r.fila else None, dif_pct=r.dif, indice=e.indice, color=r.color,
+        mercado=r.mediana if r.color else None, dif_pct=r.dif, indice=e.indice, color=r.color,
         membresia=r.membresia, dif_membresia_pct=r.dif_membresia, color_membresia=r.color_membresia,
         limite_pct=r.limite, tiendas={t: v[0] for t, v in r.tiendas.items()}, otras=len(r.otras), accion=e.accion,
         accion_texto=e.accion_texto, detalle=e.detalle, precio_sugerido=e.precio_sugerido, margen=e.margen,
@@ -151,9 +151,7 @@ def tablero(grupo: Grupo = "accion", clase: str = "", q: str = "", marca: str = 
     """La pantalla principal: avance de la noche, cuatro cuadros, contra cada tienda y lo que pide acción por venta."""
     pagina, por_pagina = max(1, pagina), min(max(1, por_pagina), 200)
     a = noche.avance(bd)
-    productos = tb.universo(bd)
-    con_resultado = set(tb.ultimas_filas(bd))
-    rs = tb.renglones(bd, [p for p in productos if p.producto_id in con_resultado])
+    rs = tb.renglones_vigentes(bd)
     cuadros = {k: sum(1 for r in rs if r.cuadro_de(precio) == k) for k in ("rojo", "amarillo", "verde", "sin_referencia")}
     acciones = {k: sum(1 for r in rs if r.evaluacion.accion == k) for k in ("bajar", "bajar_y_negociar", "negociar", "subir")}
     clases = sorted({r.evaluacion.clase for r in rs if r.evaluacion.clase},
@@ -304,6 +302,7 @@ def esta_mal(producto_id: int, datos: EstaMal, request: Request, ctx: Contexto =
               ip=ip_de(request))
     bd.commit()
     _recalcular(bd, producto_id)
+    tb.olvidar()
     return validacion(producto_id, None, bd)
 
 
@@ -334,6 +333,7 @@ def deshacer(producto_id: int, marca_id: int, request: Request, ctx: Contexto = 
     registrar(bd, "precios_esta_mal_deshacer", usuario_id=ctx.usuario.usuario_id, entidad="producto", entidad_id=producto_id,
               detalle={"marca_id": marca_id}, ip=ip_de(request))
     bd.commit()
+    tb.olvidar()
     return validacion(producto_id, None, bd)
 
 
@@ -429,7 +429,13 @@ def _excel(bd: Session, datos: Seleccion, titulo: str) -> Response:
     if not datos.hojas:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige qué lleva el Excel.")
     hasta = datos.fecha or precios.hoy_local()
-    rs = tb.renglones(bd, ps, datos.fecha)
+    if datos.fecha:
+        rs = tb.renglones(bd, ps, datos.fecha)
+    else:  # precios de la última actualización: lo ya calculado para la pantalla
+        ids = {p.producto_id for p in ps}
+        calculados = {r.producto.producto_id: r for r in tb.renglones_vigentes(bd) if r.producto.producto_id in ids}
+        faltan = [p for p in ps if p.producto_id not in calculados]
+        rs = [calculados[p.producto_id] for p in ps if p.producto_id in calculados] + (tb.renglones(bd, faltan) if faltan else [])
     contenido = rep.armar(bd, rs, list(datos.hojas), hasta, titulo)
     nombre = f"Radar_de_precios_{_nombre(titulo)}_{hasta:%Y-%m-%d}.xlsx"
     return Response(contenido, media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
