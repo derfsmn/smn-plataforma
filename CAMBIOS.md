@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.2 · 2026-11-23
+
+Versión de la publicación y otros cambios
+
+**Cambios guardados:**
+- Agregamos versi├│n y mejoras
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.1 · 2026-11-23
 
 Radar de precios más rápido; solo compara con 2 precios o más
