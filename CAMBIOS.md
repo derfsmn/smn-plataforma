@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.3 · 2026-11-24
+
+El radar de productos clasifica y compara contra los productos que ya vendemos con el mismo ingrediente principal (caso berberina)
+
+**Cambios guardados:**
+- Radar: clasificar y comparar por ingrediente principal (caso berberina)
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.2 · 2026-11-23
 
 Versión de la publicación y otros cambios
