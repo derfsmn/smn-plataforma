@@ -1,0 +1,47 @@
+
+ANÁLISIS NUTRIMENTAL DEL PRODUCTO
+
+Valoración calculada:
+La etiqueta cuantifica una mezcla de compuestos de magnesio, pero no identifica el aporte elemental. Se puede evaluar la masa y la documentación de la formulación, no su intensidad de aporte de magnesio ni concluir que más formas produzcan más absorción o beneficio.
+
+Conclusión técnica (interpretación de Ollama, revisable):
+El producto aporta 50 mg de compuestos de magnesio por porción, sumando 400 mg en una porción de 1020 mg (39.22 %). No se declara magnesio elemental ni se puede cuantificar su aporte diario. El estudio consultado sobre magnesio bisglicinato (250 mg/día) mostró un cambio en el Índice de Severidad del Insomnio (ISI) de -3.9 puntos frente a -2.3 puntos con placebo, con diferencia estadística p=0.049 y efecto pequeño (d=0.2). No se puede comparar con la mezcla de compuestos del producto ni con otras cantidades. La suma de masas de compuestos no es equivalente al aporte elemental ni a referencias de ingesta. No se puede valorar eficacia, seguridad ni beneficio específico del producto con la información disponible.
+
+Cálculos y comparaciones verificables:
+  [F01] Citrato de trimagnesio anhidro: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F02] Magnesio aminoquelado biglicinato: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F03] Cloruro de magnesio hexahidratado: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F04] Óxido de magnesio: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F05] L-treonato de magnesio: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F06] Taurato de magnesio: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F07] Gluconato de magnesio: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F08] Malato de magnesio dihidratado: 50 mg/porción; 50 mg/día según instruccion_etiqueta.
+  [F09] Los compuestos cuantificados suman 400.0 mg de una porción de 1020.0 mg (39.22 %). No se sumó aparte su equivalente elemental ni se supone que el resto de la masa sean excipientes.
+  [F10] Se declaran 8 compuestos cuantificados. El número de formas no mide el aporte elemental, la absorción ni el beneficio de la mezcla.
+  [F11] Magnesio elemental: no declarado en la foto. Ninguna cantidad de los compuestos es una declaración de magnesio elemental; no se puede cuantificar su aporte diario.
+  [F12] Hay un estudio de una forma presente nominalmente en la mezcla, pero no puede hacerse una comparación de cantidad elemental diaria. La suma de masas de compuestos NO es el aporte elemental; no se compara con referencias de ingesta ni límites de suplementación. El resultado del ingrediente no demuestra el efecto de esta mezcla.
+  [F13] La valoración se refiere al aporte declarado y a escenarios. No verifica contenido en laboratorio, eficacia de marca, absorción individual ni cumplimiento sanitario.
+
+Estudio [RCT_MG_BISGLICINATO_2025]: Magnesium Bisglycinate Supplementation in Healthy Adults Reporting Poor Sleep: A Randomized, Placebo-Controlled Trial
+  Ensayo aleatorizado, doble ciego, controlado con placebo. Adultos de 18 a 65 años con mala calidad de sueño autoinformada; exclusiones clínicas y farmacológicas específicas.
+  Resultado: El cambio del ISI fue -3.9 frente a -2.3 puntos con placebo; diferencia estadística p=0.049 y efecto pequeño (d=0.2). Los otros cuestionarios no mostraron diferencias significativas entre grupos.
+  Límites: Seguimiento corto; Resultados autoinformados, sin medición objetiva suficiente del sueño; Formulación aportó también glicina; No demuestra el efecto de otras cantidades, mezclas o marcas; No permite afirmar que una cantidad menor sea ineficaz ni recomendar aumentarla
+  Fuente: https://pubmed.ncbi.nlm.nih.gov/40918053/
+
+Fortalezas:
+  Se declara una cantidad específica de compuestos de magnesio por porción, lo que permite evaluar su aporte masivo, aunque no elemental. [F01, F02, F03, F04, F05, F06, F07, F08, F09, F10, F11, F12, F13, COFEPRIS_ETIQUETA, COFEPRIS_MARCO]
+  El estudio sobre magnesio bisglicinato proporciona un contexto de efecto posible en síntomas de insomnio, aunque no es aplicable directamente al producto debido a diferencias en formulación y dosis. [F12, F13, RCT_MG_BISGLICINATO_2025, NIH_MAGNESIO]
+
+Limitaciones:
+  No se declara magnesio elemental ni se puede cuantificar su aporte diario, lo que limita la valoración de su aporte nutricional. [F11, F12, F13, NIH_MAGNESIO]
+  El estudio consultado no demuestra el efecto de la mezcla de compuestos ni de otras cantidades, por lo que no se puede afirmar eficacia ni seguridad del producto. [F12, F13, RCT_MG_BISGLICINATO_2025]
+
+Lectura crítica de evidencia:
+  El estudio sobre magnesio bisglicinato (250 mg/día) mostró un cambio en el Índice de Severidad del Insomnio (ISI) de -3.9 puntos frente a -2.3 puntos con placebo, con diferencia estadística p=0.049 y efecto pequeño (d=0.2). La magnitud del efecto es pequeña y no se puede generalizar a otros escenarios. [F12, F13, RCT_MG_BISGLICINATO_2025]
+  El estudio tiene limitaciones como seguimiento corto, resultados autoinformados y formulación que aportó también glicina, lo que limita su aplicabilidad al producto evaluado. [F12, F13, RCT_MG_BISGLICINATO_2025]
+
+Siguiente decisión: Se puede avanzar en valoración documental de la composición y aporte masivo de magnesio, pero no se puede sostener beneficio específico ni eficacia del producto con los estudios consultados.
+
+Contexto todavía pendiente: finalidad, poblacion
+El JSON conserva la auditoría detallada, las acciones y las preguntas al proveedor.
+Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.

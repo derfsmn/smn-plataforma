@@ -1,0 +1,43 @@
+
+ANÁLISIS NUTRIMENTAL DEL PRODUCTO
+
+Valoración calculada:
+La declaración permite caracterizar la composición por sus bases impresas y compararla numéricamente con referencias identificadas. No se convierte una base de 100 g/ml en porción o consumo diario, ni se clasifica el producto como saludable a partir de esos porcentajes.
+
+Conclusión técnica (interpretación de Ollama, revisable):
+Los datos declarados indican un aporte de 2.3 g de fibra dietética por cada 100 g, lo que representa el 8.21 % del Valor Diario General (FDA) de referencia para adultos y niños mayores de 4 años (28 g/día). En cuanto al sodio, se declaran 460 mg por 100 g, equivalente al 20.00 % del Valor Diario General (FDA) de 2300 mg/día. Es fundamental distinguir que estos valores corresponden a la masa total del alimento y no a la pureza de los nutrimentos aislados; por tanto, no se certifica la cantidad exacta de fibra o sodio en el compuesto específico dentro de la matriz. La comparación con escenarios de referencia (FDA) es meramente educativa y no implica que el consumo de esa cantidad cumpla ni supere requerimientos terapéuticos ni umbrales legales mexicanos. Los estudios consultados no demuestran eficacia de esta marca o cantidad específica, ya que el catálogo limitado no contiene investigaciones coincidentes por ingrediente y forma para vincular este producto con desenlaces clínicos medidos.
+
+Cálculos y comparaciones verificables:
+  [F01] Contenido energético: 420.4 kcal por 100 g; no es una cantidad por porción ni por día.
+  [F02] Contenido energético: 1774.7 kJ por 100 g; no es una cantidad por porción ni por día.
+  [F03] Proteínas: 8.4 g por 100 g; no es una cantidad por porción ni por día.
+  [F04] Grasas totales: 9.6 g por 100 g; no es una cantidad por porción ni por día.
+  [F05] Grasas saturadas: 1.2 g por 100 g; no es una cantidad por porción ni por día.
+  [F06] Grasas poliinsaturadas: 1.6 g por 100 g; no es una cantidad por porción ni por día.
+  [F07] Grasas monoinsaturadas: 6.3 g por 100 g; no es una cantidad por porción ni por día.
+  [F08] Colesterol: 1.3 mg por 100 g; no es una cantidad por porción ni por día.
+  [F09] Hidratos de carbono disponibles: 75.1 g por 100 g; no es una cantidad por porción ni por día.
+  [F10] Azúcares: 2.5 g por 100 g; no es una cantidad por porción ni por día.
+  [F11] Fibra dietética: 2.3 g por 100 g; no es una cantidad por porción ni por día.
+  [F12] Sodio: 460 mg por 100 g; no es una cantidad por porción ni por día.
+  [F13] Comparación educativa de Fibra dietética por 100 g: 2.3 g equivalen a 8.21 % de la referencia general FDA de 28 g/día. No se presupone consumo de esa cantidad, ni que esa base sea la porción, ni se emiten sellos mexicanos.
+  [F14] Comparación educativa de Sodio por 100 g: 460.0 mg equivalen a 20.00 % de la referencia general FDA de 2300 mg/día. No se presupone consumo de esa cantidad, ni que esa base sea la porción, ni se emiten sellos mexicanos.
+  [F15] El catálogo consultado no contiene estudios coincidentes por ingrediente y forma para esta ficha; esto describe cobertura de la búsqueda local, no ausencia de estudios en el mundo.
+  [F16] La valoración se refiere al aporte declarado y a escenarios. No verifica contenido en laboratorio, eficacia de marca, absorción individual ni cumplimiento sanitario.
+
+Fortalezas:
+  La información documentada permite cuantificar con precisión el aporte energético (420.4 kcal/100 g) y de macronutrientes principales (proteínas: 8.4 g, grasas totales: 9.6 g, hidratos disponibles: 75.1 g) por unidad de masa, facilitando la planificación nutricional basada en el peso del alimento consumido. [F01, F02, F03, F04, F09]
+  Se proporciona una contextualización educativa clara del aporte de fibra (8.21 % DV) y sodio (20.00 % DV) respecto a los estándares generales de referencia estadounidenses, permitiendo al consumidor estimar su contribución relativa en un contexto de consumo habitual. [F13, F14, FDA_VD]
+
+Limitaciones:
+  La ausencia de estudios clínicos comparables en el catálogo consultado impide validar la eficacia del producto para cualquier finalidad específica ni confirmar su absorción individual. No se puede determinar si la formulación actual es superior a otras marcas o cantidades equivalentes, ya que no existen datos de ensayos para sostener tal comparación. [F15]
+  La información se limita al análisis documental del etiquetado; no verifica el contenido real mediante laboratorio. La lista de ingredientes declarada incluye harinas, quesos, aceites y aditivos como fosfato disódico y colorantes, pero no se puede inferir inocuidad ni ausencia de riesgos sin criterio adicional. [F16]
+
+Lectura crítica de evidencia:
+  En la búsqueda de evidencia comparativa con el producto, se observó que el catálogo consultado no contiene estudios coincidentes por ingrediente y forma específica. Esto describe una limitación de cobertura en la búsqueda local, sin demostrar ausencia de estudios en el mundo. No se encontraron desenlaces medidos ni magnitudes de efecto clínico que vinculen esta marca o cantidad con beneficios específicos. [F15]
+
+Siguiente decisión: La valoración documental puede avanzar en la descripción del perfil nutricional macro y micro basado en el etiquetado, útil para estimar aportes por peso de alimento. Sin embargo, no se puede sostener ninguna afirmación sobre eficacia terapéutica, superioridad de absorción o cumplimiento de necesidades individuales sin ensayos clínicos comparables. La falta de estudios coincidentes impide avanzar en valoraciones de seguridad clínica o recomendaciones de dosis para igualar resultados de otros productos.
+
+Contexto todavía pendiente: finalidad, poblacion
+El JSON conserva la auditoría detallada, las acciones y las preguntas al proveedor.
+Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.

@@ -1,0 +1,29 @@
+
+ANÁLISIS NUTRIMENTAL DEL PRODUCTO
+
+Valoración calculada:
+El aporte nutrimental identificable es 70 mg de magnesio por porción; las masas de compuestos son otra declaración y no se suman al elemental. En escenarios adultos ilustrativos representa 16.67–22.58 % de la referencia de ingesta total; no determina la adecuación para una persona. La evidencia consultada permite contrastar forma y cantidad, pero no transferir un beneficio a esta marca o formulación.
+Interpretación con Ollama: no_disponible No convertir una proporción entre cantidades en diferencia porcentual ni asumir la finalidad del producto
+
+Cálculos y comparaciones verificables:
+  [F01] Magnesio aminoquelado biglicinato: 500 mg/porción; 500 mg/día según instruccion_etiqueta.
+  [F02] Equivalente a Magnesio: 70 mg/porción; 70 mg/día según instruccion_etiqueta.
+  [F03] El porcentaje CALCULADO entre las dos masas impresas es 14.00 %. La masa del nutrimento ya estaba declarada en la foto: no se dedujo de una fórmula ni del porcentaje. No es una comprobación química ni de pureza.
+  [F04] Los compuestos cuantificados suman 500.0 mg de una porción de 1200.0 mg (41.67 %). No se sumó aparte su equivalente elemental ni se supone que el resto de la masa sean excipientes.
+  [F05] Escenario ilustrativo: Hombres sanos de 19 a 30 años. 70.0 mg por día declarado equivalen numéricamente a 17.50 % de la ingesta TOTAL de referencia de 400 mg/día. No se asigna esta población al producto. Esta comparación no determina dosis terapéuticas, déficit ni adecuación personal.
+  [F06] Escenario ilustrativo: Mujeres sanas de 19 a 30 años, sin embarazo ni lactancia. 70.0 mg por día declarado equivalen numéricamente a 22.58 % de la ingesta TOTAL de referencia de 310 mg/día. No se asigna esta población al producto. Esta comparación no determina dosis terapéuticas, déficit ni adecuación personal.
+  [F07] Escenario ilustrativo: Hombres sanos de 31 a 50 años. 70.0 mg por día declarado equivalen numéricamente a 16.67 % de la ingesta TOTAL de referencia de 420 mg/día. No se asigna esta población al producto. Esta comparación no determina dosis terapéuticas, déficit ni adecuación personal.
+  [F08] Escenario ilustrativo: Mujeres sanas de 31 a 50 años, sin embarazo ni lactancia. 70.0 mg por día declarado equivalen numéricamente a 21.88 % de la ingesta TOTAL de referencia de 320 mg/día. No se asigna esta población al producto. Esta comparación no determina dosis terapéuticas, déficit ni adecuación personal.
+  [F09] Resumen de TODOS los escenarios adultos ilustrativos incluidos: de 16.67 % a 22.58 % de la referencia. La población del producto sigue sin definirse salvo selección explícita; no presentar un subconjunto como intervalo global.
+  [F10] En Magnesium Bisglycinate Supplementation in Healthy Adults Reporting Poor Sleep: A Randomized, Placebo-Controlled Trial se estudió 250 mg/día de magnesio elemental; la declaración del producto aporta 70.0 mg/día (28.00 % de aquella cantidad). Esa diferencia impide trasladar directamente el resultado: no demuestra que la cantidad menor sea ineficaz ni justifica aumentarla. La finalidad estudiada no se asigna al producto.
+  [F11] La valoración se refiere al aporte declarado y a escenarios. No verifica contenido en laboratorio, eficacia de marca, absorción individual ni cumplimiento sanitario.
+
+Estudio [RCT_MG_BISGLICINATO_2025]: Magnesium Bisglycinate Supplementation in Healthy Adults Reporting Poor Sleep: A Randomized, Placebo-Controlled Trial
+  Ensayo aleatorizado, doble ciego, controlado con placebo. Adultos de 18 a 65 años con mala calidad de sueño autoinformada; exclusiones clínicas y farmacológicas específicas.
+  Resultado: El cambio del ISI fue -3.9 frente a -2.3 puntos con placebo; diferencia estadística p=0.049 y efecto pequeño (d=0.2). Los otros cuestionarios no mostraron diferencias significativas entre grupos.
+  Límites: Seguimiento corto; Resultados autoinformados, sin medición objetiva suficiente del sueño; Formulación aportó también glicina; No demuestra el efecto de otras cantidades, mezclas o marcas; No permite afirmar que una cantidad menor sea ineficaz ni recomendar aumentarla
+  Fuente: https://pubmed.ncbi.nlm.nih.gov/40918053/
+
+Contexto todavía pendiente: finalidad, poblacion
+El JSON conserva la auditoría detallada, las acciones y las preguntas al proveedor.
+Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.

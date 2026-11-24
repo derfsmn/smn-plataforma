@@ -29,6 +29,8 @@ Interpretación local: contexto 8192, temperatura 0, seed 42, máximo 3072 token
 
 Los reportes finales son `analisis_*.json`, sus respuestas finales e intentos `.revision.respuesta.json`, y resúmenes `.salida.txt`. `verificar_analisis_real.py` coteja estos artefactos sin llamar al modelo. Las pruebas unitarias de `test_analisis_nutrimental.py` usan fichas archivadas y respuestas **simuladas**; son independientes de las inferencias reales anteriores. Las secciones siguientes documentan la primera entrega y la auditoría previa.
 
+**Resultado final real:** 55541 y 77755 tienen interpretación con contenido final `stop`, respectivamente 5073/1189 y 3979/1182 tokens de entrada/salida del último intento. Para 55527 la interpretación de `qwen3:8b` se rechazó tras los dos intentos por convertir una proporción en diferencia porcentual o asumir una finalidad. Su salida conserva la valoración de Python, las comparaciones y el estudio, pero no muestra ese borrador como conclusión. Las respuestas e inferencias por intento quedan en el archivo de evidencia. Esto es un límite observado del modelo, no un fallo de OCR ni prueba de que el producto carezca de beneficio. Pasan 45 pruebas unitarias y los tres cotejos originales de extracción.
+
 ## Segunda etapa: revisión documental del producto
 
 Para revisar **el archivo que ya generaste**, sin repetir la lectura de fotos:
