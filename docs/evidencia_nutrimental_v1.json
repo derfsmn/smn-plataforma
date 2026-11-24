@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "fecha_revision": "2026-11-24",
+  "alcance": "Selección documental local, no búsqueda exhaustiva. Los estudios se contrastan por ingrediente y forma; no representan evidencia del producto comercial evaluado ni una finalidad asignada al usuario.",
+  "estudios": [
+    {
+      "id": "RCT_MG_BISGLICINATO_2025",
+      "titulo": "Magnesium Bisglycinate Supplementation in Healthy Adults Reporting Poor Sleep: A Randomized, Placebo-Controlled Trial",
+      "autores": "Schuster J, Cycelskij I, Lopresti A, Hahn A",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/40918053/",
+      "texto_completo": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12412596/",
+      "doi": "10.2147/NSS.S524348",
+      "pmid": "40918053",
+      "publicacion": "2025-08-30",
+      "ingrediente": "magnesio",
+      "formas_etiqueta": ["bisglicinato", "biglicinato", "bisglycinate"],
+      "diseno": "Ensayo aleatorizado, doble ciego, controlado con placebo",
+      "participantes_reclutados": 155,
+      "poblacion": "Adultos de 18 a 65 años con mala calidad de sueño autoinformada; exclusiones clínicas y farmacológicas específicas",
+      "finalidad_estudiada": "Síntomas de insomnio; no es una finalidad declarada del producto evaluado",
+      "dosis_elemental_mg_dia": 250,
+      "glicina_mg_dia": 1523,
+      "duracion_dias": 28,
+      "duracion_semanas": 4,
+      "desenlace_principal": "ISI",
+      "resultado": "El cambio del ISI fue -3.9 frente a -2.3 puntos con placebo; diferencia estadística p=0.049 y efecto pequeño (d=0.2). Los otros cuestionarios no mostraron diferencias significativas entre grupos.",
+      "limitaciones": ["Seguimiento corto", "Resultados autoinformados, sin medición objetiva suficiente del sueño", "Formulación aportó también glicina", "No demuestra el efecto de otras cantidades, mezclas o marcas", "No permite afirmar que una cantidad menor sea ineficaz ni recomendar aumentarla"],
+      "localizadores": ["Abstract", "Materials and Methods / Intervention", "Primary Endpoint: Insomnia Severity Index", "Secondary Endpoints"],
+      "verificacion": "Datos cotejados documentalmente por el agente con el resumen de PubMed y el texto del artículo disponible en PMC; no evaluación formal de riesgo de sesgo ni GRADE."
+    }
+  ]
+}

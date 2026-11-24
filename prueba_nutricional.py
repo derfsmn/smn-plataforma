@@ -450,8 +450,10 @@ def main():
     p.add_argument('--perfil',choices=sorted(PERFILES),help='Perfil explícito para comparar referencias; no se elige automáticamente')
     p.add_argument('--porciones-dia',type=float,help='Escenario de consumo del usuario, no recomendación de dosis')
     p.add_argument('--afirmacion',action='append',default=[],help='Afirmación a revisar proporcionada por el usuario; repetible')
-    p.add_argument('--modelo-revision',help='Modelo Ollama para priorizar hallazgos; por omisión el modelo de texto')
-    p.add_argument('--sin-ia-revision',action='store_true',help='Revisión determinista; no llama a IA para priorizar')
+    p.add_argument('--modelo-revision',help='Modelo Ollama para interpretar aporte, escenarios y estudios; por omisión el modelo de texto')
+    p.add_argument('--evidencia',type=Path,help='Catálogo JSON de estudios documentados; por omisión el catálogo local revisado')
+    p.add_argument('--detalle',action='store_true',help='Mostrar además todos los hallazgos de auditoría y preguntas')
+    p.add_argument('--sin-ia-revision',action='store_true',help='Conservar cálculos y contraste documental sin interpretación de IA')
     args=p.parse_args()
     if args.contexto<1024 or args.contexto_texto<1024 or args.tokens<1 or args.max_lado<0: p.error('Límites no válidos')
     if args.ficha:
@@ -469,13 +471,15 @@ def main():
         print(f"Ficha reutilizada sin repetir OCR: {ficha.get('sku') or 'sin SKU'} | {ficha.get('nombre') or 'nombre pendiente'}")
     else:mostrar_resumen(ficha)
     if args.evaluar or args.ficha:
-        from revision_nutrimental import evaluar, priorizar_con_ollama, mostrar
-        revision=evaluar(ficha,args.finalidad,args.poblacion,args.perfil,args.porciones_dia,args.afirmacion)
+        from revision_nutrimental import evaluar, mostrar
+        from analisis_nutrimental import interpretar, mostrar_analisis
+        revision=evaluar(ficha,args.finalidad,args.poblacion,args.perfil,args.porciones_dia,args.afirmacion,args.evidencia)
         if args.sin_ia_revision:revision['ia']={'estado':'omitida_por_usuario'}
         else:
-            priorizar_con_ollama(revision,args.modelo_revision or args.modelo_texto,consultar_ollama,args.salida.with_suffix('.revision.respuesta.json') if args.salida else None)
+            interpretar(revision,args.modelo_revision or args.modelo_texto,consultar_ollama,args.salida.with_suffix('.revision.respuesta.json') if args.salida else None)
         ficha['revision_nutrimental']=revision
-        mostrar(revision)
+        mostrar_analisis(revision)
+        if args.detalle:mostrar(revision)
     if args.salida:
         args.salida.write_text(json.dumps(ficha,ensure_ascii=False,indent=2),encoding='utf8')
     return 0
