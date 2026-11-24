@@ -84,7 +84,7 @@ export type Evaluacion = EvaluacionResumen & {
   vigente: boolean;
   rama: string | null;
   segmento: string | null;
-  clasificacion_origen: "ia" | "compras" | "parecidos" | "variante" | "sin_clasificar" | null;
+  clasificacion_origen: "ia" | "compras" | "parecidos" | "variante" | "ingrediente" | "sin_clasificar" | null;
   pesos_origen: "compras" | "iguales" | null;
   explicacion: string | null;
   avance?: string | null;

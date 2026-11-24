@@ -403,6 +403,72 @@ def subcategoria_de_parecidos(parecidos: list[tuple[Producto, Decimal]]) -> Prod
     return next(p for p in cercanos if p.subcategoria == sub) if n / len(cercanos) >= 0.6 else None
 
 
+# Ingrediente principal (Diego, 24 nov 2026, caso BDM Life Berberina): la IA lo clasificó en «Plantas › Hierbas suecas» y
+# dejó fuera las 11 berberinas que ya vendemos (todas en «Sistema hepático › Auxiliar en la diabetes»); se quedó sin
+# parecidos y la Demanda salió en 0. Si varios productos del catálogo llevan en el nombre el ingrediente principal y casi
+# todos están en la misma subcategoría, la subcategoría sale de ellos y nunca se quedan fuera de los parecidos.
+MIN_POR_INGREDIENTE = 3  # productos activos con el ingrediente en el nombre para que cuenten
+ACUERDO_INGREDIENTE = 0.6  # parte de esos productos que debe estar en la misma subcategoría
+LETRAS_INGREDIENTE = 5  # palabras más cortas («life», «plus») no se usan como ingrediente
+
+
+@dataclass
+class PorIngrediente:
+    palabra: str  # la raíz con que se encontraron («berber»)
+    productos: list[Producto]
+    rama: str | None
+    subcategoria: str | None
+    segmento: str | None
+    de_acuerdo: int  # cuántos están en esa subcategoría
+
+    @property
+    def ids(self) -> set[int]:
+        return {p.producto_id for p in self.productos}
+
+
+def _candidatas_ingrediente(s: Sujeto) -> list[str]:
+    """Raíces que pueden ser el ingrediente principal, en orden: primero las del ingrediente capturado o de la ficha que
+    también salen en el nombre, después las del nombre. Sin la marca ni palabras genéricas."""
+    fuera = raices(palabras(s.marca)) | raices(GENERICAS)
+    def orden(texto: str | None) -> list[str]:
+        vistas = []
+        for p in re.findall(r"[a-zñ]{3,}", _norm(sin_sabor(texto))):
+            if p in PALABRAS_VACIAS or p in GENERICAS or len(p) < LETRAS_INGREDIENTE:
+                continue
+            r = p[:6]
+            if r not in fuera and r not in vistas:
+                vistas.append(r)
+        return vistas
+    del_nombre = orden(s.nombre)
+    del_ingrediente = [r for r in orden(s.ingrediente) if r in del_nombre]
+    return list(dict.fromkeys(del_ingrediente + del_nombre))
+
+
+def por_ingrediente(s: Sujeto, activos: list[Producto]) -> PorIngrediente | None:
+    """Los productos activos con precio que llevan en la descripción el ingrediente principal del producto nuevo, si son
+    al menos 3 y al menos 60 % comparten subcategoría. Se prueba palabra por palabra en el orden de
+    `_candidatas_ingrediente`; la primera que cumple gana («Berberina + Piperina + Omega 9»: berberina antes que omega)."""
+    candidatas = _candidatas_ingrediente(s)
+    if not candidatas:
+        return None
+    raices_de = {p.producto_id: raices(palabras(sin_sabor(p.descripcion))) for p in activos}
+    for r in candidatas:
+        con = [p for p in activos if r in raices_de[p.producto_id] and _con_precio(p) and not es_mismo(s, p)]
+        con_sub = [p for p in con if p.subcategoria]
+        if len(con_sub) < MIN_POR_INGREDIENTE:
+            continue
+        sub, n = Counter(p.subcategoria for p in con_sub).most_common(1)[0]
+        if n / len(con_sub) < ACUERDO_INGREDIENTE:
+            continue
+        guia = next(p for p in con_sub if p.subcategoria == sub)
+        return PorIngrediente(r, con, guia.rama, sub, guia.segmento, n)
+    return None
+
+
+def ingrediente_de(bd: Session, s: Sujeto) -> PorIngrediente | None:
+    return por_ingrediente(s, list(bd.scalars(select(Producto).where(Producto.activo == true()))))
+
+
 def mismo_de(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]) -> Producto | None:
     """El producto del catálogo que es este mismo producto: misma marca, nombre y presentación."""
     return next((p for p, _ in parecidos if es_mismo(s, p)), None)
@@ -498,8 +564,8 @@ def _con_precio(p: Producto) -> bool:
     return bool(p.precio_lista_con_impuestos) and p.precio_lista_con_impuestos >= PRECIO_MINIMO_PARECIDO
 
 
-def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str | None = None
-                     ) -> list[tuple[Producto, Decimal]]:
+def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str | None = None,
+                     conservar: set[int] | frozenset[int] = frozenset()) -> list[tuple[Producto, Decimal]]:
     """Productos activos del catálogo que más se parecen.
 
     Busca en todo el catálogo, no solo en el departamento capturado (el departamento puede venir distinto). Lo que más
@@ -574,7 +640,7 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
             calificados.append((p, min(sim, Decimal("0.99")).quantize(Decimal("0.001"))))
     calificados += sustitutos_por_funcion(bd, s, activos, {p.producto_id for p, _ in calificados})
     calificados.sort(key=lambda x: (-x[1], -crudo.get(x[0].producto_id, x[1]), x[0].sku))
-    return _depurar(calificados, subcategoria, rama)[:MAX_COMPARABLES]
+    return _depurar(calificados, subcategoria, rama, conservar)[:MAX_COMPARABLES]
 
 
 def sustitutos_por_funcion(bd: Session, s: Sujeto, activos: list[Producto], ya: set[int]
@@ -595,9 +661,10 @@ def sustitutos_por_funcion(bd: Session, s: Sujeto, activos: list[Producto], ya: 
 
 
 def _depurar(calificados: list[tuple[Producto, Decimal]], subcategoria: str | None,
-             rama: str | None) -> list[tuple[Producto, Decimal]]:
+             rama: str | None, conservar: set[int] | frozenset[int] = frozenset()) -> list[tuple[Producto, Decimal]]:
     """Con subcategoría conocida se quedan los de esa subcategoría; si son menos de 3, se completan con los de la misma
-    rama (o, sin rama, con los que no tienen subcategoría). Sin repetir la misma descripción."""
+    rama (o, sin rama, con los que no tienen subcategoría). Sin repetir la misma descripción. Los de `conservar` (llevan
+    el ingrediente principal, 24 nov 2026) se quedan aunque estén en otra subcategoría."""
     vistos, unicos = set(), []
     for p, sim in calificados:
         llave = " ".join(sorted(presentacion(p.descripcion)))
@@ -606,7 +673,8 @@ def _depurar(calificados: list[tuple[Producto, Decimal]], subcategoria: str | No
             unicos.append((p, sim))
     if not subcategoria:
         return unicos
-    propios = [(p, sim) for p, sim in unicos if sim == 1 or p.subcategoria == subcategoria]
+    propios = [(p, sim) for p, sim in unicos
+               if sim == 1 or p.subcategoria == subcategoria or p.producto_id in conservar]
     if len(propios) >= MIN_MISMA_SUBCATEGORIA:
         return propios
     if rama:
@@ -628,14 +696,16 @@ cada número de la lista."""
 
 
 def revisar_parecidos(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
-                      vistos: dict[str, tuple[bool, str]] | None = None
+                      vistos: dict[str, tuple[bool, str]] | None = None,
+                      conservar: set[int] | frozenset[int] = frozenset()
                       ) -> tuple[list[tuple[Producto, Decimal]], list[tuple[Producto, str]]]:
     """La IA local revisa si cada parecido es de verdad el mismo tipo de producto y quita los que no (Diego eligió
     «Solo revisar parecidos», 12 nov 2026). Devuelve (los que quedan, los quitados con su motivo). El mismo producto
     (similitud 1) nunca se quita. Si la IA falla o contesta algo que no se entiende, se quedan todos, como antes.
     `vistos` guarda lo ya revisado por SKU para no volver a preguntar en la misma evaluación."""
     vistos = {} if vistos is None else vistos
-    nuevos = [p for p, sim in parecidos if sim < 1 and p.sku not in vistos]
+    # Los que llevan el ingrediente principal no se le preguntan a la IA: se quedan (24 nov 2026)
+    nuevos = [p for p, sim in parecidos if sim < 1 and p.sku not in vistos and p.producto_id not in conservar]
     if nuevos:
         mensaje = json.dumps({
             "producto": s.nombre, "marca": s.marca, "contenido": s.contenido, "forma": s.forma,
@@ -659,7 +729,7 @@ def revisar_parecidos(bd: Session, s: Sujeto, parecidos: list[tuple[Producto, De
     quedan, quitados = [], []
     for p, sim in parecidos:
         si, motivo = vistos.get(p.sku, (True, ""))
-        if sim >= 1 or si:
+        if sim >= 1 or si or p.producto_id in conservar:
             quedan.append((p, sim))
         else:
             quitados.append((p, motivo))
@@ -1984,7 +2054,14 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         if e.clasificacion_origen != "compras" and (otra := clasificacion_de_variante(bd, e, s)):
             e.rama, e.subcategoria, e.segmento = otra.rama, otra.subcategoria, otra.segmento
             e.clasificacion_origen = "variante"
-        if e.clasificacion_origen not in ("compras", "variante"):
+        ingrediente = ingrediente_de(bd, s)
+        conservar = ingrediente.ids if ingrediente else set()
+        if e.clasificacion_origen not in ("compras", "variante") and ingrediente:
+            # 24 nov 2026: si los productos con su ingrediente principal están casi todos en una subcategoría, esa es
+            # la suya; la IA no la elige (caso BDM Life Berberina en «Hierbas suecas»)
+            e.rama, e.subcategoria, e.segmento = ingrediente.rama, ingrediente.subcategoria, ingrediente.segmento
+            e.clasificacion_origen = "ingrediente"
+        elif e.clasificacion_origen not in ("compras", "variante"):
             # Se clasifica con los parecidos que la IA ya revisó (v0.4)
             sin_sub, _ = revisar_parecidos(bd, s, buscar_parecidos(bd, s, None), vistos) if not fijados else (None, [])
             e.rama, e.subcategoria, e.segmento = clasificar(bd, s, sin_sub)
@@ -1995,14 +2072,15 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             parecidos = [(bd.get(Producto, c.producto_id), c.similitud) for c in e.comparables]
             cargar_fichas(bd, [p for p, _ in parecidos])
         else:
-            parecidos, quitados = revisar_parecidos(bd, s, buscar_parecidos(bd, s, e.subcategoria, e.rama), vistos)
+            parecidos, quitados = revisar_parecidos(bd, s, buscar_parecidos(bd, s, e.subcategoria, e.rama, conservar),
+                                                    vistos, conservar)
         mismo = mismo_de(s, parecidos)
         if not e.subcategoria and e.clasificacion_origen not in ("compras", "variante"):
             if fuente := mismo or subcategoria_de_parecidos(parecidos):
                 e.rama, e.subcategoria, e.segmento = fuente.rama, fuente.subcategoria, fuente.segmento
                 e.clasificacion_origen = "parecidos"
                 if not fijados:  # ya con subcategoría, se quitan los de otra (11 nov 2026)
-                    parecidos = _depurar(parecidos, e.subcategoria, e.rama)
+                    parecidos = _depurar(parecidos, e.subcategoria, e.rama, conservar)
         if not fijados:
             for i, (p, sim) in enumerate(parecidos, 1):
                 e.comparables.append(EvaluacionComparable(producto_id=p.producto_id, rango=i, similitud=sim, origen="sistema"))

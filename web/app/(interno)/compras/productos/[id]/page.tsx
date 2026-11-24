@@ -33,7 +33,7 @@ const SUGERENCIAS_RADAR = [
   { texto: "¿Qué decidió el comité y por qué?", icono: Gavel },
 ];
 
-const ORIGEN_CLASIFICACION = { ia: "Sugerida por la IA, sin confirmar", compras: "Confirmada por Compras", parecidos: "Tomada de los productos parecidos, sin confirmar", variante: "La misma que el producto en otro sabor, sin confirmar", sin_clasificar: "Sin clasificar" } as const;
+const ORIGEN_CLASIFICACION = { ia: "Sugerida por la IA, sin confirmar", compras: "Confirmada por Compras", parecidos: "Tomada de los productos parecidos, sin confirmar", variante: "La misma que el producto en otro sabor, sin confirmar", ingrediente: "La de los productos que ya vendemos con su mismo ingrediente, sin confirmar", sin_clasificar: "Sin clasificar" } as const;
 
 export default function DetalleEvaluacion() {
   const { id } = useParams<{ id: string }>();

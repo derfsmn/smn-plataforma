@@ -136,7 +136,7 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     esperado = "buscar_proveedor" if e["color"] in {"verde", "amarillo"} else "nueva"
     assert e["sujeto"]["tipo"] == "idea" and e["sujeto"]["estado"] == esperado
     # Sin IA en pruebas: la subcategoría se toma de los parecidos, que son todos «Minerales»
-    assert e["clasificacion_origen"] == "parecidos" and e["subcategoria"] == "Minerales"
+    assert e["clasificacion_origen"] in ("parecidos", "ingrediente") and e["subcategoria"] == "Minerales"
     parecidos = [c["sku"] for c in e["comparables"]]
     assert set(skus[:3]) <= set(parecidos) and skus[3] not in parecidos
     f = {x["factor"]: x for x in e["factores"]}
@@ -579,3 +579,47 @@ def test_precio_mitad_lista_y_mitad_membresia():
     assert f.puntaje == 80 and "con membresía" in f.valor and "Con precio de membresía ($90" in f.detalle
     sin = rp.f_precio(rp.Sujeto(tipo="idea", nombre="Producto ficticio", precio=D("100")), [], internet)
     assert sin.puntaje == 75
+
+
+def test_ingrediente_principal_clasifica_y_no_se_queda_fuera():
+    """Caso BDM Life Berberina (24 nov 2026): las berberinas que ya vendemos están en «Auxiliar en la diabetes»; la IA lo
+    puso en «Hierbas suecas» y se quedó sin parecidos."""
+    def prod(i, desc, sub, rama, precio="200", marca=None):
+        return Producto(producto_id=i, sku=f"B{i}", descripcion=desc, marca=marca, subcategoria=sub, rama=rama,
+                        precio_lista_con_impuestos=Decimal(precio), activo=True)
+    hep, diab = "SISTEMA HEPATICO", "AUXILIAR EN LA DIABETES"
+    activos = [prod(1, "BERBERINA 60 CAP", diab, hep), prod(2, "BERBERINA HCL 90 CAP", diab, hep, "545"),
+               prod(3, "PURE BERBERINE 180 CAP", diab, hep, "712"), prod(4, "BERBERINA MAS CANELA 30 CAP", diab, hep),
+               prod(5, "BERBERINA 60 ML", "AUXILIAR EN LA DIGESTION", "SISTEMA DIGESTIVO"),
+               prod(6, "LIFE OMEGA 3 60 CAP", "OMEGAS", "ACEITES"), prod(7, "LIFE COLAGENO", "BELLEZA", "PIEL"),
+               prod(8, "LIFE MAGNESIO", "MINERALES", "MINERALES"), prod(9, "OMEGA 9 60 CAP", "OMEGAS", "ACEITES"),
+               prod(10, "JUVETERNAL VITAMINA E FACIAL 90 CAP", "FACIAL", "PIEL", marca="JUVETERNAL")]
+    s = rp.Sujeto(tipo="propuesta", nombre="BDM Life Berberina + Piperina + Omega 9 – Metabolismo", marca="JUVETERNAL",
+                  ingrediente="Berberina HCl")
+    x = rp.por_ingrediente(s, activos)
+    assert x and x.palabra == "berber" and x.subcategoria == diab and x.rama == hep
+    assert x.ids == {1, 2, 3, 4, 5} and x.de_acuerdo == 4
+    # Sin ingrediente capturado, sale del nombre: «life» es corta y «bdm» también; berberina va antes que omega
+    s.ingrediente = None
+    assert rp.por_ingrediente(s, activos).palabra == "berber"
+    # Con otra subcategoría, los del ingrediente no se tiran (ni el de otra subcategoría con el mismo ingrediente)
+    lista = [(p, Decimal("0.5")) for p in activos[:5]] + [(activos[9], Decimal("0.4"))]
+    salida = {p.producto_id for p, _ in rp._depurar(lista, "HIERBAS SUECAS", "PLANTAS", x.ids)}
+    assert salida == {1, 2, 3, 4, 5}
+    # Sin acuerdo de subcategoría no decide: tres productos en tres subcategorías
+    regados = [prod(20, "CURCUMA 60 CAP", "A", "R"), prod(21, "CURCUMA POLVO", "B", "R"), prod(22, "CURCUMA TE", "C", "R")]
+    assert rp.por_ingrediente(rp.Sujeto(tipo="idea", nombre="Curcuma Forte 90 cap"), regados) is None
+
+
+def test_revisar_parecidos_no_quita_los_del_ingrediente(monkeypatch):
+    class R:
+        texto = '{"revision": [{"n": 1, "mismo_tipo": false, "motivo": "no"}]}'
+    llamadas = []
+    monkeypatch.setattr(rp.puerta, "ejecutar", lambda *a, **k: llamadas.append(k["mensaje"]) or R())
+    monkeypatch.setattr(rp.puerta, "ventana", lambda *a, **k: None)
+    a = Producto(producto_id=1, sku="A", descripcion="BERBERINA 60 CAP")
+    b = Producto(producto_id=2, sku="B", descripcion="HIERBAS SUECAS 500 ML")
+    s = rp.Sujeto(tipo="idea", nombre="Berberina forte")
+    quedan, quitados = rp.revisar_parecidos(None, s, [(a, Decimal("0.5")), (b, Decimal("0.3"))], None, {1})
+    assert [p.sku for p, _ in quedan] == ["A"] and [p.sku for p, _ in quitados] == ["B"]
+    assert "BERBERINA" not in llamadas[0]  # al de su ingrediente ni se le pregunta a la IA
