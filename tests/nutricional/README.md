@@ -1,5 +1,34 @@
 # Prueba local de extracción nutrimental
 
+## Corrección: análisis cuantitativo y evidencia, además de la auditoría
+
+La revisión anterior solo priorizaba pendientes. Ahora el reporte principal calcula y explica composición, aporte y escenarios, y Ollama redacta una interpretación con citas a hechos y estudios documentados. La auditoría anterior permanece en JSON y se muestra con `--detalle`.
+
+```powershell
+python .\prueba_nutricional.py --ficha .\ficha.json --salida .\analisis.json
+```
+
+Comandos ejecutados para esta corrección (reutilizan el OCR real archivado, sin nueva inferencia visual):
+
+```powershell
+python prueba_nutricional.py --ficha ficha.json --salida tests/nutricional/analisis_55527.json
+python prueba_nutricional.py --ficha tests/nutricional/55541.json --salida tests/nutricional/analisis_55541.json
+python prueba_nutricional.py --ficha tests/nutricional/77755.json --modelo-revision qwen3.5:4b --salida tests/nutricional/analisis_77755.json
+python -m unittest discover -s tests -p "test_*nutrimental.py"
+python -m unittest discover -s tests -p "test_prueba_nutricional.py"
+python tests/nutricional/verificar_analisis_real.py
+```
+
+El primer comando usa la ficha local de Diego sin modificarla. Equivalente con datos incluidos: `python prueba_nutricional.py --ficha tests/nutricional/55527.json --categoria suplemento --salida analisis.json`.
+
+Resultados esperados y cotejados: 55527, 70 mg elementales separados de 500 mg de compuesto, cociente calculado 14 %, escenarios adultos ilustrativos 16.67–22.58 % y 28 % de la cantidad elemental del ensayo consultado; 55541, ocho compuestos suman 400 mg, 39.22 % de la masa de porción y elemental no declarado; alimento 77755, 460 mg de sodio y 2.3 g de fibra **por 100 g**, respectivamente 20 % y 8.21 % de referencias generales FDA, sin inventar porción diaria ni clasificación sanitaria.
+
+`docs/evidencia_nutrimental_v1.json` contiene un ensayo real de bisglicinato (PMID 40918053), con diseño, resultado, limitaciones y localizadores. Se contrasta por ingrediente/forma, sin reglas por SKU. Catálogo inicial limitado: **no hay búsqueda clínica automática ni exhaustiva**. `--evidencia archivo.json` permite otro catálogo documentado del mismo formato. Finalidad y población siguen pendientes por petición de Diego; sueño es la finalidad del ensayo, no una finalidad asignada al producto.
+
+Interpretación local: contexto 8192, temperatura 0, seed 42, máximo 3072 tokens; `qwen3:8b` para los dos suplementos y `qwen3.5:4b` para el alimento. Hubo borradores con afirmaciones incorrectas (incluso confusión de compuesto y elemental); se agregaron controles y un máximo de una corrección guiada. No se certifica la validez clínica de texto libre por pasar validación estructural/numérica. Si se rechaza, se conservan los cálculos y el contraste documental, se informa el fallo y no se publica ese borrador como conclusión. `--sin-ia-revision` permite ese modo directamente.
+
+Los reportes finales son `analisis_*.json`, sus respuestas finales e intentos `.revision.respuesta.json`, y resúmenes `.salida.txt`. `verificar_analisis_real.py` coteja estos artefactos sin llamar al modelo. Las pruebas unitarias de `test_analisis_nutrimental.py` usan fichas archivadas y respuestas **simuladas**; son independientes de las inferencias reales anteriores. Las secciones siguientes documentan la primera entrega y la auditoría previa.
+
 ## Segunda etapa: revisión documental del producto
 
 Para revisar **el archivo que ya generaste**, sin repetir la lectura de fotos:

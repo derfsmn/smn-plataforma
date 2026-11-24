@@ -49,7 +49,7 @@ def consumo_diario(ficha, escenario=None):
     return {'porciones': None, 'origen': 'pendiente', 'evidencia': 'Consumo diario ausente, ambiguo o no interpretable; no se supone una porción diaria.', 'datos': []}
 
 
-def evaluar(ficha, finalidad=None, poblacion=None, perfil=None, porciones_dia=None, afirmaciones=()):
+def evaluar(ficha, finalidad=None, poblacion=None, perfil=None, porciones_dia=None, afirmaciones=(), evidencia_path=None):
     """Produce hallazgos trazables; ninguna cantidad o criterio proviene del modelo."""
     if perfil is not None and perfil not in PERFILES:
         raise ValueError('Perfil de referencia no reconocido')
@@ -195,7 +195,18 @@ def evaluar(ficha, finalidad=None, poblacion=None, perfil=None, porciones_dia=No
         if not contexto['poblacion']:preguntas.append('¿Cuál es la población objetivo y qué grupos se excluyen?')
         if tiene_magnesio and not magnesio:preguntas.append('¿Cuántos mg de magnesio elemental se declaran por porción y qué documento respalda ese dato?')
         preguntas.extend(['¿Pueden proporcionar fórmula completa, ficha técnica y certificado de análisis del lote?', '¿Qué estudios respaldan las afirmaciones para esa forma, cantidad, población y finalidad?', '¿Cuáles son las instrucciones de consumo y las advertencias completas?', '¿Pueden proporcionar todas las caras del envase y los materiales publicitarios?'])
-    return {'version':'1.0', 'estado_general':estado, 'contexto':contexto, 'aportes':aportes if not no_aplica else [], 'hallazgos':hallazgos, 'preguntas_proveedor':preguntas, 'bloques':{b:[h['id'] for h in hallazgos if h['bloque']==b] for b in BLOQUES}, 'prioridades':[], 'integridad_fuentes':integridad, 'referencias':[referencias[r] for r in sorted(usados)], 'catalogo':{'version':catalogo['version'], 'fecha_verificacion':catalogo['fecha_verificacion_documental'], 'sha256':hashlib.sha256(catalogo_bytes).hexdigest(), 'alcance':catalogo['alcance']}, 'alcance':'Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.'}
+    revision={'version':'2.0', 'estado_general':estado, 'contexto':contexto, 'aportes':aportes if not no_aplica else [], 'hallazgos':hallazgos, 'preguntas_proveedor':preguntas, 'bloques':{b:[h['id'] for h in hallazgos if h['bloque']==b] for b in BLOQUES}, 'prioridades':[], 'integridad_fuentes':integridad, 'referencias':[referencias[r] for r in sorted(usados)], 'catalogo':{'version':catalogo['version'], 'fecha_verificacion':catalogo['fecha_verificacion_documental'], 'sha256':hashlib.sha256(catalogo_bytes).hexdigest(), 'alcance':catalogo['alcance']}, 'alcance':'Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.'}
+    from analisis_nutrimental import preparar_analisis
+    revision['analisis_producto']=preparar_analisis(ficha,revision,evidencia_path)
+    revision['ingredientes_declarados']=copy.deepcopy(ficha['ingredientes'])
+    comparables=revision['analisis_producto']['estudios_contrastados']
+    for h in hallazgos:
+        if h['bloque']=='sustento_cientifico':
+            h['motivo']='El catálogo local no aporta estudios coincidentes por ingrediente y forma para esta ficha. Esto no demuestra ausencia de evidencia en el mundo.'
+            if comparables:
+                h.update(resultado='observacion',motivo=f'Se contrastan {len(comparables)} estudios de ingrediente/forma con la declaración del producto. No son ensayos de esta marca; se muestran resultados, diferencias y limitaciones en el análisis.',referencias=[e['estudio']['id'] for e in comparables])
+    revision['referencias']=revision['analisis_producto']['referencias']
+    return revision
 
 
 def priorizar_con_ollama(revision, modelo, consultar, respuesta_guardada=None):
