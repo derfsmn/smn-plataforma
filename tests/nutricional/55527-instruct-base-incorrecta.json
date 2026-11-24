@@ -1,0 +1,233 @@
+{
+  "nombre": "Glicinato de Magnesio",
+  "categoria": null,
+  "ingredientes": [
+    {
+      "texto": "Magnesio aminoquelado biglicinato, celulosa microcristalina, carbonato de calcio, aluminometasilicato de magnesio y estea-rato de magnesio.",
+      "foto": "foto_1"
+    }
+  ],
+  "advertencias": [
+    {
+      "texto": "No exceder la porción máxima recomendada.",
+      "foto": "foto_1"
+    }
+  ],
+  "pendientes": [
+    "datos",
+    "Categoría pendiente de confirmar"
+  ],
+  "datos": [
+    {
+      "id": "d1",
+      "nombre": "Tamaño de porción",
+      "tipo": "porciones_envase",
+      "valor": 2,
+      "unidad": "tabletas",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "2 tabletas (1200 mg)"
+    },
+    {
+      "id": "d2",
+      "nombre": "Porciones por envase",
+      "tipo": "porciones_envase",
+      "valor": 30,
+      "unidad": "porciones",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "30"
+    },
+    {
+      "id": "d3",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kJ",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.00 kJ (0.00 Kcal)"
+    },
+    {
+      "id": "d4",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kcal",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.00 Kcal"
+    },
+    {
+      "id": "d5",
+      "nombre": "Proteínas",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.000 g"
+    },
+    {
+      "id": "d6",
+      "nombre": "Grasas (Lípidos)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.000 g"
+    },
+    {
+      "id": "d7",
+      "nombre": "Carbohidratos (Hidratos de Carbono)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.000 g"
+    },
+    {
+      "id": "d8",
+      "nombre": "Fibra dietética",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.000 g"
+    },
+    {
+      "id": "d9",
+      "nombre": "Sodio",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "0.000 mg"
+    },
+    {
+      "id": "d10",
+      "nombre": "Magnesio aminoquelado biglicinato",
+      "tipo": "compuesto",
+      "valor": 500,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "500 mg"
+    },
+    {
+      "id": "d11",
+      "nombre": "Equivalente a Magnesio",
+      "tipo": "nutrimento",
+      "valor": 70,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "70 mg"
+    },
+    {
+      "id": "d12",
+      "nombre": "Magnesio aminoquelado biglicinato",
+      "tipo": "compuesto",
+      "valor": 41667,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "41667 mg"
+    },
+    {
+      "id": "d13",
+      "nombre": "Equivalente a Magnesio",
+      "tipo": "nutrimento",
+      "valor": 5833,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "5833 mg"
+    }
+  ],
+  "equivalencias": [
+    {
+      "compuesto_id": "d10",
+      "nutrimento_id": "d11",
+      "foto": "foto_1",
+      "evidencia": "500 mg -> 70 mg"
+    },
+    {
+      "compuesto_id": "d12",
+      "nutrimento_id": "d13",
+      "foto": "foto_1",
+      "evidencia": "41667 mg -> 5833 mg"
+    }
+  ],
+  "sku": "55527",
+  "categoria_origen": "pendiente de confirmar",
+  "fuentes": {
+    "foto_1": {
+      "ruta": "C:\\Users\\diego\\OneDrive\\Documentos\\SMN\\SMN-TransformacionDigital\\tests\\nutricional\\55527.jpg",
+      "sha256": "c3143740191be734dc1557726cfb4990a7ebe38982cf7206203fe9c10fa28274",
+      "dimensiones_originales": [
+        2000,
+        2000
+      ],
+      "dimensiones_enviadas": [
+        1600,
+        1600
+      ]
+    }
+  },
+  "inferencia": {
+    "model": "qwen3-vl:4b-instruct",
+    "done_reason": "stop",
+    "prompt_eval_count": 2903,
+    "eval_count": 1495,
+    "opciones": {
+      "num_ctx": 16384,
+      "num_predict": 8192,
+      "temperature": 0,
+      "seed": 42
+    },
+    "contenido_final": true
+  },
+  "reglas": [
+    {
+      "regla": "estructura_unidades_fuentes",
+      "resultado": "correcto",
+      "motivo": "JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano."
+    },
+    {
+      "regla": "evaluacion_nutrimental",
+      "resultado": "pendiente",
+      "motivo": "Categoría pendiente de confirmar."
+    },
+    {
+      "regla": "suma_compuestos",
+      "resultado": "42167",
+      "unidad": "mg",
+      "base": "por porción",
+      "foto": "foto_1",
+      "datos": [
+        "d10",
+        "d12"
+      ],
+      "motivo": "Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental."
+    }
+  ],
+  "alcance": "Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual."
+}

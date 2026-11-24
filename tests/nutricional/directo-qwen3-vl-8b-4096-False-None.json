@@ -1,0 +1,10 @@
+{
+  "model": "qwen3-vl:8b",
+  "done_reason": "stop",
+  "prompt_eval_count": 38,
+  "eval_count": 349,
+  "ctx": 4096,
+  "format": null,
+  "content": "{\"ok\":true}",
+  "thinking_present": true
+}

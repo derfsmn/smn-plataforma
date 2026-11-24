@@ -1,0 +1,19 @@
+[
+  {
+    "foto": "foto_1",
+    "inferencia": {
+      "model": "qwen3-vl:4b-instruct",
+      "done_reason": "stop",
+      "prompt_eval_count": 2625,
+      "eval_count": 318,
+      "opciones": {
+        "num_ctx": 16384,
+        "num_predict": 8192,
+        "temperature": 0,
+        "seed": 42
+      },
+      "contenido_final": true
+    },
+    "transcripcion": "Nombre del producto\nGlicinato de Magnesio\nTamaño de porción\n2 tabletas (1200 mg)\nPorciones por frasco\n30\nInformación nutricional\nPorción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)\nProteínas\n0.000 g\n0.00 g\nGrasas (Lípidos)\n0.000 g\n0.00 g\nCarbohidratos (Hidratos de Carbono)\n0.000 g\n0.00 g\nFibra dietética\n0.000 g\n0.00 g\nSodio\n0.000 mg\n0.00 mg\nMagnesio aminoquelado\nbiglicinato\n500 mg\n41667 mg\nEquivalente a Magnesio\n70 mg\n5833 mg\nINGREDIENTES: Magnesio aminoquelado biglicinato, celulosa micro-\ncristalina, carbonato de calcio, aluminometasilicato de magnesio y estea-\nrato de magnesio.\nMODO DE EMPLEO: Tomar 2 tabletas al día con los alimentos.\nNo exceder la porción máxima recomendada."
+  }
+]

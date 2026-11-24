@@ -1,0 +1,10 @@
+{
+  "model": "qwen3-vl:8b",
+  "done_reason": "stop",
+  "prompt_eval_count": 1640,
+  "eval_count": 1420,
+  "ctx": 16384,
+  "format": null,
+  "content": "{\n  \"Proteinas\": \"0.000 g\",\n  \"Grasas (Lipidos)\": \"0.000 g\",\n  \"Carbohidratos (Hidratos de Carbono)\": \"0.000 g\",\n  \"Fibra dietética\": \"0.000 g\",\n  \"Sodio\": \"0.000 mg\",\n  \"Magnesio aminoquelado biglicinato\": \"500 mg\",\n  \"Equivalente a Magnesio\": \"70 mg\"\n}",
+  "thinking_present": true
+}

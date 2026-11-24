@@ -1,0 +1,10 @@
+{
+  "model": "qwen3-vl:4b-instruct",
+  "done_reason": "stop",
+  "prompt_eval_count": 1640,
+  "eval_count": 300,
+  "ctx": 16384,
+  "format": "json",
+  "content": "{\n  \"ok\": true,\n  \"table\": [\n    {\n      \"name\": \"Contenido energético\",\n      \"value\": \"0.00 kJ (0.00 Kcal)\",\n      \"unit\": \"kJ\"\n    },\n    {\n      \"name\": \"Proteínas\",\n      \"value\": \"0.000 g\",\n      \"unit\": \"g\"\n    },\n    {\n      \"name\": \"Grasas (Lípidos)\",\n      \"value\": \"0.000 g\",\n      \"unit\": \"g\"\n    },\n    {\n      \"name\": \"Carbohidratos (Hidratos de Carbono)\",\n      \"value\": \"0.000 g\",\n      \"unit\": \"g\"\n    },\n    {\n      \"name\": \"Fibra dietética\",\n      \"value\": \"0.000 g\",\n      \"unit\": \"g\"\n    },\n    {\n      \"name\": \"Sodio\",\n      \"value\": \"0.000 mg\",\n      \"unit\": \"mg\"\n    },\n    {\n      \"name\": \"Magnesio aminoquelado\",\n      \"value\": \"500 mg\",\n      \"unit\": \"mg\"\n    },\n    {\n      \"name\": \"Equivalente a Magnesio\",\n      \"value\": \"70 mg\",\n      \"unit\": \"mg\"\n    }\n  ]\n}",
+  "thinking_present": false
+}
