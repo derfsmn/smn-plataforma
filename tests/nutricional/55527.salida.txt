@@ -1,0 +1,54 @@
+Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo.
+Lectura visual real: {"model": "qwen3-vl:4b-instruct", "done_reason": "stop", "prompt_eval_count": 2625, "eval_count": 318, "opciones": {"num_ctx": 16384, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+Estructuración real: {"model": "qwen3:8b", "done_reason": "stop", "prompt_eval_count": 729, "eval_count": 1753, "opciones": {"num_ctx": 8192, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+
+SKU: 55527 | Glicinato de Magnesio
+Categoría: pendiente de confirmar
+  Tamaño de porción: 2 tabletas | por porción | foto_1
+  Tamaño de porción: 1200 mg | por porción | foto_1
+  Porciones por frasco: 30 porciones | por envase | foto_1
+  Contenido energético: 0 kJ | por porción | foto_1
+  Contenido energético: 0 kcal | por porción | foto_1
+  Contenido energético: 0 kJ | por 100 g | foto_1
+  Contenido energético: 0 kcal | por 100 g | foto_1
+  Proteínas: 0 g | por porción | foto_1
+  Proteínas: 0 g | por 100 g | foto_1
+  Grasas (Lípidos): 0 g | por porción | foto_1
+  Grasas (Lípidos): 0 g | por 100 g | foto_1
+  Carbohidratos (Hidratos de Carbono): 0 g | por porción | foto_1
+  Carbohidratos (Hidratos de Carbono): 0 g | por 100 g | foto_1
+  Fibra dietética: 0 g | por porción | foto_1
+  Fibra dietética: 0 g | por 100 g | foto_1
+  Sodio: 0 mg | por porción | foto_1
+  Sodio: 0 mg | por 100 g | foto_1
+  Magnesio aminoquelado biglicinato: 500 mg | por porción | foto_1
+  Magnesio aminoquelado biglicinato: 41667 mg | por 100 g | foto_1
+  Equivalente a Magnesio: 70 mg | por porción | foto_1
+  Equivalente a Magnesio: 5833 mg | por 100 g | foto_1
+  ingredientes: INGREDIENTES: Magnesio aminoquelado biglicinato, celulosa micro-
+cristalina, carbonato de calcio, aluminometasilicato de magnesio y estea-
+rato de magnesio. (foto_1)
+  advertencias: No exceder la porción máxima recomendada. (foto_1)
+  Regla seccion_de_transcripcion: reconstruida  . Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla seccion_de_transcripcion: reconstruida  . Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla metadatos_de_transcripcion: reconstruido  . Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan.
+  Regla metadatos_de_transcripcion: reconstruido  . Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan.
+  Regla columnas_de_transcripcion: reconstruida  . Encabezados explícitos y filas consecutivas del OCR; se conservan todas las celdas y ceros sin calcular cantidades.
+  Regla encabezado_tabla: excluido  . 100 g/ml es la base de la columna, no una porción declarada.
+  Regla equivalencia_explicita: registrada  . Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula.
+  Regla equivalencia_explicita: registrada  . Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula.
+  Regla estructura_unidades_fuentes: correcto  . JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano.
+  Regla evaluacion_nutrimental: pendiente  . Categoría pendiente de confirmar.
+  Regla suma_compuestos: 500.0 mg por porción. Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental.
+  Regla suma_compuestos: 41667.0 mg por 100 g. Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental.
+  Regla coherencia_porcion_100g: correcto kJ . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto kcal . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Pendiente: Categoría pendiente de confirmar
+Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.

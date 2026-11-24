@@ -1,0 +1,19 @@
+[
+  {
+    "foto": "foto_1",
+    "inferencia": {
+      "model": "qwen3-vl:4b-instruct",
+      "done_reason": "stop",
+      "prompt_eval_count": 2625,
+      "eval_count": 505,
+      "opciones": {
+        "num_ctx": 16384,
+        "num_predict": 8192,
+        "temperature": 0,
+        "seed": 42
+      },
+      "contenido_final": true
+    },
+    "transcripcion": "Nombre del producto\n8 Magnesios\nTamaño de porción\n2 Tabletas (1020 mg)\nPorciones por frasco\n30\nInformación nutricional\nPorción\n100 g\nContenido energético\n0.84 kJ (0.20 Kcal)\n82.04 kJ (19.61 Kcal)\nProteínas\n0.000 g\n0.00 g\nGrasas (Lípidos)\n0.000 g\n0.00 g\nCarbohidratos (Hidratos de Carbono)\n0.050 g\n4.90 g\nFibra dietética\n0.000 g\n0.00 g\nSodio\n0.000 mg\n0.000 mg\nCitrato de trimagnesio anhidro\n50 mg\n4902 mg\nMagnesio aminoquelado\nbiglicinato\n50 mg\n4902 mg\nCloruro de magnesio\nhexahidratado\n50 mg\n4902 mg\nÓxido de magnesio\n50 mg\n4902 mg\nL-treonato de magnesio\n50 mg\n4902 mg\nTaurato de magnesio\n50 mg\n4902 mg\nGluconato de magnesio\n50 mg\n4902 mg\nMalato de magnesio dihidratado\n50 mg\n4902 mg\nINGREDIENTES: Citrato de trimagnesio anhidro, magnesio aminoquelado biglicinato, cloruro de magnesio hexahidratado, óxido de magnesio, L-treonato de magnesio, taurato de magnesio, gluconato de magnesio, malato de magnesio dihidratado, celulosa microcrystallina, carbonato de calcio, aluminometasilicato de magnesio y estearato de magnesio.\nMODO DE EMPLEO: Tomar 2 tabletas al día después de los alimentos. No exceder la porción máxima recomendada."
+  }
+]

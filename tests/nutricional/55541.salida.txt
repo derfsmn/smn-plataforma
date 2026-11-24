@@ -1,0 +1,67 @@
+Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo.
+Lectura visual real: {"model": "qwen3-vl:4b-instruct", "done_reason": "stop", "prompt_eval_count": 2625, "eval_count": 505, "opciones": {"num_ctx": 16384, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+Estructuración real: {"model": "qwen3:8b", "done_reason": "stop", "prompt_eval_count": 915, "eval_count": 6039, "opciones": {"num_ctx": 8192, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+
+SKU: 55541 | 8 Magnesios
+Categoría: suplemento
+  Tamaño de porción: 2 tabletas | por porción | foto_1
+  Tamaño de porción: 1020 mg | por porción | foto_1
+  Porciones por frasco: 30 porciones | por envase | foto_1
+  Contenido energético: 0.84 kJ | por porción | foto_1
+  Contenido energético: 0.2 kcal | por porción | foto_1
+  Contenido energético: 82.04 kJ | por 100 g | foto_1
+  Contenido energético: 19.61 kcal | por 100 g | foto_1
+  Proteínas: 0 g | por porción | foto_1
+  Proteínas: 0 g | por 100 g | foto_1
+  Grasas (Lípidos): 0 g | por porción | foto_1
+  Grasas (Lípidos): 0 g | por 100 g | foto_1
+  Carbohidratos (Hidratos de Carbono): 0.05 g | por porción | foto_1
+  Carbohidratos (Hidratos de Carbono): 4.9 g | por 100 g | foto_1
+  Fibra dietética: 0 g | por porción | foto_1
+  Fibra dietética: 0 g | por 100 g | foto_1
+  Sodio: 0 mg | por porción | foto_1
+  Sodio: 0 mg | por 100 g | foto_1
+  Citrato de trimagnesio anhidro: 50 mg | por porción | foto_1
+  Citrato de trimagnesio anhidro: 4902 mg | por 100 g | foto_1
+  Magnesio aminoquelado biglicinato: 50 mg | por porción | foto_1
+  Magnesio aminoquelado biglicinato: 4902 mg | por 100 g | foto_1
+  Cloruro de magnesio hexahidratado: 50 mg | por porción | foto_1
+  Cloruro de magnesio hexahidratado: 4902 mg | por 100 g | foto_1
+  Óxido de magnesio: 50 mg | por porción | foto_1
+  Óxido de magnesio: 4902 mg | por 100 g | foto_1
+  L-treonato de magnesio: 50 mg | por porción | foto_1
+  L-treonato de magnesio: 4902 mg | por 100 g | foto_1
+  Taurato de magnesio: 50 mg | por porción | foto_1
+  Taurato de magnesio: 4902 mg | por 100 g | foto_1
+  Gluconato de magnesio: 50 mg | por porción | foto_1
+  Gluconato de magnesio: 4902 mg | por 100 g | foto_1
+  Malato de magnesio dihidratado: 50 mg | por porción | foto_1
+  Malato de magnesio dihidratado: 4902 mg | por 100 g | foto_1
+  ingredientes: INGREDIENTES: Citrato de trimagnesio anhidro, magnesio aminoquelado biglicinato, cloruro de magnesio hexahidratado, óxido de magnesio, L-treonato de magnesio, taurato de magnesio, gluconato de magnesio, malato de magnesio dihidratado, celulosa microcrystallina, carbonato de calcio, aluminometasilicato de magnesio y estearato de magnesio. (foto_1)
+  advertencias: No exceder la porción máxima recomendada. (foto_1)
+  Regla seccion_de_transcripcion: reconstruida  . Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla seccion_de_transcripcion: reconstruida  . Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla metadatos_de_transcripcion: reconstruido  . Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan.
+  Regla metadatos_de_transcripcion: reconstruido  . Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan.
+  Regla columnas_de_transcripcion: reconstruida  . Encabezados explícitos y filas consecutivas del OCR; se conservan todas las celdas y ceros sin calcular cantidades.
+  Regla estructura_unidades_fuentes: correcto  . JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano.
+  Regla evaluacion_nutrimental: revisión  . Extracción documental sin dictamen sanitario.
+  Regla suma_compuestos: 400.0 mg por porción. Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental.
+  Regla suma_compuestos: 39216.0 mg por 100 g. Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental.
+  Regla coherencia_porcion_100g: correcto kJ . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto kcal . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto g . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Regla coherencia_porcion_100g: correcto mg . Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario.
+  Pendiente: Magnesio elemental: no declarado en la foto según extracción; confirmar visualmente. No se calcula desde los compuestos.
+Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.

@@ -1,0 +1,33 @@
+Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo.
+Lectura visual real: {"model": "qwen3-vl:4b-instruct", "done_reason": "stop", "prompt_eval_count": 2625, "eval_count": 693, "opciones": {"num_ctx": 16384, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+Estructuración real: {"model": "qwen3:8b", "done_reason": "stop", "prompt_eval_count": 1114, "eval_count": 2345, "opciones": {"num_ctx": 8192, "num_predict": 8192, "temperature": 0, "seed": 42}, "contenido_final": true}
+
+SKU: 77755 | Thins
+Categoría: alimento
+  Contenido energético: 420.4 kcal | por 100 g | foto_1
+  Contenido energético: 1774.7 kJ | por 100 g | foto_1
+  Proteínas: 8.4 g | por 100 g | foto_1
+  Grasas totales: 9.6 g | por 100 g | foto_1
+  Grasas saturadas: 1.2 g | por 100 g | foto_1
+  Grasas trans: 0 mg | por 100 g | foto_1
+  Grasas poliinsaturadas: 1.6 g | por 100 g | foto_1
+  Grasas monoinsaturadas: 6.3 g | por 100 g | foto_1
+  Colesterol: 1.3 mg | por 100 g | foto_1
+  Hidratos de carbono disponibles: 75.1 g | por 100 g | foto_1
+  Azúcares: 2.5 g | por 100 g | foto_1
+  Azúcares añadidos: 0 g | por 100 g | foto_1
+  Fibra dietética: 2.3 g | por 100 g | foto_1
+  Sodio: 460 mg | por 100 g | foto_1
+  Contenido energético: 420.4 kcal | por envase | foto_1
+  Contenido energético: 1774.7 kJ | por envase | foto_1
+  ingredientes: Ingredientes: Harina de arroz, harina de almendra, almidón (papa), sazonador cuatro quesos [sólidos de la leche, sal, queso cheddar (leche, cultivos lácticos, sal, enzimas), maltodextrina de maíz, crema ácida (crema, leche descremada, cultivos lácticos), leche descremada en polvo, hidrolizado de levadura, queso mozzarella (leche, cultivos lácticos, sal, enzimas), saborizante natural, queso romano (leche, cultivos lácticos, sal, enzimas), ácido cítrico, cebolla en polvo, fosfato disódico, queso parmesano (leche, cultivos lácticos, sal, enzimas), colorantes (achiete y curcuminas), aceite vegetal (girasol), semillas de quinoa (2%), saborizante natural (ajonjoli)]. Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos). (foto_1)
+  advertencias: Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos). (foto_1)
+  advertencias: Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético. (foto_1)
+  Regla seccion_de_transcripcion: reconstruida  . Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla seccion_de_transcripcion: reconstruida  . Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto.
+  Regla columna_de_transcripcion: reconstruida  . Base explícita, nombre y cantidades en el OCR; se conservan unidades y cantidades sin calcular.
+  Regla estructura_unidades_fuentes: correcto  . JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano.
+  Regla evaluacion_nutrimental: revisión  . Extracción documental sin dictamen sanitario.
+  Pendiente: Tamaño de porción: ausente o ilegible en las fotos recibidas
+  Pendiente: Porciones por envase: ausente o ilegible en las fotos recibidas
+Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.

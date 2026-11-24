@@ -1,0 +1,308 @@
+{
+  "nombre": "Thins",
+  "categoria": "alimento",
+  "ingredientes": [
+    {
+      "texto": "Ingredientes: Harina de arroz, harina de almendra, almidón (papa), sazonador cuatro quesos [sólidos de la leche, sal, queso cheddar (leche, cultivos lácticos, sal, enzimas), maltodextrina de maíz, crema ácida (crema, leche descremada, cultivos lácticos), leche descremada en polvo, hidrolizado de levadura, queso mozzarella (leche, cultivos lácticos, sal, enzimas), saborizante natural, queso romano (leche, cultivos lácticos, sal, enzimas), ácido cítrico, cebolla en polvo, fosfato disódico, queso parmesano (leche, cultivos lácticos, sal, enzimas), colorantes (achiete y curcuminas), aceite vegetal (girasol), semillas de quinoa (2%), saborizante natural (ajonjoli)]. Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).",
+      "foto": "foto_1"
+    }
+  ],
+  "advertencias": [
+    {
+      "texto": "Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).",
+      "foto": "foto_1"
+    },
+    {
+      "texto": "Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.",
+      "foto": "foto_1"
+    }
+  ],
+  "pendientes": [
+    "Tamaño de porción: ausente o ilegible en las fotos recibidas",
+    "Porciones por envase: ausente o ilegible en las fotos recibidas"
+  ],
+  "datos": [
+    {
+      "id": "simple_foto_1_0",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 420.4,
+      "unidad": "kcal",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\n420,4 kcal / 1774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_1",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 1774.7,
+      "unidad": "kJ",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\n420,4 kcal / 1774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_2",
+      "nombre": "Proteínas",
+      "tipo": "nutrimento",
+      "valor": 8.4,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nProteínas 8,4 g"
+    },
+    {
+      "id": "simple_foto_1_3",
+      "nombre": "Grasas totales",
+      "tipo": "nutrimento",
+      "valor": 9.6,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas totales 9,6 g"
+    },
+    {
+      "id": "simple_foto_1_4",
+      "nombre": "Grasas saturadas",
+      "tipo": "nutrimento",
+      "valor": 1.2,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas saturadas 1,2 g"
+    },
+    {
+      "id": "simple_foto_1_5",
+      "nombre": "Grasas trans",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas trans 0,0 mg"
+    },
+    {
+      "id": "simple_foto_1_6",
+      "nombre": "Grasas poliinsaturadas",
+      "tipo": "nutrimento",
+      "valor": 1.6,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas poliinsaturadas 1,6 g"
+    },
+    {
+      "id": "simple_foto_1_7",
+      "nombre": "Grasas monoinsaturadas",
+      "tipo": "nutrimento",
+      "valor": 6.3,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas monoinsaturadas 6,3 g"
+    },
+    {
+      "id": "simple_foto_1_8",
+      "nombre": "Colesterol",
+      "tipo": "nutrimento",
+      "valor": 1.3,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nColesterol 1,3 mg"
+    },
+    {
+      "id": "simple_foto_1_9",
+      "nombre": "Hidratos de carbono disponibles",
+      "tipo": "nutrimento",
+      "valor": 75.1,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nHidratos de carbono disponibles 75,1 g"
+    },
+    {
+      "id": "simple_foto_1_10",
+      "nombre": "Azúcares",
+      "tipo": "nutrimento",
+      "valor": 2.5,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nAzúcares 2,5 g"
+    },
+    {
+      "id": "simple_foto_1_11",
+      "nombre": "Azúcares añadidos",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nAzúcares añadidos 0,0 g"
+    },
+    {
+      "id": "simple_foto_1_12",
+      "nombre": "Fibra dietética",
+      "tipo": "nutrimento",
+      "valor": 2.3,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nFibra dietética 2,3 g"
+    },
+    {
+      "id": "simple_foto_1_13",
+      "nombre": "Sodio",
+      "tipo": "nutrimento",
+      "valor": 460.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nSodio 460 mg"
+    },
+    {
+      "id": "simple_foto_1_14",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 420.4,
+      "unidad": "kcal",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por envase\n420,4 kcal / 1 774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_15",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 1774.7,
+      "unidad": "kJ",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por envase\n420,4 kcal / 1 774,7 kJ"
+    }
+  ],
+  "equivalencias": [],
+  "secciones_reconstruidas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    }
+  ],
+  "tablas_reconstruidas": [
+    {
+      "regla": "columna_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Base explícita, nombre y cantidades en el OCR; se conservan unidades y cantidades sin calcular."
+    }
+  ],
+  "ajustes_extraccion": [],
+  "sku": "77755",
+  "categoria_origen": "usuario",
+  "fuentes": {
+    "foto_1": {
+      "ruta": "C:\\Users\\diego\\OneDrive\\Documentos\\SMN\\SMN-TransformacionDigital\\tests\\nutricional\\77755A.jpg",
+      "sha256": "89e95c58269785aa373e7f365154bee6081157bbf3b414c481a5a14f2fd4ff67",
+      "dimensiones_originales": [
+        2000,
+        2000
+      ],
+      "dimensiones_enviadas": [
+        1600,
+        1600
+      ],
+      "preprocesamiento": "Orientación EXIF, RGB, reducción proporcional Lanczos, PNG; sin recorte",
+      "sha256_enviada": "38300ca3e1d49fd51ce03bdb72ccae694bdd7a5a35ce4ec2fc08e2ff81e12e7d"
+    }
+  },
+  "inferencia": {
+    "model": "qwen3:8b",
+    "done_reason": "stop",
+    "prompt_eval_count": 1114,
+    "eval_count": 2345,
+    "opciones": {
+      "num_ctx": 8192,
+      "num_predict": 8192,
+      "temperature": 0,
+      "seed": 42
+    },
+    "contenido_final": true
+  },
+  "lecturas": [
+    {
+      "foto": "foto_1",
+      "inferencia": {
+        "model": "qwen3-vl:4b-instruct",
+        "done_reason": "stop",
+        "prompt_eval_count": 2625,
+        "eval_count": 693,
+        "opciones": {
+          "num_ctx": 16384,
+          "num_predict": 8192,
+          "temperature": 0,
+          "seed": 42
+        },
+        "contenido_final": true
+      },
+      "transcripcion": "Thins\n\nDECLARACIÓN NUTRIMENTAL\n\nContenido energético Por 100 g\n420,4 kcal / 1774,7 kJ\n\nProteínas 8,4 g\nGrasas totales 9,6 g\nGrasas saturadas 1,2 g\nGrasas trans 0,0 mg\nGrasas poliinsaturadas 1,6 g\nGrasas monoinsaturadas 6,3 g\nColesterol 1,3 mg\nHidratos de carbono disponibles 75,1 g\nAzúcares 2,5 g\nAzúcares añadidos 0,0 g\nFibra dietética 2,3 g\nSodio 460 mg\n\nContenido energético Por envase\n420,4 kcal / 1 774,7 kJ\n\nIngredientes: Harina de arroz, harina de almendra, almidón (papa), sazonador cuatro quesos [sólidos de la leche, sal, queso cheddar (leche, cultivos lácticos, sal, enzimas), maltodextrina de maíz, crema ácida (crema, leche descremada, cultivos lácticos), leche descremada en polvo, hidrolizado de levadura, queso mozzarella (leche, cultivos lácticos, sal, enzimas), saborizante natural, queso romano (leche, cultivos lácticos, sal, enzimas), ácido cítrico, cebolla en polvo, fosfato disódico, queso parmesano (leche, cultivos lácticos, sal, enzimas), colorantes (achiete y curcuminas), aceite vegetal (girasol), semillas de quinoa (2%), saborizante natural (ajonjoli)]. Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).\n\nConsérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.\n\nElaborada en Estados Unidos de América. Importada y distribuida por: NATUREGANIX S.A.P.I. de C.V. Vasco de Quiroga #3900, Torre A, Piso 10, Int. 10-B, Col. Santa Fe Cuaajimalpa, C.P. 05348, Cuaajimalpa de Morelos. Ciudad de México, México. ventas@natureganix.com\n\nAtención al cliente: contacto@natureganix.com\n\nAL COMPRAR ESTE PRODUCTO ESTÁS\nAPOYANDO A COMBATIR EL CÁNCER INFANTIL.\n\nAMANC® Asociación Mexicana de Ayuda\na Niños con Cáncer, I.A.P."
+    }
+  ],
+  "reglas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "columna_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Base explícita, nombre y cantidades en el OCR; se conservan unidades y cantidades sin calcular."
+    },
+    {
+      "regla": "estructura_unidades_fuentes",
+      "resultado": "correcto",
+      "motivo": "JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano."
+    },
+    {
+      "regla": "evaluacion_nutrimental",
+      "resultado": "revisión",
+      "motivo": "Extracción documental sin dictamen sanitario."
+    }
+  ],
+  "alcance": "Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.",
+  "revision_python": "Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo."
+}
