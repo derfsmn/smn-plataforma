@@ -1,0 +1,52 @@
+Ficha reutilizada sin repetir OCR: 55541 | 8 Magnesios
+
+REVISIÓN NUTRIMENTAL DOCUMENTAL: informacion_insuficiente
+Finalidad: pendiente de definir
+Población: pendiente de definir
+Priorización con Ollama: correcto
+  Aporte declarado: Contenido energético: 0.84 kJ/porción; 0.84 kJ/día
+  Aporte declarado: Contenido energético: 0.2 kcal/porción; 0.2 kcal/día
+  Aporte declarado: Proteínas: 0 g/porción; 0 g/día
+  Aporte declarado: Grasas (Lípidos): 0 g/porción; 0 g/día
+  Aporte declarado: Carbohidratos (Hidratos de Carbono): 0.05 g/porción; 0.05 g/día
+  Aporte declarado: Fibra dietética: 0 g/porción; 0 g/día
+  Aporte declarado: Sodio: 0 mg/porción; 0 mg/día
+  Aporte declarado: Citrato de trimagnesio anhidro: 50 mg/porción; 50 mg/día
+  Aporte declarado: Magnesio aminoquelado biglicinato: 50 mg/porción; 50 mg/día
+  Aporte declarado: Cloruro de magnesio hexahidratado: 50 mg/porción; 50 mg/día
+  Aporte declarado: Óxido de magnesio: 50 mg/porción; 50 mg/día
+  Aporte declarado: L-treonato de magnesio: 50 mg/porción; 50 mg/día
+  Aporte declarado: Taurato de magnesio: 50 mg/porción; 50 mg/día
+  Aporte declarado: Gluconato de magnesio: 50 mg/porción; 50 mg/día
+  Aporte declarado: Malato de magnesio dihidratado: 50 mg/porción; 50 mg/día
+  H01 contexto — informacion_insuficiente [prioridad IA]: No se proporcionó finalidad; no se asume.
+    Acción: Confirmar finalidad antes de concluir pertinencia o beneficio.
+  H02 contexto — informacion_insuficiente [prioridad IA]: No se proporcionó poblacion; no se asume.
+    Acción: Confirmar poblacion antes de concluir pertinencia o beneficio.
+  H03 aporte — observacion: Se usarán 1 porciones al día; origen: instruccion_etiqueta.
+    Acción: Cotejar las instrucciones con la etiqueta; no aumentar ni prescribir dosis.
+  H04 aporte — informacion_insuficiente [prioridad IA]: Las masas de compuestos no permiten conocer ni comparar el aporte elemental; no se obtiene aplicando porcentajes químicos supuestos.
+    Acción: Solicitar magnesio elemental por porción y ficha técnica que lo sustente.
+  H05 pertinencia — informacion_insuficiente [prioridad IA]: Falta perfil específico, aporte por porción/diario o referencia aplicable en el catálogo. No se decide si la cantidad es suficiente, adecuada o excesiva.
+    Acción: Definir población, finalidad, consumo y nutrimento a comparar; ampliar referencias revisadas cuando corresponda.
+  H06 sustento_cientifico — informacion_insuficiente [prioridad IA]: En esta revisión no hay estudios del producto o comparables evaluados de ingrediente, forma, cantidad, población y finalidad. Esta versión no ingiere expedientes de estudios ni realiza búsqueda clínica exhaustiva.
+    Acción: Solicitar estudios, fórmula y ficha técnica; revisar comparabilidad y calidad de evidencia. No atribuir al producto beneficios de un ingrediente aislado.
+  H07 precauciones — observacion: Advertencias declaradas: No exceder la porción máxima recomendada.
+    Acción: Cotejar su lectura y revisar alérgenos, conservación y restricciones respecto de la población objetivo; no se presume que sean todas las advertencias necesarias.
+  H08 precauciones — revision_profesional: La referencia institucional describe precauciones renales e interacciones medicamentosas; la etiqueta sola no permite evaluar una persona concreta.
+    Acción: Revisar condiciones de uso, medicamentos, advertencias y población excluida con un profesional.
+  H09 coherencia — observacion: Se recalcularon 15 comparaciones entre porción y 100 g; 0 requieren revisar. Solo se comprueban relaciones calculables; no pureza ni veracidad analítica.
+    Acción: Resolver diferencias y cotejar cifras, unidades y OCR con la fotografía.
+  H10 etiquetado — informacion_insuficiente: Una ficha o foto parcial no acredita cumplimiento integral de etiquetado ni publicidad en México.
+    Acción: Solicitar todas las caras del envase y publicidad; verificar denominación, ingredientes, leyendas y afirmaciones con Regulatorio.
+  Referencia COFEPRIS_ETIQUETA: https://www.gob.mx/cofepris/es/documentos/como-leer-etiquetas-de-los-suplementos-alimenticios
+  Referencia COFEPRIS_MARCO: https://www.gob.mx/cofepris/acciones-y-programas/marco-juridico-para-suplementos-alimenticios
+  Referencia NIH_MAGNESIO: https://ods.od.nih.gov/factsheets/Magnesium-HealthProfessional/
+  Pregunta al proveedor: ¿Cuál es la finalidad de uso propuesta y cuáles son las afirmaciones que se desean sustentar?
+  Pregunta al proveedor: ¿Cuál es la población objetivo y qué grupos se excluyen?
+  Pregunta al proveedor: ¿Cuántos mg de magnesio elemental se declaran por porción y qué documento respalda ese dato?
+  Pregunta al proveedor: ¿Pueden proporcionar fórmula completa, ficha técnica y certificado de análisis del lote?
+  Pregunta al proveedor: ¿Qué estudios respaldan las afirmaciones para esa forma, cantidad, población y finalidad?
+  Pregunta al proveedor: ¿Cuáles son las instrucciones de consumo y las advertencias completas?
+  Pregunta al proveedor: ¿Pueden proporcionar todas las caras del envase y los materiales publicitarios?
+Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.

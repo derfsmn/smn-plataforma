@@ -1,5 +1,71 @@
 # Prueba local de extracción nutrimental
 
+## Segunda etapa: revisión documental del producto
+
+Para revisar **el archivo que ya generaste**, sin repetir la lectura de fotos:
+
+```powershell
+python .\prueba_nutricional.py --ficha .\ficha.json --salida .\revision.json
+```
+
+Ejemplo reproducible con un archivo que viene en el repositorio:
+
+```powershell
+python .\prueba_nutricional.py --ficha .\tests\nutricional\55527.json --categoria suplemento --salida .\revision.json
+```
+
+Para extraer y revisar en una sola ejecución:
+
+```powershell
+python .\prueba_nutricional.py --imagen .\tests\nutricional\55527.jpg --sku 55527 --categoria suplemento --evaluar --salida .\ficha_con_revision.json
+```
+
+La salida JSON conserva la extracción y agrega `revision_nutrimental`. Incluye contexto, aporte por base y por día cuando sea calculable, hallazgos por bloque (aporte, pertinencia, sustento científico, precauciones, coherencia y etiquetado), referencias, preguntas al proveedor y pendientes. Cada hallazgo incluye criterio, motivo, acción, incertidumbre, datos de origen y referencias cuando corresponden. Las advertencias conservan sus textos y fotos.
+
+**Diego pidió dejar finalidad y población pendientes.** No se asignan por omisión. Los resultados reales de esta prueba son:
+
+| Producto | Hallazgo documental |
+|---|---|
+| 55527 | El aporte elemental se identifica: 70 mg por porción y 70 mg/día según la instrucción visible de 2 tabletas al día. Es un dato declarado, no una recomendación. No puede concluirse adecuación ni beneficio sin contexto y evidencia. |
+| 55541 | El consumo se interpreta como una porción al día y las masas de ocho compuestos suman 400 mg/día. Falta el magnesio elemental declarado: solicitarlo al proveedor; no calcularlo desde los compuestos. |
+| 77755 | Se conserva lo declarado por 100 g y por envase. No se inventa tamaño de porción ni consumo diario, y no se aplican reglas de suplementos a un alimento. |
+
+Los tres reportes quedan en `informacion_insuficiente` con motivos y acciones concretas. Ese estado refleja lo que todavía impide concluir. Las referencias institucionales no demuestran eficacia del producto terminado. **Esta versión no ingiere expedientes de estudios ni realiza una búsqueda clínica exhaustiva**: registra ese bloque como pendiente y solicita estudios comparables de ingrediente, forma, cantidad, población y finalidad. No libera productos ni recomienda tratamientos.
+
+Reglas y cálculos en `revision_nutrimental.py`; referencias revisadas el 2026-11-24 en `docs/referencias_nutrimentales_v1.json` (NIH ODS, FDA y COFEPRIS). El catálogo y su huella quedan registrados en cada reporte. Las referencias estadounidenses se identifican como tales y **no se usan como límites legales mexicanos**. Son criterios documentales provisionales para esta prueba, no políticas de aprobación de SMN.
+
+Ollama local (`qwen3:8b`, contexto 8192, temperatura 0, seed 42, máximo 1024 tokens) **solo prioriza IDs de hallazgos ya calculados**. No puede modificar cantidades, referencias, estados ni acciones. Python rechaza IDs inexistentes, duplicados, campos adicionales y respuestas truncadas; todos los hallazgos se conservan. Si Ollama falla, el informe determinista sigue disponible y muestra `ia.estado=no_disponible`. `--sin-ia-revision` omite esta llamada.
+
+Opciones adicionales, sin valores supuestos:
+
+- `--finalidad` y `--poblacion`: contexto libre proporcionado por el usuario.
+- `--perfil`: perfil explícito del catálogo para una comparación descriptiva. Solo hay cuatro perfiles de adultos sanos de 19–30 o 31–50 años; mujeres sin embarazo/lactancia. El perfil define la población de referencia y no se combina con una población libre contradictoria. Se distingue ingesta total de referencia, valor diario de etiquetado y límite suplementario; no se interpreta un porcentaje como dosis eficaz, carencia o seguridad individual.
+- `--porciones-dia`: escenario del usuario, identificado como tal; no reemplaza lo declarado ni prescribe una dosis. Si difiere de las instrucciones legibles, genera observación para revisión profesional.
+- `--afirmacion`: afirmación propuesta por el usuario para revisar, repetible; no se presenta como lectura de la foto ni como beneficio demostrado.
+- `--modelo-revision`: modelo Ollama para priorizar; por omisión usa el modelo de texto.
+
+Solo se interpreta automáticamente un consumo diario inequívoco con una instrucción explícita del tipo «Tomar ... tabletas/cápsulas/piezas al día» y un tamaño de porción consistente. No se asume que porción y consumo diario sean lo mismo. Conflictos entre fotos, unidades fuera del catálogo y criterios sin cobertura requieren revisión.
+
+Verificación de esta etapa:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
+python tests/nutricional/ejecutar_revision_real.py
+python tests/nutricional/verificar_revision_real.py
+```
+
+Pasaron **35 pruebas** (16 anteriores de extracción y 19 nuevas de reglas/integración con datos ficticios y respuestas simuladas). Además se ejecutaron tres priorizaciones **reales** con Ollama sobre fichas de inferencias visuales reales previamente guardadas; no se repitió OCR en esas ejecuciones. `ejecutar_revision_real.py` comprueba que las fichas originales no cambien. Se verificaron aparte los tres cotejos de extracción anteriores.
+
+| SKU | prompt_eval_count | eval_count | done_reason | Contenido final |
+|---|---:|---:|---|---|
+| 55527 | 835 | 31 | stop | Sí |
+| 55541 | 835 | 31 | stop | Sí |
+| 77755 | 907 | 31 | stop | Sí |
+
+Reportes completos: [revision_55527.json](revision_55527.json), [revision_55541.json](revision_55541.json) y [revision_77755.json](revision_77755.json), con resúmenes `.salida.txt` y respuestas originales `.revision.respuesta.json`. El archivo `ficha.json` del usuario no se modifica al exportar a otra ruta.
+
+## Primera etapa: extracción
+
 Prueba independiente de Python, sin integración con módulos, base de datos ni API externa. Las fotos son reales y públicas; las respuestas de `tests/test_prueba_nutricional.py` son ficticias y se usan únicamente para probar validadores.
 
 Entorno observado el 24 de noviembre de 2026: Windows, Python 3.13.5, Pillow 12.3.0, Ollama 0.40.17 y RTX 4060 Laptop de 8 GB. No se descargaron modelos nuevos. Rama: `fix/prueba-nutricional-local`.

@@ -1,0 +1,1133 @@
+{
+  "nombre": "Glicinato de Magnesio",
+  "categoria": "suplemento",
+  "ingredientes": [
+    {
+      "texto": "INGREDIENTES: Magnesio aminoquelado biglicinato, celulosa micro-\ncristalina, carbonato de calcio, aluminometasilicato de magnesio y estea-\nrato de magnesio.",
+      "foto": "foto_1"
+    }
+  ],
+  "advertencias": [
+    {
+      "texto": "No exceder la porción máxima recomendada.",
+      "foto": "foto_1"
+    }
+  ],
+  "pendientes": [
+    "Categoría pendiente de confirmar"
+  ],
+  "datos": [
+    {
+      "id": "meta_foto_1_2_0",
+      "nombre": "Tamaño de porción",
+      "tipo": "porcion",
+      "valor": 2.0,
+      "unidad": "tabletas",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Tamaño de porción\n2 tabletas (1200 mg)"
+    },
+    {
+      "id": "meta_foto_1_2_1",
+      "nombre": "Tamaño de porción",
+      "tipo": "porcion",
+      "valor": 1200.0,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Tamaño de porción\n2 tabletas (1200 mg)"
+    },
+    {
+      "id": "meta_foto_1_4_0",
+      "nombre": "Porciones por frasco",
+      "tipo": "porciones_envase",
+      "valor": 30.0,
+      "unidad": "porciones",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porciones por frasco\n30"
+    },
+    {
+      "id": "tabla_foto_1_1",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kJ",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)"
+    },
+    {
+      "id": "tabla_foto_1_2",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kcal",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)"
+    },
+    {
+      "id": "tabla_foto_1_3",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kJ",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)"
+    },
+    {
+      "id": "tabla_foto_1_4",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "kcal",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)"
+    },
+    {
+      "id": "tabla_foto_1_5",
+      "nombre": "Proteínas",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nProteínas\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_6",
+      "nombre": "Proteínas",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nProteínas\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_7",
+      "nombre": "Grasas (Lípidos)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nGrasas (Lípidos)\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_8",
+      "nombre": "Grasas (Lípidos)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nGrasas (Lípidos)\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_9",
+      "nombre": "Carbohidratos (Hidratos de Carbono)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nCarbohidratos (Hidratos de Carbono)\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_10",
+      "nombre": "Carbohidratos (Hidratos de Carbono)",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nCarbohidratos (Hidratos de Carbono)\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_11",
+      "nombre": "Fibra dietética",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nFibra dietética\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_12",
+      "nombre": "Fibra dietética",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nFibra dietética\n0.000 g\n0.00 g"
+    },
+    {
+      "id": "tabla_foto_1_13",
+      "nombre": "Sodio",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nSodio\n0.000 mg\n0.00 mg"
+    },
+    {
+      "id": "tabla_foto_1_14",
+      "nombre": "Sodio",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nSodio\n0.000 mg\n0.00 mg"
+    },
+    {
+      "id": "tabla_foto_1_15",
+      "nombre": "Magnesio aminoquelado biglicinato",
+      "tipo": "compuesto",
+      "valor": 500.0,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nMagnesio aminoquelado\nbiglicinato\n500 mg\n41667 mg"
+    },
+    {
+      "id": "tabla_foto_1_16",
+      "nombre": "Magnesio aminoquelado biglicinato",
+      "tipo": "compuesto",
+      "valor": 41667.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nMagnesio aminoquelado\nbiglicinato\n500 mg\n41667 mg"
+    },
+    {
+      "id": "tabla_foto_1_17",
+      "nombre": "Equivalente a Magnesio",
+      "tipo": "nutrimento",
+      "valor": 70.0,
+      "unidad": "mg",
+      "base": "por porción",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nEquivalente a Magnesio\n70 mg\n5833 mg"
+    },
+    {
+      "id": "tabla_foto_1_18",
+      "nombre": "Equivalente a Magnesio",
+      "tipo": "nutrimento",
+      "valor": 5833.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nEquivalente a Magnesio\n70 mg\n5833 mg"
+    }
+  ],
+  "equivalencias": [
+    {
+      "compuesto_id": "tabla_foto_1_15",
+      "nutrimento_id": "tabla_foto_1_17",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nEquivalente a Magnesio\n70 mg\n5833 mg"
+    },
+    {
+      "compuesto_id": "tabla_foto_1_16",
+      "nutrimento_id": "tabla_foto_1_18",
+      "foto": "foto_1",
+      "evidencia": "Porción\n100 g\nEquivalente a Magnesio\n70 mg\n5833 mg"
+    }
+  ],
+  "secciones_reconstruidas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    }
+  ],
+  "tablas_reconstruidas": [
+    {
+      "regla": "metadatos_de_transcripcion",
+      "resultado": "reconstruido",
+      "foto": "foto_1",
+      "motivo": "Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan."
+    },
+    {
+      "regla": "metadatos_de_transcripcion",
+      "resultado": "reconstruido",
+      "foto": "foto_1",
+      "motivo": "Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan."
+    },
+    {
+      "regla": "columnas_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Encabezados explícitos y filas consecutivas del OCR; se conservan todas las celdas y ceros sin calcular cantidades."
+    }
+  ],
+  "ajustes_extraccion": [
+    {
+      "regla": "encabezado_tabla",
+      "resultado": "excluido",
+      "datos": [
+        "d4"
+      ],
+      "motivo": "100 g/ml es la base de la columna, no una porción declarada."
+    },
+    {
+      "regla": "equivalencia_explicita",
+      "resultado": "registrada",
+      "datos": [
+        "tabla_foto_1_15",
+        "tabla_foto_1_17"
+      ],
+      "motivo": "Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula."
+    },
+    {
+      "regla": "equivalencia_explicita",
+      "resultado": "registrada",
+      "datos": [
+        "tabla_foto_1_16",
+        "tabla_foto_1_18"
+      ],
+      "motivo": "Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula."
+    }
+  ],
+  "sku": "55527",
+  "categoria_origen": "usuario",
+  "fuentes": {
+    "foto_1": {
+      "ruta": "C:\\Users\\diego\\OneDrive\\Documentos\\SMN\\SMN-TransformacionDigital\\tests\\nutricional\\55527.jpg",
+      "sha256": "c3143740191be734dc1557726cfb4990a7ebe38982cf7206203fe9c10fa28274",
+      "dimensiones_originales": [
+        2000,
+        2000
+      ],
+      "dimensiones_enviadas": [
+        1600,
+        1600
+      ],
+      "preprocesamiento": "Orientación EXIF, RGB, reducción proporcional Lanczos, PNG; sin recorte",
+      "sha256_enviada": "9b62a2627e8326f847da9b04d969159bc7dd53d825eeef03c9a56c08ce6c1f99"
+    }
+  },
+  "inferencia": {
+    "model": "qwen3:8b",
+    "done_reason": "stop",
+    "prompt_eval_count": 729,
+    "eval_count": 1753,
+    "opciones": {
+      "num_ctx": 8192,
+      "num_predict": 8192,
+      "temperature": 0,
+      "seed": 42
+    },
+    "contenido_final": true
+  },
+  "lecturas": [
+    {
+      "foto": "foto_1",
+      "inferencia": {
+        "model": "qwen3-vl:4b-instruct",
+        "done_reason": "stop",
+        "prompt_eval_count": 2625,
+        "eval_count": 318,
+        "opciones": {
+          "num_ctx": 16384,
+          "num_predict": 8192,
+          "temperature": 0,
+          "seed": 42
+        },
+        "contenido_final": true
+      },
+      "transcripcion": "Nombre del producto\nGlicinato de Magnesio\nTamaño de porción\n2 tabletas (1200 mg)\nPorciones por frasco\n30\nInformación nutricional\nPorción\n100 g\nContenido energético\n0.00 kJ (0.00 Kcal)\n0.00 kJ (0.00 Kcal)\nProteínas\n0.000 g\n0.00 g\nGrasas (Lípidos)\n0.000 g\n0.00 g\nCarbohidratos (Hidratos de Carbono)\n0.000 g\n0.00 g\nFibra dietética\n0.000 g\n0.00 g\nSodio\n0.000 mg\n0.00 mg\nMagnesio aminoquelado\nbiglicinato\n500 mg\n41667 mg\nEquivalente a Magnesio\n70 mg\n5833 mg\nINGREDIENTES: Magnesio aminoquelado biglicinato, celulosa micro-\ncristalina, carbonato de calcio, aluminometasilicato de magnesio y estea-\nrato de magnesio.\nMODO DE EMPLEO: Tomar 2 tabletas al día con los alimentos.\nNo exceder la porción máxima recomendada."
+    }
+  ],
+  "reglas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "metadatos_de_transcripcion",
+      "resultado": "reconstruido",
+      "foto": "foto_1",
+      "motivo": "Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan."
+    },
+    {
+      "regla": "metadatos_de_transcripcion",
+      "resultado": "reconstruido",
+      "foto": "foto_1",
+      "motivo": "Cantidad y unidad leídas tras un encabezado explícito de porción o porciones por envase; no se calculan."
+    },
+    {
+      "regla": "columnas_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Encabezados explícitos y filas consecutivas del OCR; se conservan todas las celdas y ceros sin calcular cantidades."
+    },
+    {
+      "regla": "encabezado_tabla",
+      "resultado": "excluido",
+      "datos": [
+        "d4"
+      ],
+      "motivo": "100 g/ml es la base de la columna, no una porción declarada."
+    },
+    {
+      "regla": "equivalencia_explicita",
+      "resultado": "registrada",
+      "datos": [
+        "tabla_foto_1_15",
+        "tabla_foto_1_17"
+      ],
+      "motivo": "Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula."
+    },
+    {
+      "regla": "equivalencia_explicita",
+      "resultado": "registrada",
+      "datos": [
+        "tabla_foto_1_16",
+        "tabla_foto_1_18"
+      ],
+      "motivo": "Fila literal «Equivalente a» tras un compuesto en la misma base y foto; ninguna masa se calcula."
+    },
+    {
+      "regla": "estructura_unidades_fuentes",
+      "resultado": "correcto",
+      "motivo": "JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano."
+    },
+    {
+      "regla": "evaluacion_nutrimental",
+      "resultado": "pendiente",
+      "motivo": "Categoría pendiente de confirmar."
+    },
+    {
+      "regla": "suma_compuestos",
+      "resultado": "500.0",
+      "unidad": "mg",
+      "base": "por porción",
+      "foto": "foto_1",
+      "datos": [
+        "tabla_foto_1_15"
+      ],
+      "motivo": "Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental."
+    },
+    {
+      "regla": "suma_compuestos",
+      "resultado": "41667.0",
+      "unidad": "mg",
+      "base": "por 100 g",
+      "foto": "foto_1",
+      "datos": [
+        "tabla_foto_1_16"
+      ],
+      "motivo": "Suma de masas de compuestos con igual unidad, base y foto; no equivale al nutrimento elemental."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_1",
+        "tabla_foto_1_3"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "kJ",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_2",
+        "tabla_foto_1_4"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "kcal",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_5",
+        "tabla_foto_1_6"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "g",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_7",
+        "tabla_foto_1_8"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "g",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_9",
+        "tabla_foto_1_10"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "g",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_11",
+        "tabla_foto_1_12"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "g",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_13",
+        "tabla_foto_1_14"
+      ],
+      "valor_calculado": "0E+3",
+      "unidad": "mg",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_15",
+        "tabla_foto_1_16"
+      ],
+      "valor_calculado": "41666.66666666666666666666667",
+      "unidad": "mg",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    },
+    {
+      "regla": "coherencia_porcion_100g",
+      "resultado": "correcto",
+      "datos": [
+        "meta_foto_1_2_1",
+        "tabla_foto_1_17",
+        "tabla_foto_1_18"
+      ],
+      "valor_calculado": "5833.333333333333333333333333",
+      "unidad": "mg",
+      "motivo": "Escalado con masa de porción declarada; tolerancia técnica de 1 % o 0.01 unidades por redondeo, sin criterio sanitario."
+    }
+  ],
+  "alcance": "Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.",
+  "revision_python": "Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo.",
+  "revision_nutrimental": {
+    "version": "1.0",
+    "estado_general": "informacion_insuficiente",
+    "contexto": {
+      "categoria": "suplemento",
+      "finalidad": null,
+      "poblacion": null,
+      "perfil_referencia": null,
+      "consumo_diario": {
+        "porciones": 1.0,
+        "origen": "instruccion_etiqueta",
+        "foto": "foto_1",
+        "evidencia": "Tomar 2 tabletas al día",
+        "datos": [
+          "meta_foto_1_2_0"
+        ],
+        "operacion": "2 / 2.0"
+      },
+      "afirmaciones": []
+    },
+    "aportes": [
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "kJ",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_1"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "kcal",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_2"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "kJ",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_3"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "kcal",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_4"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Proteínas",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_5"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Proteínas",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_6"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas (Lípidos)",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_7"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas (Lípidos)",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_8"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Carbohidratos (Hidratos de Carbono)",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_9"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Carbohidratos (Hidratos de Carbono)",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_10"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Fibra dietética",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_11"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Fibra dietética",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_12"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Sodio",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "mg",
+        "base": "por porción",
+        "valor_diario": 0.0,
+        "base_diaria": "por día",
+        "operacion": "0.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_13"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Sodio",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_14"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Magnesio aminoquelado biglicinato",
+        "tipo": "compuesto",
+        "valor": 500.0,
+        "unidad": "mg",
+        "base": "por porción",
+        "valor_diario": 500.0,
+        "base_diaria": "por día",
+        "operacion": "500.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_15"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Magnesio aminoquelado biglicinato",
+        "tipo": "compuesto",
+        "valor": 41667.0,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_16"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Equivalente a Magnesio",
+        "tipo": "nutrimento",
+        "valor": 70.0,
+        "unidad": "mg",
+        "base": "por porción",
+        "valor_diario": 70.0,
+        "base_diaria": "por día",
+        "operacion": "70.0 × 1.0",
+        "datos": [
+          "tabla_foto_1_17"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Equivalente a Magnesio",
+        "tipo": "nutrimento",
+        "valor": 5833.0,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "tabla_foto_1_18"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      }
+    ],
+    "hallazgos": [
+      {
+        "id": "H01",
+        "bloque": "contexto",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Definir finalidad",
+        "motivo": "No se proporcionó finalidad; no se asume.",
+        "accion_recomendada": "Confirmar finalidad antes de concluir pertinencia o beneficio.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H02",
+        "bloque": "contexto",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Definir poblacion",
+        "motivo": "No se proporcionó poblacion; no se asume.",
+        "accion_recomendada": "Confirmar poblacion antes de concluir pertinencia o beneficio.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H03",
+        "bloque": "aporte",
+        "resultado": "observacion",
+        "criterio": "Consumo diario explícito",
+        "motivo": "Se usarán 1 porciones al día; origen: instruccion_etiqueta.",
+        "accion_recomendada": "Cotejar las instrucciones con la etiqueta; no aumentar ni prescribir dosis.",
+        "datos": [
+          "meta_foto_1_2_0"
+        ],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H04",
+        "bloque": "aporte",
+        "resultado": "favorable",
+        "criterio": "Aporte nutrimental identificable",
+        "motivo": "La etiqueta permite identificar 70 mg de magnesio por porción, separado de las masas de compuestos. Esto no confirma contenido en laboratorio.",
+        "accion_recomendada": "Confirmar el aporte declarado con la especificación y certificado de análisis del producto.",
+        "datos": [
+          "tabla_foto_1_17"
+        ],
+        "referencias": [
+          "NIH_MAGNESIO"
+        ],
+        "incertidumbre": null
+      },
+      {
+        "id": "H05",
+        "bloque": "pertinencia",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Referencia aplicable y aporte interpretable",
+        "motivo": "Falta perfil específico, aporte por porción/diario o referencia aplicable en el catálogo. No se decide si la cantidad es suficiente, adecuada o excesiva.",
+        "accion_recomendada": "Definir población, finalidad, consumo y nutrimento a comparar; ampliar referencias revisadas cuando corresponda.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H06",
+        "bloque": "sustento_cientifico",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Evidencia comparable con el producto",
+        "motivo": "En esta revisión no hay estudios del producto o comparables evaluados de ingrediente, forma, cantidad, población y finalidad. Esta versión no ingiere expedientes de estudios ni realiza búsqueda clínica exhaustiva.",
+        "accion_recomendada": "Solicitar estudios, fórmula y ficha técnica; revisar comparabilidad y calidad de evidencia. No atribuir al producto beneficios de un ingrediente aislado.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": "Las referencias institucionales no prueban eficacia de este producto terminado."
+      },
+      {
+        "id": "H07",
+        "bloque": "precauciones",
+        "resultado": "observacion",
+        "criterio": "Advertencias visibles de la etiqueta",
+        "motivo": "Advertencias declaradas: No exceder la porción máxima recomendada.",
+        "accion_recomendada": "Cotejar su lectura y revisar alérgenos, conservación y restricciones respecto de la población objetivo; no se presume que sean todas las advertencias necesarias.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null,
+        "evidencia_etiqueta": [
+          {
+            "texto": "No exceder la porción máxima recomendada.",
+            "foto": "foto_1"
+          }
+        ]
+      },
+      {
+        "id": "H08",
+        "bloque": "precauciones",
+        "resultado": "revision_profesional",
+        "criterio": "Precauciones generales documentadas para magnesio",
+        "motivo": "La referencia institucional describe precauciones renales e interacciones medicamentosas; la etiqueta sola no permite evaluar una persona concreta.",
+        "accion_recomendada": "Revisar condiciones de uso, medicamentos, advertencias y población excluida con un profesional.",
+        "datos": [],
+        "referencias": [
+          "NIH_MAGNESIO"
+        ],
+        "incertidumbre": null
+      },
+      {
+        "id": "H09",
+        "bloque": "coherencia",
+        "resultado": "observacion",
+        "criterio": "Coherencia aritmética documental",
+        "motivo": "Se recalcularon 9 comparaciones entre porción y 100 g; 0 requieren revisar. Solo se comprueban relaciones calculables; no pureza ni veracidad analítica.",
+        "accion_recomendada": "Resolver diferencias y cotejar cifras, unidades y OCR con la fotografía.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H10",
+        "bloque": "etiquetado",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Revisión de envase y afirmaciones comerciales",
+        "motivo": "Una ficha o foto parcial no acredita cumplimiento integral de etiquetado ni publicidad en México.",
+        "accion_recomendada": "Solicitar todas las caras del envase y publicidad; verificar denominación, ingredientes, leyendas y afirmaciones con Regulatorio.",
+        "datos": [],
+        "referencias": [
+          "COFEPRIS_ETIQUETA",
+          "COFEPRIS_MARCO"
+        ],
+        "incertidumbre": null
+      }
+    ],
+    "preguntas_proveedor": [
+      "¿Cuál es la finalidad de uso propuesta y cuáles son las afirmaciones que se desean sustentar?",
+      "¿Cuál es la población objetivo y qué grupos se excluyen?",
+      "¿Pueden proporcionar fórmula completa, ficha técnica y certificado de análisis del lote?",
+      "¿Qué estudios respaldan las afirmaciones para esa forma, cantidad, población y finalidad?",
+      "¿Cuáles son las instrucciones de consumo y las advertencias completas?",
+      "¿Pueden proporcionar todas las caras del envase y los materiales publicitarios?"
+    ],
+    "bloques": {
+      "contexto": [
+        "H01",
+        "H02"
+      ],
+      "aporte": [
+        "H03",
+        "H04"
+      ],
+      "pertinencia": [
+        "H05"
+      ],
+      "sustento_cientifico": [
+        "H06"
+      ],
+      "precauciones": [
+        "H07",
+        "H08"
+      ],
+      "coherencia": [
+        "H09"
+      ],
+      "etiquetado": [
+        "H10"
+      ]
+    },
+    "prioridades": [
+      "H01",
+      "H02",
+      "H05",
+      "H06",
+      "H08"
+    ],
+    "integridad_fuentes": [
+      {
+        "foto": "foto_1",
+        "estado": "coincide"
+      }
+    ],
+    "referencias": [
+      {
+        "id": "COFEPRIS_ETIQUETA",
+        "titulo": "COFEPRIS — Etiquetado de suplementos alimenticios",
+        "url": "https://www.gob.mx/cofepris/es/documentos/como-leer-etiquetas-de-los-suplementos-alimenticios",
+        "jurisdiccion": "México",
+        "tipo": "orientación regulatoria",
+        "localizadores": [
+          "Denominación",
+          "Lista de ingredientes",
+          "Leyendas de advertencia"
+        ],
+        "resumen": "Orienta sobre identificación, ingredientes y advertencias. Ver solo una cara del envase no permite declarar cumplimiento integral."
+      },
+      {
+        "id": "COFEPRIS_MARCO",
+        "titulo": "COFEPRIS — Marco jurídico para suplementos alimenticios",
+        "url": "https://www.gob.mx/cofepris/acciones-y-programas/marco-juridico-para-suplementos-alimenticios",
+        "jurisdiccion": "México",
+        "tipo": "orientación regulatoria",
+        "localizadores": [
+          "Reglamento de Control Sanitario de Productos y Servicios, artículos 173 y 174"
+        ],
+        "resumen": "La información comercial del suplemento requiere revisión de veracidad y de afirmaciones terapéuticas. Esta prueba no determina cumplimiento legal ni valida publicidad."
+      },
+      {
+        "id": "NIH_MAGNESIO",
+        "titulo": "NIH ODS — Magnesium, Health Professional Fact Sheet",
+        "url": "https://ods.od.nih.gov/factsheets/Magnesium-HealthProfessional/",
+        "jurisdiccion": "Estados Unidos",
+        "tipo": "síntesis institucional",
+        "localizadores": [
+          "Recommended Intakes, Table 1",
+          "Health Risks from Excessive Magnesium",
+          "Interactions with Medications"
+        ],
+        "resumen": "Distingue magnesio elemental de masa del compuesto. Presenta referencias de ingesta total y un límite superior suplementario para adultos. Describe precauciones renales e interacciones con antibióticos y bisfosfonatos. No estudia estos productos comerciales.",
+        "magnesio_mg": {
+          "rda_hombres_19_30": 400,
+          "rda_mujeres_19_30": 310,
+          "rda_hombres_31_50": 420,
+          "rda_mujeres_31_50": 320,
+          "ul_suplementos_adultos": 350
+        }
+      }
+    ],
+    "catalogo": {
+      "version": "1.0",
+      "fecha_verificacion": "2026-11-24",
+      "sha256": "d86dc974e136a855babc7c6ccf156e23d9146999d5894778b3bde629e0d898e6",
+      "alcance": "Referencias seleccionadas para una prueba documental. No son criterios aprobados de liberación de SMN. Las referencias estadounidenses no son límites legales mexicanos."
+    },
+    "alcance": "Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.",
+    "ia": {
+      "estado": "correcto",
+      "model": "qwen3:8b",
+      "done_reason": "stop",
+      "prompt_eval_count": 835,
+      "eval_count": 31,
+      "opciones": {
+        "temperature": 0,
+        "seed": 42,
+        "num_ctx": 8192,
+        "num_predict": 1024
+      },
+      "contenido_final": true,
+      "alcance": "Solo ordena hallazgos existentes. No evalúa eficacia ni decide aprobación."
+    }
+  }
+}

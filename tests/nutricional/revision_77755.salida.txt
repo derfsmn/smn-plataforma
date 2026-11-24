@@ -1,0 +1,33 @@
+Ficha reutilizada sin repetir OCR: 77755 | Thins
+
+REVISIÓN NUTRIMENTAL DOCUMENTAL: informacion_insuficiente
+Finalidad: pendiente de definir
+Población: pendiente de definir
+Priorización con Ollama: correcto
+  H01 contexto — informacion_insuficiente [prioridad IA]: No se proporcionó finalidad; no se asume.
+    Acción: Confirmar finalidad antes de concluir pertinencia o beneficio.
+  H02 contexto — informacion_insuficiente [prioridad IA]: No se proporcionó poblacion; no se asume.
+    Acción: Confirmar poblacion antes de concluir pertinencia o beneficio.
+  H03 aporte — informacion_insuficiente [prioridad IA]: Consumo diario ausente, ambiguo o no interpretable; no se supone una porción diaria.
+    Acción: Solicitar instrucciones completas de consumo diario.
+  H04 aporte — informacion_insuficiente [prioridad IA]: Hay información por otras bases, pero no un aporte por porción declarado interpretable. No se supone que 100 g o el envase completo sean una porción.
+    Acción: Confirmar tamaño de porción y consumo previsto antes de comparar una ingesta diaria.
+  H05 pertinencia — informacion_insuficiente [prioridad IA]: Falta perfil específico, aporte por porción/diario o referencia aplicable en el catálogo. No se decide si la cantidad es suficiente, adecuada o excesiva.
+    Acción: Definir población, finalidad, consumo y nutrimento a comparar; ampliar referencias revisadas cuando corresponda.
+  H06 sustento_cientifico — informacion_insuficiente: En esta revisión no hay estudios del producto o comparables evaluados de ingrediente, forma, cantidad, población y finalidad. Esta versión no ingiere expedientes de estudios ni realiza búsqueda clínica exhaustiva.
+    Acción: Solicitar estudios, fórmula y ficha técnica; revisar comparabilidad y calidad de evidencia. No atribuir al producto beneficios de un ingrediente aislado.
+  H07 precauciones — observacion: Advertencias declaradas: Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos). | Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.
+    Acción: Cotejar su lectura y revisar alérgenos, conservación y restricciones respecto de la población objetivo; no se presume que sean todas las advertencias necesarias.
+  H08 precauciones — informacion_insuficiente: No hay una matriz de seguridad completa de todos los ingredientes de este producto en esta prueba.
+    Acción: Solicitar evaluación de ingredientes, alérgenos, interacciones y advertencias específicas; no interpretar ausencia de alertas como seguridad.
+  H09 coherencia — observacion: Se recalcularon 0 comparaciones entre porción y 100 g; 0 requieren revisar. Solo se comprueban relaciones calculables; no pureza ni veracidad analítica.
+    Acción: Resolver diferencias y cotejar cifras, unidades y OCR con la fotografía.
+  H10 etiquetado — informacion_insuficiente: No se aplicaron reglas de suplementos a otra categoría ni se emitieron sellos de advertencia.
+    Acción: Confirmar clasificación y revisar etiquetado con la matriz vigente correspondiente.
+  Pregunta al proveedor: ¿Cuál es la finalidad de uso propuesta y cuáles son las afirmaciones que se desean sustentar?
+  Pregunta al proveedor: ¿Cuál es la población objetivo y qué grupos se excluyen?
+  Pregunta al proveedor: ¿Pueden proporcionar fórmula completa, ficha técnica y certificado de análisis del lote?
+  Pregunta al proveedor: ¿Qué estudios respaldan las afirmaciones para esa forma, cantidad, población y finalidad?
+  Pregunta al proveedor: ¿Cuáles son las instrucciones de consumo y las advertencias completas?
+  Pregunta al proveedor: ¿Pueden proporcionar todas las caras del envase y los materiales publicitarios?
+Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.
