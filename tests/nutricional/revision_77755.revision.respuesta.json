@@ -1,0 +1,16 @@
+{
+  "inferencia": {
+    "model": "qwen3:8b",
+    "done_reason": "stop",
+    "prompt_eval_count": 907,
+    "eval_count": 31,
+    "opciones": {
+      "temperature": 0,
+      "seed": 42,
+      "num_ctx": 8192,
+      "num_predict": 1024
+    },
+    "contenido_final": true
+  },
+  "contenido": "{\"prioridades\": [\"H01\", \"H02\", \"H03\", \"H04\", \"H05\"]}"
+}

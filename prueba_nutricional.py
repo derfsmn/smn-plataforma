@@ -1,4 +1,4 @@
-"""Extracción verificable de etiquetas locales con Ollama. Requiere Pillow."""
+"""Extracción y revisión documental nutrimental con Ollama local. Requiere Pillow."""
 import argparse
 import base64
 import hashlib
@@ -399,23 +399,7 @@ def crear_ficha(datos, fotos, lecturas, meta, sku=None, categoria_usuario=None):
     return ficha
 
 
-def main():
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--imagen',type=Path,nargs='+',action='extend',required=True)
-    p.add_argument('--modelo','--ollama',default='qwen3-vl:4b-instruct')
-    p.add_argument('--modelo-texto',default='qwen3:8b',help='Modelo local para estructurar la lectura visual')
-    p.add_argument('--lectura-directa',action='store_true',help='Experimento: pedir la ficha directamente al modelo visual')
-    p.add_argument('--sku');p.add_argument('--categoria')
-    p.add_argument('--contexto',type=int,default=16384)
-    p.add_argument('--contexto-texto',type=int,default=8192)
-    p.add_argument('--tokens',type=int,default=8192)
-    p.add_argument('--max-lado',type=int,default=1600,help='0 conserva resolución; nunca recorta')
-    p.add_argument('--salida',type=Path)
-    args=p.parse_args()
-    if args.contexto<1024 or args.contexto_texto<1024 or args.tokens<1 or args.max_lado<0: p.error('Límites no válidos')
+def extraer_imagenes(args):
     fotos={};imagenes=[]
     for i,ruta in enumerate(args.imagen,1):
         imagen,fuente=preparar(ruta,args.max_lado);imagenes.append(imagen);fotos[f'foto_{i}']=fuente
@@ -439,8 +423,59 @@ def main():
     print('Inferencia real:',json.dumps(meta,ensure_ascii=False))
     if args.salida:
         args.salida.with_suffix('.respuesta.json').write_text(json.dumps({'inferencia':meta,'contenido':respuesta.get('message',{}).get('content','')},ensure_ascii=False,indent=2),encoding='utf8')
-    ficha=crear_ficha(validar_extraccion(respuesta),fotos,lecturas,meta,args.sku,args.categoria)
-    mostrar_resumen(ficha)
+    return crear_ficha(validar_extraccion(respuesta),fotos,lecturas,meta,args.sku,args.categoria)
+
+
+def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    p=argparse.ArgumentParser(description=__doc__)
+    entrada=p.add_mutually_exclusive_group(required=True)
+    entrada.add_argument('--imagen',type=Path,nargs='+',action='extend')
+    entrada.add_argument('--ficha',type=Path,help='Revisar una ficha ya extraída, sin repetir OCR')
+    p.add_argument('--modelo','--ollama',default='qwen3-vl:4b-instruct')
+    p.add_argument('--modelo-texto',default='qwen3:8b',help='Modelo local para estructurar la lectura visual')
+    p.add_argument('--lectura-directa',action='store_true',help='Experimento: pedir la ficha directamente al modelo visual')
+    p.add_argument('--sku');p.add_argument('--categoria')
+    p.add_argument('--contexto',type=int,default=16384)
+    p.add_argument('--contexto-texto',type=int,default=8192)
+    p.add_argument('--tokens',type=int,default=8192)
+    p.add_argument('--max-lado',type=int,default=1600,help='0 conserva resolución; nunca recorta')
+    p.add_argument('--salida',type=Path)
+    p.add_argument('--evaluar',action='store_true',help='Agregar revisión documental a la extracción')
+    p.add_argument('--finalidad',help='Finalidad propuesta; se deja pendiente si se omite')
+    p.add_argument('--poblacion',help='Población objetivo; se deja pendiente si se omite')
+    from revision_nutrimental import PERFILES
+    p.add_argument('--perfil',choices=sorted(PERFILES),help='Perfil explícito para comparar referencias; no se elige automáticamente')
+    p.add_argument('--porciones-dia',type=float,help='Escenario de consumo del usuario, no recomendación de dosis')
+    p.add_argument('--afirmacion',action='append',default=[],help='Afirmación a revisar proporcionada por el usuario; repetible')
+    p.add_argument('--modelo-revision',help='Modelo Ollama para priorizar hallazgos; por omisión el modelo de texto')
+    p.add_argument('--sin-ia-revision',action='store_true',help='Revisión determinista; no llama a IA para priorizar')
+    args=p.parse_args()
+    if args.contexto<1024 or args.contexto_texto<1024 or args.tokens<1 or args.max_lado<0: p.error('Límites no válidos')
+    if args.ficha:
+        ficha=json.loads(args.ficha.read_text(encoding='utf-8-sig'))
+        if not isinstance(ficha,dict) or not isinstance(ficha.get('fuentes'),dict) or not ficha['fuentes']:
+            raise ValueError('Se esperaba una ficha con fuentes de fotos, no una respuesta cruda de Ollama')
+        if any(not isinstance(f,dict) or not isinstance(f.get('ruta'),str) or not isinstance(f.get('sha256'),str) for f in ficha['fuentes'].values()):
+            raise ValueError('Fuentes de la ficha incompletas')
+        validar_ficha(ficha,ficha['fuentes'])
+        if args.categoria:ficha.update(categoria=args.categoria,categoria_origen='usuario')
+        if args.sku:ficha['sku']=args.sku
+    else:
+        ficha=extraer_imagenes(args)
+    if args.ficha:
+        print(f"Ficha reutilizada sin repetir OCR: {ficha.get('sku') or 'sin SKU'} | {ficha.get('nombre') or 'nombre pendiente'}")
+    else:mostrar_resumen(ficha)
+    if args.evaluar or args.ficha:
+        from revision_nutrimental import evaluar, priorizar_con_ollama, mostrar
+        revision=evaluar(ficha,args.finalidad,args.poblacion,args.perfil,args.porciones_dia,args.afirmacion)
+        if args.sin_ia_revision:revision['ia']={'estado':'omitida_por_usuario'}
+        else:
+            priorizar_con_ollama(revision,args.modelo_revision or args.modelo_texto,consultar_ollama,args.salida.with_suffix('.revision.respuesta.json') if args.salida else None)
+        ficha['revision_nutrimental']=revision
+        mostrar(revision)
     if args.salida:
         args.salida.write_text(json.dumps(ficha,ensure_ascii=False,indent=2),encoding='utf8')
     return 0

@@ -1,0 +1,792 @@
+{
+  "nombre": "Thins",
+  "categoria": "alimento",
+  "ingredientes": [
+    {
+      "texto": "Ingredientes: Harina de arroz, harina de almendra, almidón (papa), sazonador cuatro quesos [sólidos de la leche, sal, queso cheddar (leche, cultivos lácticos, sal, enzimas), maltodextrina de maíz, crema ácida (crema, leche descremada, cultivos lácticos), leche descremada en polvo, hidrolizado de levadura, queso mozzarella (leche, cultivos lácticos, sal, enzimas), saborizante natural, queso romano (leche, cultivos lácticos, sal, enzimas), ácido cítrico, cebolla en polvo, fosfato disódico, queso parmesano (leche, cultivos lácticos, sal, enzimas), colorantes (achiete y curcuminas), aceite vegetal (girasol), semillas de quinoa (2%), saborizante natural (ajonjoli)]. Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).",
+      "foto": "foto_1"
+    }
+  ],
+  "advertencias": [
+    {
+      "texto": "Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).",
+      "foto": "foto_1"
+    },
+    {
+      "texto": "Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.",
+      "foto": "foto_1"
+    }
+  ],
+  "pendientes": [
+    "Tamaño de porción: ausente o ilegible en las fotos recibidas",
+    "Porciones por envase: ausente o ilegible en las fotos recibidas"
+  ],
+  "datos": [
+    {
+      "id": "simple_foto_1_0",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 420.4,
+      "unidad": "kcal",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\n420,4 kcal / 1774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_1",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 1774.7,
+      "unidad": "kJ",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\n420,4 kcal / 1774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_2",
+      "nombre": "Proteínas",
+      "tipo": "nutrimento",
+      "valor": 8.4,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nProteínas 8,4 g"
+    },
+    {
+      "id": "simple_foto_1_3",
+      "nombre": "Grasas totales",
+      "tipo": "nutrimento",
+      "valor": 9.6,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas totales 9,6 g"
+    },
+    {
+      "id": "simple_foto_1_4",
+      "nombre": "Grasas saturadas",
+      "tipo": "nutrimento",
+      "valor": 1.2,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas saturadas 1,2 g"
+    },
+    {
+      "id": "simple_foto_1_5",
+      "nombre": "Grasas trans",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas trans 0,0 mg"
+    },
+    {
+      "id": "simple_foto_1_6",
+      "nombre": "Grasas poliinsaturadas",
+      "tipo": "nutrimento",
+      "valor": 1.6,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas poliinsaturadas 1,6 g"
+    },
+    {
+      "id": "simple_foto_1_7",
+      "nombre": "Grasas monoinsaturadas",
+      "tipo": "nutrimento",
+      "valor": 6.3,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nGrasas monoinsaturadas 6,3 g"
+    },
+    {
+      "id": "simple_foto_1_8",
+      "nombre": "Colesterol",
+      "tipo": "nutrimento",
+      "valor": 1.3,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nColesterol 1,3 mg"
+    },
+    {
+      "id": "simple_foto_1_9",
+      "nombre": "Hidratos de carbono disponibles",
+      "tipo": "nutrimento",
+      "valor": 75.1,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nHidratos de carbono disponibles 75,1 g"
+    },
+    {
+      "id": "simple_foto_1_10",
+      "nombre": "Azúcares",
+      "tipo": "nutrimento",
+      "valor": 2.5,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nAzúcares 2,5 g"
+    },
+    {
+      "id": "simple_foto_1_11",
+      "nombre": "Azúcares añadidos",
+      "tipo": "nutrimento",
+      "valor": 0.0,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nAzúcares añadidos 0,0 g"
+    },
+    {
+      "id": "simple_foto_1_12",
+      "nombre": "Fibra dietética",
+      "tipo": "nutrimento",
+      "valor": 2.3,
+      "unidad": "g",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nFibra dietética 2,3 g"
+    },
+    {
+      "id": "simple_foto_1_13",
+      "nombre": "Sodio",
+      "tipo": "nutrimento",
+      "valor": 460.0,
+      "unidad": "mg",
+      "base": "por 100 g",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por 100 g\nSodio 460 mg"
+    },
+    {
+      "id": "simple_foto_1_14",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 420.4,
+      "unidad": "kcal",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por envase\n420,4 kcal / 1 774,7 kJ"
+    },
+    {
+      "id": "simple_foto_1_15",
+      "nombre": "Contenido energético",
+      "tipo": "nutrimento",
+      "valor": 1774.7,
+      "unidad": "kJ",
+      "base": "por envase",
+      "estado": "declarado",
+      "foto": "foto_1",
+      "evidencia": "Contenido energético Por envase\n420,4 kcal / 1 774,7 kJ"
+    }
+  ],
+  "equivalencias": [],
+  "secciones_reconstruidas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    }
+  ],
+  "tablas_reconstruidas": [
+    {
+      "regla": "columna_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Base explícita, nombre y cantidades en el OCR; se conservan unidades y cantidades sin calcular."
+    }
+  ],
+  "ajustes_extraccion": [],
+  "sku": "77755",
+  "categoria_origen": "usuario",
+  "fuentes": {
+    "foto_1": {
+      "ruta": "C:\\Users\\diego\\OneDrive\\Documentos\\SMN\\SMN-TransformacionDigital\\tests\\nutricional\\77755A.jpg",
+      "sha256": "89e95c58269785aa373e7f365154bee6081157bbf3b414c481a5a14f2fd4ff67",
+      "dimensiones_originales": [
+        2000,
+        2000
+      ],
+      "dimensiones_enviadas": [
+        1600,
+        1600
+      ],
+      "preprocesamiento": "Orientación EXIF, RGB, reducción proporcional Lanczos, PNG; sin recorte",
+      "sha256_enviada": "38300ca3e1d49fd51ce03bdb72ccae694bdd7a5a35ce4ec2fc08e2ff81e12e7d"
+    }
+  },
+  "inferencia": {
+    "model": "qwen3:8b",
+    "done_reason": "stop",
+    "prompt_eval_count": 1114,
+    "eval_count": 2345,
+    "opciones": {
+      "num_ctx": 8192,
+      "num_predict": 8192,
+      "temperature": 0,
+      "seed": 42
+    },
+    "contenido_final": true
+  },
+  "lecturas": [
+    {
+      "foto": "foto_1",
+      "inferencia": {
+        "model": "qwen3-vl:4b-instruct",
+        "done_reason": "stop",
+        "prompt_eval_count": 2625,
+        "eval_count": 693,
+        "opciones": {
+          "num_ctx": 16384,
+          "num_predict": 8192,
+          "temperature": 0,
+          "seed": 42
+        },
+        "contenido_final": true
+      },
+      "transcripcion": "Thins\n\nDECLARACIÓN NUTRIMENTAL\n\nContenido energético Por 100 g\n420,4 kcal / 1774,7 kJ\n\nProteínas 8,4 g\nGrasas totales 9,6 g\nGrasas saturadas 1,2 g\nGrasas trans 0,0 mg\nGrasas poliinsaturadas 1,6 g\nGrasas monoinsaturadas 6,3 g\nColesterol 1,3 mg\nHidratos de carbono disponibles 75,1 g\nAzúcares 2,5 g\nAzúcares añadidos 0,0 g\nFibra dietética 2,3 g\nSodio 460 mg\n\nContenido energético Por envase\n420,4 kcal / 1 774,7 kJ\n\nIngredientes: Harina de arroz, harina de almendra, almidón (papa), sazonador cuatro quesos [sólidos de la leche, sal, queso cheddar (leche, cultivos lácticos, sal, enzimas), maltodextrina de maíz, crema ácida (crema, leche descremada, cultivos lácticos), leche descremada en polvo, hidrolizado de levadura, queso mozzarella (leche, cultivos lácticos, sal, enzimas), saborizante natural, queso romano (leche, cultivos lácticos, sal, enzimas), ácido cítrico, cebolla en polvo, fosfato disódico, queso parmesano (leche, cultivos lácticos, sal, enzimas), colorantes (achiete y curcuminas), aceite vegetal (girasol), semillas de quinoa (2%), saborizante natural (ajonjoli)]. Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).\n\nConsérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.\n\nElaborada en Estados Unidos de América. Importada y distribuida por: NATUREGANIX S.A.P.I. de C.V. Vasco de Quiroga #3900, Torre A, Piso 10, Int. 10-B, Col. Santa Fe Cuaajimalpa, C.P. 05348, Cuaajimalpa de Morelos. Ciudad de México, México. ventas@natureganix.com\n\nAtención al cliente: contacto@natureganix.com\n\nAL COMPRAR ESTE PRODUCTO ESTÁS\nAPOYANDO A COMBATIR EL CÁNCER INFANTIL.\n\nAMANC® Asociación Mexicana de Ayuda\na Niños con Cáncer, I.A.P."
+    }
+  ],
+  "reglas": [
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección ingredientes delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "seccion_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Sección advertencias delimitada por encabezados o frases explícitas del OCR; se conserva su texto."
+    },
+    {
+      "regla": "columna_de_transcripcion",
+      "resultado": "reconstruida",
+      "foto": "foto_1",
+      "motivo": "Base explícita, nombre y cantidades en el OCR; se conservan unidades y cantidades sin calcular."
+    },
+    {
+      "regla": "estructura_unidades_fuentes",
+      "resultado": "correcto",
+      "motivo": "JSON, números finitos, unidades, bases y referencias validados en Python; lectura pendiente de cotejo humano."
+    },
+    {
+      "regla": "evaluacion_nutrimental",
+      "resultado": "revisión",
+      "motivo": "Extracción documental sin dictamen sanitario."
+    }
+  ],
+  "alcance": "Extracción y revisión; sin dictamen sanitario. Evidencia transcrita por modelo: requiere cotejo visual.",
+  "revision_python": "Revisión de las mismas inferencias reales guardadas; sin nueva llamada al modelo.",
+  "revision_nutrimental": {
+    "version": "1.0",
+    "estado_general": "informacion_insuficiente",
+    "contexto": {
+      "categoria": "alimento",
+      "finalidad": null,
+      "poblacion": null,
+      "perfil_referencia": null,
+      "consumo_diario": {
+        "porciones": null,
+        "origen": "pendiente",
+        "evidencia": "Consumo diario ausente, ambiguo o no interpretable; no se supone una porción diaria.",
+        "datos": []
+      },
+      "afirmaciones": []
+    },
+    "aportes": [
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 420.4,
+        "unidad": "kcal",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_0"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 1774.7,
+        "unidad": "kJ",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_1"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Proteínas",
+        "tipo": "nutrimento",
+        "valor": 8.4,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_2"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas totales",
+        "tipo": "nutrimento",
+        "valor": 9.6,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_3"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas saturadas",
+        "tipo": "nutrimento",
+        "valor": 1.2,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_4"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas trans",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_5"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas poliinsaturadas",
+        "tipo": "nutrimento",
+        "valor": 1.6,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_6"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Grasas monoinsaturadas",
+        "tipo": "nutrimento",
+        "valor": 6.3,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_7"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Colesterol",
+        "tipo": "nutrimento",
+        "valor": 1.3,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_8"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Hidratos de carbono disponibles",
+        "tipo": "nutrimento",
+        "valor": 75.1,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_9"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Azúcares",
+        "tipo": "nutrimento",
+        "valor": 2.5,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_10"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Azúcares añadidos",
+        "tipo": "nutrimento",
+        "valor": 0.0,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_11"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Fibra dietética",
+        "tipo": "nutrimento",
+        "valor": 2.3,
+        "unidad": "g",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_12"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Sodio",
+        "tipo": "nutrimento",
+        "valor": 460.0,
+        "unidad": "mg",
+        "base": "por 100 g",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_13"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 420.4,
+        "unidad": "kcal",
+        "base": "por envase",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_14"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      },
+      {
+        "nombre": "Contenido energético",
+        "tipo": "nutrimento",
+        "valor": 1774.7,
+        "unidad": "kJ",
+        "base": "por envase",
+        "valor_diario": null,
+        "base_diaria": null,
+        "operacion": null,
+        "datos": [
+          "simple_foto_1_15"
+        ],
+        "fotos": [
+          "foto_1"
+        ]
+      }
+    ],
+    "hallazgos": [
+      {
+        "id": "H01",
+        "bloque": "contexto",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Definir finalidad",
+        "motivo": "No se proporcionó finalidad; no se asume.",
+        "accion_recomendada": "Confirmar finalidad antes de concluir pertinencia o beneficio.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H02",
+        "bloque": "contexto",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Definir poblacion",
+        "motivo": "No se proporcionó poblacion; no se asume.",
+        "accion_recomendada": "Confirmar poblacion antes de concluir pertinencia o beneficio.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H03",
+        "bloque": "aporte",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Consumo diario explícito",
+        "motivo": "Consumo diario ausente, ambiguo o no interpretable; no se supone una porción diaria.",
+        "accion_recomendada": "Solicitar instrucciones completas de consumo diario.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H04",
+        "bloque": "aporte",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Aporte por porción identificable",
+        "motivo": "Hay información por otras bases, pero no un aporte por porción declarado interpretable. No se supone que 100 g o el envase completo sean una porción.",
+        "accion_recomendada": "Confirmar tamaño de porción y consumo previsto antes de comparar una ingesta diaria.",
+        "datos": [
+          "simple_foto_1_0",
+          "simple_foto_1_1",
+          "simple_foto_1_2",
+          "simple_foto_1_3",
+          "simple_foto_1_4",
+          "simple_foto_1_5",
+          "simple_foto_1_6",
+          "simple_foto_1_7",
+          "simple_foto_1_8",
+          "simple_foto_1_9",
+          "simple_foto_1_10",
+          "simple_foto_1_11",
+          "simple_foto_1_12",
+          "simple_foto_1_13",
+          "simple_foto_1_14",
+          "simple_foto_1_15"
+        ],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H05",
+        "bloque": "pertinencia",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Referencia aplicable y aporte interpretable",
+        "motivo": "Falta perfil específico, aporte por porción/diario o referencia aplicable en el catálogo. No se decide si la cantidad es suficiente, adecuada o excesiva.",
+        "accion_recomendada": "Definir población, finalidad, consumo y nutrimento a comparar; ampliar referencias revisadas cuando corresponda.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H06",
+        "bloque": "sustento_cientifico",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Evidencia comparable con el producto",
+        "motivo": "En esta revisión no hay estudios del producto o comparables evaluados de ingrediente, forma, cantidad, población y finalidad. Esta versión no ingiere expedientes de estudios ni realiza búsqueda clínica exhaustiva.",
+        "accion_recomendada": "Solicitar estudios, fórmula y ficha técnica; revisar comparabilidad y calidad de evidencia. No atribuir al producto beneficios de un ingrediente aislado.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": "Las referencias institucionales no prueban eficacia de este producto terminado."
+      },
+      {
+        "id": "H07",
+        "bloque": "precauciones",
+        "resultado": "observacion",
+        "criterio": "Advertencias visibles de la etiqueta",
+        "motivo": "Advertencias declaradas: Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos). | Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.",
+        "accion_recomendada": "Cotejar su lectura y revisar alérgenos, conservación y restricciones respecto de la población objetivo; no se presume que sean todas las advertencias necesarias.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null,
+        "evidencia_etiqueta": [
+          {
+            "texto": "Contiene: nueces de árbol (almendras), leche, productos de la leche y derivados lácteos. Puede contener: soya, nueces de árbol (pecanas y pistachos).",
+            "foto": "foto_1"
+          },
+          {
+            "texto": "Consérvese en un lugar fresco y seco, alejado de la luz directa o calor. Una vez abierto, almacene en un recipiente hermético.",
+            "foto": "foto_1"
+          }
+        ]
+      },
+      {
+        "id": "H08",
+        "bloque": "precauciones",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Cobertura de precauciones",
+        "motivo": "No hay una matriz de seguridad completa de todos los ingredientes de este producto en esta prueba.",
+        "accion_recomendada": "Solicitar evaluación de ingredientes, alérgenos, interacciones y advertencias específicas; no interpretar ausencia de alertas como seguridad.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H09",
+        "bloque": "coherencia",
+        "resultado": "observacion",
+        "criterio": "Coherencia aritmética documental",
+        "motivo": "Se recalcularon 0 comparaciones entre porción y 100 g; 0 requieren revisar. Solo se comprueban relaciones calculables; no pureza ni veracidad analítica.",
+        "accion_recomendada": "Resolver diferencias y cotejar cifras, unidades y OCR con la fotografía.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      },
+      {
+        "id": "H10",
+        "bloque": "etiquetado",
+        "resultado": "informacion_insuficiente",
+        "criterio": "Matriz regulatoria por categoría",
+        "motivo": "No se aplicaron reglas de suplementos a otra categoría ni se emitieron sellos de advertencia.",
+        "accion_recomendada": "Confirmar clasificación y revisar etiquetado con la matriz vigente correspondiente.",
+        "datos": [],
+        "referencias": [],
+        "incertidumbre": null
+      }
+    ],
+    "preguntas_proveedor": [
+      "¿Cuál es la finalidad de uso propuesta y cuáles son las afirmaciones que se desean sustentar?",
+      "¿Cuál es la población objetivo y qué grupos se excluyen?",
+      "¿Pueden proporcionar fórmula completa, ficha técnica y certificado de análisis del lote?",
+      "¿Qué estudios respaldan las afirmaciones para esa forma, cantidad, población y finalidad?",
+      "¿Cuáles son las instrucciones de consumo y las advertencias completas?",
+      "¿Pueden proporcionar todas las caras del envase y los materiales publicitarios?"
+    ],
+    "bloques": {
+      "contexto": [
+        "H01",
+        "H02"
+      ],
+      "aporte": [
+        "H03",
+        "H04"
+      ],
+      "pertinencia": [
+        "H05"
+      ],
+      "sustento_cientifico": [
+        "H06"
+      ],
+      "precauciones": [
+        "H07",
+        "H08"
+      ],
+      "coherencia": [
+        "H09"
+      ],
+      "etiquetado": [
+        "H10"
+      ]
+    },
+    "prioridades": [
+      "H01",
+      "H02",
+      "H03",
+      "H04",
+      "H05"
+    ],
+    "integridad_fuentes": [
+      {
+        "foto": "foto_1",
+        "estado": "coincide"
+      }
+    ],
+    "referencias": [],
+    "catalogo": {
+      "version": "1.0",
+      "fecha_verificacion": "2026-11-24",
+      "sha256": "d86dc974e136a855babc7c6ccf156e23d9146999d5894778b3bde629e0d898e6",
+      "alcance": "Referencias seleccionadas para una prueba documental. No son criterios aprobados de liberación de SMN. Las referencias estadounidenses no son límites legales mexicanos."
+    },
+    "alcance": "Revisión documental provisional para una persona revisora; no es dictamen sanitario, prueba de eficacia, liberación comercial ni recomendación individual.",
+    "ia": {
+      "estado": "correcto",
+      "model": "qwen3:8b",
+      "done_reason": "stop",
+      "prompt_eval_count": 907,
+      "eval_count": 31,
+      "opciones": {
+        "temperature": 0,
+        "seed": 42,
+        "num_ctx": 8192,
+        "num_predict": 1024
+      },
+      "contenido_final": true,
+      "alcance": "Solo ordena hallazgos existentes. No evalúa eficacia ni decide aprobación."
+    }
+  }
+}
