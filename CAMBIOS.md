@@ -1,5 +1,16 @@
 # Registro de cambios
 
+## v0.6 · 2026-11-25
+
+Radar de precios una sola vista + rebusca afuera BDM
+
+**Cambios guardados:**
+- Radar de precios: una sola vista
+- v0.5.12 volver a buscar en Google con la consulta nueva
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.11 · 2026-11-25
 
 clasificador respeta votos y forma; Google sin marca del proveedor
