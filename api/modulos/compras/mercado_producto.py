@@ -32,7 +32,7 @@ DIAS_VIGENCIA = 7  # al recalcular dentro de una semana se reusa la búsqueda y 
 MAX_PRECIOS = 30
 # Versión de la regla que decide si una publicación es el mismo producto. Una búsqueda sin precios hecha con una regla
 # anterior se vuelve a hacer al recalcular (25 nov 2026: la línea de la marca, «BDM Life» de JUVETERNAL)
-REGLA = 2
+REGLA = 3  # 3: la consulta ya no antepone la marca del proveedor (BDM Life de JUVETERNAL, v0.5.12)
 
 
 @dataclass
