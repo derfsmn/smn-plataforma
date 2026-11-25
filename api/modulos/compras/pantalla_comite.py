@@ -388,8 +388,8 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
             + [{"nombre": p["descripcion"], "cantidad": round(float(s.precio) / p["por_porcion"]), "tipo": "parecido",
                 "sku": p["sku"], "imagen": p["imagen"]} for p in con_porcion[:4]]}
     else:
-        tam = rp.tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {})
-        dim = next((d for d in ("g", "ml", "pz") if d in tam), None)
+        tam = rp.solo_piezas(rp.tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {}), rp.formato_sujeto(s))
+        dim = next((d for d in ("g", "ml", "pz") if d in tam), None)  # cápsulas: por pieza (25 nov 2026)
         otros = [(p, t[dim]) for p in (compite or usados) if dim and p["precio"] and dim in (t := rp.tamano(p["descripcion"]))]
         if s.precio and dim and otros:
             unidad = {"g": "gramos", "ml": "mililitros", "pz": "piezas"}[dim]

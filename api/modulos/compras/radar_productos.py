@@ -562,6 +562,19 @@ def tamano_de(p: Producto) -> dict[str, Decimal]:
     return (f.tamano() if (f := ficha_de(p)) else {}) or tamano(p.descripcion)
 
 
+def solo_piezas(tam: dict[str, Decimal], forma: str | None) -> dict[str, Decimal]:
+    """En cápsulas, tabletas y gomitas se compara por pieza: los gramos de «120 CAP DE 1.2G» son lo que pesa cada
+    cápsula (con aceite y relleno), no el ingrediente, y no se pueden poner contra los gramos de otra ficha (caso BDM Life
+    Berberina, 25 nov 2026: por gramo salían «muy distintas» todas las berberinas menos una)."""
+    if forma and GRUPO_FORMATO.get(forma) in ("solido", "gomita") and "pz" in tam:
+        return {"pz": tam["pz"]}
+    return tam
+
+
+def tamano_para_precio_de(p: Producto) -> dict[str, Decimal]:
+    return solo_piezas(tamano_de(p), formato_de(p))
+
+
 def formato_de(p: Producto) -> str | None:
     return formato(p.descripcion) or (formato(f.forma) if (f := ficha_de(p)) else None)
 
@@ -1011,13 +1024,13 @@ def _por_unidad(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], campo: str
     """Precio por gramo, mililitro o pieza del producto y de los parecidos que dicen su tamaño en la misma unidad.
     Se usa la unidad que comparten más parecidos. Si hay parecidos de tamaño cercano (de la mitad al doble) solo se
     usan esos: un bote de 2 kg siempre sale más barato por gramo que uno de 250 g (Diego, 11 nov 2026)."""
-    suyo = tamano(s.contenido, s.nombre, s.descripcion)
+    suyo = solo_piezas(tamano(s.contenido, s.nombre, s.descripcion), formato_sujeto(s))
     if not suyo or not s.precio:
         return None
     mejores = None
     for dim, cantidad in suyo.items():
         con_tam = [(p, tam[dim]) for p, _ in parecidos
-                   if getattr(p, campo) and dim in (tam := tamano_de(p))]
+                   if getattr(p, campo) and dim in (tam := tamano_para_precio_de(p))]
         cercanos = [(p, x) for p, x in con_tam if cantidad / 2 <= x <= cantidad * 2]
         lista = [(p, getattr(p, campo) / x) for p, x in (cercanos or con_tam)]
         if lista and (mejores is None or len(lista) > len(mejores[2])):
@@ -1162,6 +1175,31 @@ def porciones_sujeto(s: Sujeto) -> int | None:
     return porciones_de(s.ficha) or s.porciones
 
 
+def _por_activo(s: Sujeto, usados: list[Producto], campo: str
+                ) -> tuple[Decimal, Decimal, list[tuple[Producto, Decimal]], str] | None:
+    """Precio por gramo del ingrediente principal, cuando la ficha del nuevo y la de sus parecidos dicen cuánto traen y es
+    el mismo ingrediente. (gramos del nuevo, su precio por gramo, parecidos en rango con el suyo, nombre)."""
+    f = s.ficha
+    gramos = f.activo_total_g() if f else None
+    nombre = (f.ingrediente_principal if f else None) or s.ingrediente
+    if not gramos or gramos <= 0 or not nombre or not s.precio:
+        return None
+    suyas = {r for r in raices(palabras(nombre)) if len(r) >= 4}
+    propio = s.precio / gramos
+    lista = []
+    for p in usados:
+        g = ficha_de(p)
+        total = g.activo_total_g() if g else None
+        if not total or total <= 0 or not getattr(p, campo) or not g.ingrediente_principal:
+            continue
+        if suyas & raices(palabras(g.ingrediente_principal)):
+            lista.append((p, getattr(p, campo) / total, total))
+    # Como en `_por_unidad`: si hay de tamaño cercano (de la mitad al doble de su ingrediente), solo esos
+    cercanos = [x for x in lista if gramos / 2 <= x[2] <= gramos * 2]
+    dentro = [(p, x) for p, x, _ in (cercanos or lista) if RANGO_PRECIO[0] <= propio / x <= RANGO_PRECIO[1]]
+    return (gramos, propio, dentro, nombre.lower()) if dentro else None
+
+
 def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
                    campo: str = "precio_lista_con_impuestos") -> Factor:
     """Mitad «contra nuestro anaquel» (Dirección, 22 nov 2026): contra los productos que ya vendemos y con los que va a
@@ -1172,6 +1210,17 @@ def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
         return Factor(None, None, "Sin datos: falta nuestro precio.")
     usados = parecidos_para_demanda(s, parecidos, None)
     que = "Precio sugerido" if s.tipo == "propuesta" else "Nuestro precio"
+    if activo := _por_activo(s, usados, campo):  # 25 nov 2026 (BDM Life): por gramo de su ingrediente, si las fichas lo dicen
+        gramos, propio, dentro, nombre = activo
+        med = Decimal(str(median([x for _, x in dentro])))
+        ratio = propio / med
+        contra = "; ".join(f"{con_marca(p)} {_pesos(getattr(p, campo))} ({_pesos(x)} por gramo de {nombre})"
+                           for p, x in dentro[:4])
+        return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestro anaquel, por gramo de {nombre}"),
+                      f"{que} {_pesos(s.precio)} con {_n(gramos)} g de {nombre}: sale a {_pesos(propio)} por gramo. "
+                      f"Nuestros parecidos salen, en medio, a {_pesos(med)} por gramo: {contra}.", False,
+                      *_precio_explicado(ratio, med * gramos, f"nuestros parecidos por gramo de {nombre}"),
+                      meta=(med * gramos).quantize(Decimal("0.01")))
     porciones = porciones_sujeto(s)
     if porciones:
         lista = [(p, getattr(p, campo) / n) for p in usados
@@ -1195,12 +1244,16 @@ def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
             med = Decimal(str(median([x for _, x in en_rango])))
             ratio = propio / med
             cantidad = tamano(s.contenido, s.nombre, s.descripcion)[dim]
-            contra = "; ".join(f"{con_marca(p)} {_pesos(getattr(p, campo))} ({_precio_unidad(x, dim)})"
+            pieza = {"capsula": "cápsula", "tableta": "tableta", "gomita": "gomita"}.get(formato_sujeto(s) or "")
+            un = pieza if dim == "pz" and pieza else NOMBRE_UNIDAD[dim]  # «por cápsula», no «por pieza» (25 nov 2026)
+            contra = "; ".join(f"{con_marca(p)} {_pesos(getattr(p, campo))} ({_pesos(x) if pieza and dim == 'pz' else _precio_unidad(x, dim)}{' por ' + un if pieza and dim == 'pz' else ''})"
                                for p, x in en_rango[:4])
-            return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestro anaquel, por {NOMBRE_UNIDAD[dim]}"),
-                          f"{que} {_pesos(s.precio)} por {_n(cantidad)} {dim}: sale a {_precio_unidad(propio, dim)}. "
-                          f"Nuestros parecidos salen, en medio, a {_precio_unidad(med, dim)}: {contra}.", False,
-                          *_precio_explicado(ratio, med * cantidad, f"nuestros parecidos por {NOMBRE_UNIDAD[dim]}"),
+            return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestro anaquel, por {un}"),
+                          f"{que} {_pesos(s.precio)} por {_n(cantidad)} {un + 's' if un != NOMBRE_UNIDAD[dim] else dim}: sale a "
+                          f"{_pesos(propio) + ' por ' + un if un != NOMBRE_UNIDAD[dim] else _precio_unidad(propio, dim)}. "
+                          f"Nuestros parecidos salen, en medio, a "
+                          f"{_pesos(med) + ' por ' + un if un != NOMBRE_UNIDAD[dim] else _precio_unidad(med, dim)}: {contra}.", False,
+                          *_precio_explicado(ratio, med * cantidad, f"nuestros parecidos por {un}"),
                           meta=(med * cantidad).quantize(Decimal("0.01")))
     precios = [(p, getattr(p, campo)) for p in usados if getattr(p, campo)]
     if not precios:
@@ -1601,8 +1654,8 @@ def razon_cercano(s: Sujeto, p: Producto) -> tuple[bool, str]:
         return False, f"Cuesta {_n(1 / r)} veces más que el nuevo"
     if mismo_tipo(s.ficha, ficha_de(p)) is False:  # otro tipo de producto (galletas de proteína contra creatina)
         return False, "Otro tipo de producto según su ficha"
-    suyo = tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {})
-    otro = tamano_de(p)
+    suyo = solo_piezas(tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {}), formato_sujeto(s))
+    otro = tamano_para_precio_de(p)
     for dim in ("g", "ml", "pz"):
         if suyo.get(dim) and otro.get(dim):
             if RANGO_PRECIO[0] <= (s.precio / suyo[dim]) / (precio / otro[dim]) <= RANGO_PRECIO[1]:
@@ -1623,6 +1676,25 @@ def parecidos_para_demanda(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
         return [mismo]
     todos = [p for p, _ in parecidos]
     return [p for p in todos if precio_cercano(s, p)] or todos
+
+
+def lanzamientos_de_su_tipo(s: Sujeto, misma: list[dict]) -> list[dict]:
+    """De los lanzamientos de 2026 de su subcategoría, solo los que son de su mismo tipo: comparten una palabra del
+    nombre (su ingrediente; sin marca ni palabras genéricas) y, si se sabe, la misma forma. Diego, 25 nov 2026: la BDM
+    Berberina se comparaba contra una canela de Ceylán por estar en la misma subcategoría. Si no queda ninguno, el
+    radar no pone otro producto: dice dónde queda entre todos los lanzamientos (el cálculo no cambia, ya usaba los
+    parecidos y el arranque de todos los lanzamientos)."""
+    marca = raices(palabras(s.marca))
+    suyas = {r for r in raices(palabras(sin_sabor(s.nombre), s.ingrediente)) - marca - raices(GENERICAS)
+             if len(r) >= LETRAS_INGREDIENTE}
+    grupo = GRUPO_FORMATO.get(formato_sujeto(s) or "")
+    salida = []
+    for x in misma or []:
+        otras = raices(palabras(sin_sabor(x.get("descripcion"))))
+        su_grupo = GRUPO_FORMATO.get(formato(x.get("descripcion")) or "")
+        if suyas & otras and not (grupo and su_grupo and grupo != su_grupo):
+            salida.append(x)
+    return salida
 
 
 def _rango_subcategoria(misma: list[dict]) -> str:
@@ -2166,6 +2238,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         pron = None
         try:  # pronóstico por grupo de tiendas (17 nov 2026); de él sale la Demanda (19 nov). Si falla, sigue
             pron = pn.pronosticar(bd, skus_para_pronostico(s, parecidos, mismo), e.subcategoria)
+            pron.misma_sub = lanzamientos_de_su_tipo(s, pron.misma_sub)
             # se guardan los lanzamientos contra los que se califica para que la pantalla del comité no los vuelva a medir
             contra, pron.contra_depto = pn.lanzamientos_contra(bd, (mismo.departamento if mismo else None) or s.departamento)
             pron.contra = [round(x, 3) for x in contra]

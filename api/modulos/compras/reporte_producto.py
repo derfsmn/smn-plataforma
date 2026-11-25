@@ -890,18 +890,24 @@ def generar(r: Reporte) -> bytes:
     # 4. Parecidos
     titulo = "4. ¿Qué vendemos hoy parecido?" + (" (SMNBI)" if r.ventana else "")
     bloque = [Spacer(1, 6), _h2(titulo), Spacer(1, 3)]
-    todas = r.parecidos + r.de_marca
-    if todas:
+    def tabla(lista):
         filas = [[_p(x, "cab") for x in ("SKU", "Producto", "Clas.")] +
                  [_p(x, "cabn") for x in ("Piezas al mes", "Tiendas", "Pzas por tienda al mes", "Precio prom. con IVA", "Margen")]]
-        for f in todas:
-            nota = f" <font color='#777777'>({f.etiqueta})</font>" if f.etiqueta else ""
+        for f in lista:
+            nota = f" <font color='#777777'>({f.etiqueta})</font>" if f.etiqueta and f.etiqueta != "misma marca" else ""
             filas.append([_p(_t(f.sku)), _p(_t(f.descripcion) + nota), _p(_t(f.clasificacion) or "—"),
                           _p(_n(f.al_mes) if f.al_mes else "sin venta", "cn"), _p(str(f.tiendas) if f.tiendas else "—", "cn"),
                           _p(_n(f.por_tienda) if f.por_tienda else "—", "cn"), _p(_pesos(f.precio), "cn"), _p(_pct(f.margen), "cn")])
-        bloque.append(_tabla(filas, [UTIL * x for x in (0.09, 0.37, 0.06, 0.1, 0.08, 0.11, 0.11, 0.08)]))
+        return _tabla(filas, [UTIL * x for x in (0.09, 0.37, 0.06, 0.1, 0.08, 0.11, 0.11, 0.08)])
+
+    # 25 nov 2026 (Diego, BDM Life Berberina): lo de la misma marca va aparte; no es contra lo que se compara
+    if r.parecidos:
+        bloque.append(tabla(r.parecidos))
     else:
         bloque.append(_p("No vendemos nada parecido: sería un producto nuevo para el surtido.", "p"))
+    if r.de_marca:
+        bloque += [Spacer(1, 4), _p("<b>De la misma marca</b> (solo para negociar con el proveedor; no se compara contra "
+                                    "ellos):", "p"), Spacer(1, 2), tabla(r.de_marca)]
     hay += bloque
 
     # 5 a 8
