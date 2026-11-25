@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.10 · 2026-11-25
+
+Precio contra anaquel y contra afuera, vista arriba, textos, Google con la linea de la marca
+
+**Cambios guardados:**
+- v0.5.10 precio en dos temas, vista arriba, textos y Google con la linea de la marca
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.9 · 2026-11-25
 
 Precio: se lleva contra todas, provisional y aviso visibles
