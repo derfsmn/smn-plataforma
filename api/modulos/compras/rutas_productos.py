@@ -334,6 +334,10 @@ def _detalle(bd: Session, e: ProductoEvaluacion) -> EvaluacionDetalle:
                                                       ProductoEvaluacion.color_final)).order_by(ProductoEvaluacion.evaluacion_id.desc())
     q = q.where(ProductoEvaluacion.propuesta_id == e.propuesta_id) if e.propuesta_id else q.where(
         ProductoEvaluacion.idea_id == e.idea_id)
+    from modulos.compras.comparar_versiones import EN_BORRADOR  # los borradores de la comparación no son historial
+
+    if EN_BORRADOR:
+        q = q.where(ProductoEvaluacion.evaluacion_id.not_in(list(EN_BORRADOR)))
     historial = [HistorialSalida(id=h.evaluacion_id, creada_en=h.creada_en, estado=h.estado, puntaje=h.puntaje,
                                  color=h.color, color_final=h.color_final) for h in bd.scalars(q.limit(20))]
     quien = bd.get(Usuario, e.cambiado_por) if e.cambiado_por else None
@@ -631,16 +635,33 @@ def clasificaciones(departamento: str | None = None, _: Contexto = Depends(requi
 @router.put("/evaluaciones/{evaluacion_id}/clasificacion", response_model=EvaluacionDetalle)
 def confirmar_clasificacion(evaluacion_id: int, datos: Clasificacion, request: Request,
                             ctx: Contexto = Depends(requiere(EVALUAR)), bd: Session = Depends(obtener_bd)) -> EvaluacionDetalle:
-    """Compras confirma o corrige la clasificación; se recalcula con ella y se conserva en los siguientes cálculos."""
-    e = _vigente_lista(bd, evaluacion_id)
-    elegida = (datos.rama or "", datos.subcategoria or "", datos.segmento or "")
-    if elegida != ("", "", "") and elegida not in rp.opciones_clasificacion(bd, e.departamento):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige una clasificación que exista en el catálogo.")
-    nueva = _relanzar(bd, e, ctx, clasificacion=tuple(v or None for v in elegida))
-    _bitacora(bd, "confirmar_clasificacion", ctx, request, "producto_evaluacion", nueva.evaluacion_id,
-              {"anterior": e.evaluacion_id, "antes": [e.rama, e.subcategoria, e.segmento], "despues": list(elegida)})
-    bd.commit()
-    return _detalle(bd, nueva)
+    """Desde la v0.5.4 la clasificación es automática (Diego, 24 nov 2026: «no debe existir, todo debe ser
+    automático»): ya no se confirma ni se cambia a mano."""
+    raise HTTPException(status.HTTP_410_GONE, "La clasificación ahora es automática: ya no se confirma ni se cambia a "
+                        "mano. Se recalcula sola cada noche.")
+
+
+@router.get("/examen")
+def examen_estado(_: Contexto = Depends(requiere(AJUSTAR))) -> dict:
+    """Cómo va el examen de clasificación de esta versión (se corre solo al publicarla, v0.5.4)."""
+    from modulos.compras import examen_clasificacion as ex
+
+    return ex.estado()
+
+
+@router.get("/examen/excel")
+def examen_excel(corrida: str = "100", _: Contexto = Depends(requiere(AJUSTAR))) -> FileResponse:
+    """El Excel del examen de clasificación de esta versión: corrida «100» o «completo»."""
+    from core.config import configuracion
+    from modulos.compras import examen_clasificacion as ex
+
+    if corrida not in {c for c, _ in ex.CORRIDAS}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La corrida es «100», «comparacion» o «completo».")
+    archivo = ex.ruta(configuracion().plataforma_version, corrida)
+    if not archivo.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ese examen todavía no termina. Revisa cómo va en /api/compras/productos/examen.")
+    return FileResponse(archivo, filename=archivo.name,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 class Comparables(BaseModel):

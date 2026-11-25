@@ -135,8 +135,9 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     # Sin proveedor: si sale verde o amarillo se abre sola su búsqueda de proveedor
     esperado = "buscar_proveedor" if e["color"] in {"verde", "amarillo"} else "nueva"
     assert e["sujeto"]["tipo"] == "idea" and e["sujeto"]["estado"] == esperado
-    # Sin IA en pruebas: la subcategoría se toma de los parecidos, que son todos «Minerales»
-    assert e["clasificacion_origen"] in ("parecidos", "ingrediente") and e["subcategoria"] == "Minerales"
+    # Sin IA en pruebas: los productos parecidos votan, y todos son «Minerales» (v0.5.4)
+    assert e["clasificacion_origen"] == "votos" and e["subcategoria"] == "Minerales"
+    assert "Clasificación automática: Minerales (segura" in e["explicacion"]
     parecidos = [c["sku"] for c in e["comparables"]]
     assert set(skus[:3]) <= set(parecidos) and skus[3] not in parecidos
     f = {x["factor"]: x for x in e["factores"]}
@@ -150,15 +151,13 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     assert responsable.get(f"{R}/ideas/{e['sujeto']['id']}/fotos/{foto}").status_code == 200
     assert responsable.get(f"{R}/ideas/{e['sujeto']['id']}/fotos/{otra}").status_code == 404
 
-    # Compras confirma la clasificación: se recalcula y la anterior queda en el historial
-    opciones = admin.get(f"{R}/clasificaciones", params={"departamento": depto}).json()
-    assert {"rama": "Suplementos", "subcategoria": "Minerales", "segmento": "Magnesio"} in opciones
-    assert admin.put(f"{R}/evaluaciones/{eid}/clasificacion",
-                     json={"rama": "Suplementos", "subcategoria": "Inventada", "segmento": "X"}).status_code == 400
-    n = admin.put(f"{R}/evaluaciones/{eid}/clasificacion",
-                  json={"rama": "Suplementos", "subcategoria": "Minerales", "segmento": "Magnesio"}).json()
+    # v0.5.4: la clasificación ya no se confirma a mano (Diego, 24 nov 2026); al recalcular se vuelve a votar
+    r = admin.put(f"{R}/evaluaciones/{eid}/clasificacion",
+                  json={"rama": "Suplementos", "subcategoria": "Minerales", "segmento": "Magnesio"})
+    assert r.status_code == 410 and "automática" in r.json()["detail"]
+    n = admin.post(f"{R}/evaluaciones/{eid}/recalcular").json()
     e2 = admin.get(f"{R}/evaluaciones/{n['id']}").json()
-    assert e2["clasificacion_origen"] == "compras" and e2["subcategoria"] == "Minerales" and e2["vigente"]
+    assert e2["clasificacion_origen"] == "votos" and e2["subcategoria"] == "Minerales" and e2["vigente"]
     assert [h["id"] for h in e2["historial"]] == [n["id"], eid]
     assert admin.post(f"{R}/evaluaciones/{eid}/recalcular").status_code == 409  # ya no es la vigente
     cat = {x["factor"]: x for x in e2["factores"]}["categoria"]
@@ -170,7 +169,7 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     n = admin.post(f"{R}/evaluaciones/{n['id']}/recalcular").json()
     e3 = admin.get(f"{R}/evaluaciones/{n['id']}").json()
     assert [(c["sku"], c["origen"]) for c in e3["comparables"]] == [(skus[1], "compras")]
-    assert e3["clasificacion_origen"] == "compras"
+    assert e3["clasificacion_origen"] == "votos"
     assert [x["sku"] for x in admin.get(f"{R}/catalogo", params={"q": skus[0]}).json()] == [skus[0]]
 
     # Color final: solo con permiso de ajustar y con motivo

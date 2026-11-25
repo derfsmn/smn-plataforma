@@ -361,3 +361,47 @@ def test_json_mal_formado_reintenta_y_sin_ia_no_manda_correo(admin: TestClient, 
         assert tamanos[0] > 1 and 1 in tamanos
         assert any("No se pudo armar el reporte" in a for a in avisos)
     assert not simulado.correos  # sin IA no se manda el correo a los destinatarios
+
+
+def test_resumen_pide_ventana_y_json_y_avisa_si_llega_cortado(admin: TestClient, simulado, monkeypatch):
+    """25 nov 2026: con Ollama sin ventana la respuesta llegaba cortada y el aviso decía «Expecting value»."""
+    from ia import puerta
+    original = puerta.ejecutar
+    pedidos = {}
+
+    def cortado(bd, tarea, **k):
+        if tarea in ("compras.radar_clasificar", "compras.radar_resumen"):
+            pedidos[tarea] = k
+        if tarea == "compras.radar_resumen":
+            r = _respuesta('{"resumen": "La ashwagandha sigue', None)
+            r.completa = False
+            return r
+        return original(bd, tarea, **k)
+
+    monkeypatch.setattr("ia.puerta.ejecutar", cortado)
+    with Session(motor()) as bd:
+        reporte = radar.correr(bd, radar.tomar_reporte(bd, _hoy(), "manual", forzar=True), enviar_correo=False)
+        avisos = json.loads(reporte.avisos)
+    for tarea in ("compras.radar_clasificar", "compras.radar_resumen"):
+        assert pedidos[tarea]["formato"] == "json"
+        assert pedidos[tarea]["contexto"] >= 8192
+    assert any("se quedó sin espacio" in a for a in avisos)
+    assert not any("Expecting value" in a for a in avisos)
+
+
+def test_json_cortado_da_mensaje_claro():
+    with pytest.raises(ValueError, match="incompleta"):
+        radar._json_de('{"resumen": "a medias')
+    with pytest.raises(ValueError, match="mal formado"):
+        radar._json_de('{"a": 1 "b": 2}')
+    assert radar._json_de('```json\n{"a": [1]}\n```') == {"a": [1]}
+
+
+def test_encabezado_dice_la_ia_que_arma_el_reporte(admin: TestClient, limpio, monkeypatch):
+    from sqlalchemy import text
+    monkeypatch.setattr(configuracion(), "ollama_modelo", "qwen3:8b")
+    with Session(motor()) as bd:
+        bd.execute(text("UPDATE nucleo.ia_tarea SET proveedor_ia = 'ollama', modelo = NULL WHERE codigo = 'compras.radar_resumen'"))
+        bd.commit()
+    estado = admin.get("/api/compras/radar/estado").json()
+    assert estado["ia_proveedor"] == "local (Ollama · qwen3:8b)" and estado["ia_encendida"]

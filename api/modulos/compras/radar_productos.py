@@ -23,6 +23,7 @@ import re
 import threading
 import unicodedata
 from collections import Counter
+from contextvars import ContextVar
 import dataclasses
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -36,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from core.config import configuracion
 from datos import fichas as fi
-from datos.fichas import GRUPO_FORMATO, NOMBRE_FORMATO, NOMBRE_UNIDAD, UNIDADES, formato, tamano  # noqa: F401
+from datos.fichas import COMO_V053, GRUPO_FORMATO, NOMBRE_FORMATO, NOMBRE_UNIDAD, UNIDADES, formato, tamano  # noqa: F401
 from datos.modelos import Producto, Proveedor
 from ia import puerta
 from modulos.compras import investigar as inv_mod
@@ -466,7 +467,22 @@ def por_ingrediente(s: Sujeto, activos: list[Producto]) -> PorIngrediente | None
 
 
 def ingrediente_de(bd: Session, s: Sujeto) -> PorIngrediente | None:
-    return por_ingrediente(s, list(bd.scalars(select(Producto).where(Producto.activo == true()))))
+    return por_ingrediente(s, catalogo_activo(bd))
+
+
+# Examen de clasificación (plan aprobado por Diego el 24 nov 2026): para calificar un producto que ya vendemos «como si
+# fuera nuevo», el examen lo esconde del catálogo junto con sus otros sabores y presentaciones, y reusa el catálogo ya
+# leído para no consultarlo miles de veces. En la operación normal estas dos variables están vacías.
+CATALOGO_FIJO: ContextVar[list[Producto] | None] = ContextVar("radar_catalogo_fijo", default=None)
+OCULTOS: ContextVar[frozenset[int]] = ContextVar("radar_ocultos", default=frozenset())
+
+
+def catalogo_activo(bd: Session) -> list[Producto]:
+    base = CATALOGO_FIJO.get()
+    if base is None:
+        base = list(bd.scalars(select(Producto).where(Producto.activo == true())))
+    fuera = OCULTOS.get()
+    return [p for p in base if p.producto_id not in fuera] if fuera else base
 
 
 def mismo_de(s: Sujeto, parecidos: list[tuple[Producto, Decimal]]) -> Producto | None:
@@ -586,8 +602,8 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
     depto, forma = _norm(s.departamento).strip(), _norm(s.forma)
     medidas = set(tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {}))
     suyo_formato = formato_sujeto(s)
-    calificados, crudo = [], {}
-    activos = list(bd.scalars(select(Producto).where(Producto.activo == true())))
+    calificados, crudo, otras_formas = [], {}, set()
+    activos = catalogo_activo(bd)
     cargar_fichas(bd, activos)
     for p in activos:
         otras = raices(palabras(sin_sabor(p.descripcion)))
@@ -605,8 +621,9 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
         sim = cobertura * Decimal("0.6") + jaccard * Decimal("0.4")
         if sim == 0 and not su_sub and not misma_marca:
             continue
-        if misma_marca:
-            sim += Decimal("0.2")
+        # 24 nov 2026 (plan de clasificación automática): la marca ya no suma; lo de la misma marca se enseña aparte
+        if misma_marca and COMO_V053.get():
+            sim += Decimal("0.2")  # así sumaba en la v0.5.3 (solo para compararla)
         if subcategoria and p.subcategoria == subcategoria:
             sim += Decimal("0.15")
         if depto and _norm(p.departamento).strip() == depto:
@@ -621,6 +638,9 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
             sim += Decimal(len(clave & suya)) / Decimal(len(clave | suya)) * Decimal("0.25")
         su_formato = formato_de(p) if suyo_formato else None
         mismo_grupo = bool(su_formato) and GRUPO_FORMATO[suyo_formato] == GRUPO_FORMATO[su_formato]
+        otra_forma = bool(su_formato) and not mismo_grupo and not COMO_V053.get()
+        if otra_forma:
+            sim /= 2  # otra forma (cápsulas contra gotas, crema contra polvo): solo si no hay de su forma (24 nov 2026)
         if su_formato == suyo_formato and su_formato:
             sim += Decimal("0.05")  # mismo formato, sobre contra sobre (13 nov 2026)
         # Del mismo grupo de formato no se descarta por la unidad: «30 sobres» y «sobre 5 g» o un bote de 348 g son la
@@ -637,8 +657,14 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
             sim /= 2
         if sim >= MIN_SIMILITUD:
             crudo[p.producto_id] = sim  # para ordenar: dos de 0.99 no empatan (18 nov 2026)
+            if otra_forma:
+                otras_formas.add(p.producto_id)
             calificados.append((p, min(sim, Decimal("0.99")).quantize(Decimal("0.001"))))
     calificados += sustitutos_por_funcion(bd, s, activos, {p.producto_id for p, _ in calificados})
+    # Con 3 o más de su misma forma, los de otra forma salen; con menos, se quedan a la mitad para no dejarlo sin
+    # parecidos (caso BDM Life: sin parecidos la Demanda sale de lo típico de la subcategoría)
+    if sum(1 for p, _ in calificados if p.producto_id not in otras_formas) >= MIN_MISMA_SUBCATEGORIA:
+        calificados = [(p, x) for p, x in calificados if p.producto_id not in otras_formas]
     calificados.sort(key=lambda x: (-x[1], -crudo.get(x[0].producto_id, x[1]), x[0].sku))
     return _depurar(calificados, subcategoria, rama, conservar)[:MAX_COMPARABLES]
 
@@ -1354,8 +1380,15 @@ def venta_esperada(e: ProductoEvaluacion) -> dict | None:
     return None
 
 
+# Para comparar versiones con los mismos datos de internet (v0.5.4): la comparación fija aquí el mercado y la
+# investigación que ya tenía guardados la evaluación, y así no sale a internet ni cambia por una búsqueda nueva.
+MERCADO_FIJO: ContextVar[tuple[str | None, str | None] | None] = ContextVar("radar_mercado_fijo", default=None)
+
+
 def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | None:
     """Busca el producto en internet, o reusa lo que encontró una evaluación de la última semana."""
+    if (fijo := MERCADO_FIJO.get()) is not None:
+        return mp.Mercado.de_json(fijo[0]) if fijo[0] else None
     if not configuracion().radar_productos_buscar_mercado:
         return None
     nombre = s.nombre if not s.contenido or _norm(s.contenido) in _norm(s.nombre) else f"{s.nombre} {s.contenido}"
@@ -1376,6 +1409,8 @@ def skus_para_pronostico(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], m
 
 def investigacion_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> inv_mod.Investigacion | None:
     """Investiga afuera con Google y la IA local, o reusa lo de una evaluación de la última semana (17 nov 2026)."""
+    if (fijo := MERCADO_FIJO.get()) is not None:
+        return inv_mod.Investigacion.de_json(fijo[1]) if fijo[1] else None
     if not configuracion().radar_productos_buscar_mercado:
         return None
     clave = inv_mod.clave_de(s.nombre, s.marca, s.contenido)
@@ -1990,6 +2025,40 @@ def clasificacion_de_variante(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> 
     return candidatas[0] if candidatas else None
 
 
+def clasificar_sujeto(bd: Session, s: Sujeto, usar_ia: bool = True, revisar: bool = True):
+    """Clasificación automática por votación (v0.5.4, plan aprobado por Diego el 24 nov 2026): devuelve un
+    `clasificador.Clasificacion`. La usan la evaluación, la reclasificación de cada noche y el examen, para que el examen
+    califique exactamente lo mismo que corre en el radar. Con `COMO_V053` clasifica como la v0.5.3 (ingrediente principal
+    y si no, la IA entre las subcategorías), solo para compararlas."""
+    from modulos.compras import clasificador
+
+    if not COMO_V053.get():
+        return clasificador.clasificar(bd, s, usar_ia)
+    c = clasificador.Clasificacion()
+    if ingrediente := ingrediente_de(bd, s):
+        c.rama, c.subcategoria, c.segmento = ingrediente.rama, ingrediente.subcategoria, ingrediente.segmento
+        c.origen, c.seguridad, c.conservar, c.ingrediente = "ingrediente", "segura", set(ingrediente.ids), ingrediente.palabra
+        return c
+    if usar_ia:
+        sin_sub, _ = revisar_parecidos(bd, s, buscar_parecidos(bd, s, None), {}) if revisar else (None, [])
+        c.rama, c.subcategoria, c.segmento = clasificar(bd, s, sin_sub)
+        if c.subcategoria:
+            c.origen, c.seguridad = "ia", "dudosa"
+    return c
+
+
+def parecidos_sujeto(bd: Session, s: Sujeto, subcategoria: str | None, rama: str | None, conservar: set[int],
+                     vistos: dict[str, tuple[bool, str]]
+                     ) -> tuple[list[tuple[Producto, Decimal]], list[tuple[Producto, str]]]:
+    """Parecidos ya revisados por la IA (los quitados, con su motivo). Misma función para la evaluación y el examen."""
+    return revisar_parecidos(bd, s, buscar_parecidos(bd, s, subcategoria, rama, conservar), vistos, conservar)
+
+
+def clasificacion_de_parecidos(parecidos: list[tuple[Producto, Decimal]], mismo: Producto | None) -> Producto | None:
+    """Sin clasificación: la del mismo producto o la que comparten casi todos los parecidos."""
+    return mismo or subcategoria_de_parecidos(parecidos)
+
+
 def vigente(bd: Session, *, propuesta_id: int | None = None, idea_id: int | None = None) -> ProductoEvaluacion | None:
     q = select(ProductoEvaluacion).where(ProductoEvaluacion.vigente == true())
     q = q.where(ProductoEvaluacion.propuesta_id == propuesta_id) if propuesta_id else q.where(ProductoEvaluacion.idea_id == idea_id)
@@ -2005,10 +2074,9 @@ def iniciar(bd: Session, *, propuesta_id: int | None = None, idea_id: int | None
     anterior = vigente(bd, propuesta_id=propuesta_id, idea_id=idea_id)
     e = ProductoEvaluacion(propuesta_id=propuesta_id, idea_id=idea_id, estado="en_curso", vigente=True,
                            disparada_por=usuario_id, creada_en=ahora())
-    if clasificacion is not None:
-        e.rama, e.subcategoria, e.segmento = clasificacion
-        e.clasificacion_origen = "compras"
-    elif anterior and anterior.clasificacion_origen == "compras":
+    # v0.5.4: la clasificación es automática; ya no se toma ni se hereda la que confirmaba Compras (`clasificacion` se
+    # ignora, se deja para no romper a quien la mande). Como la v0.5.3 (solo para compararla) sí se hereda.
+    if COMO_V053.get() and anterior and anterior.clasificacion_origen == "compras":
         e.rama, e.subcategoria, e.segmento, e.clasificacion_origen = (anterior.rama, anterior.subcategoria,
                                                                       anterior.segmento, "compras")
     fijos = comparables
@@ -2054,29 +2122,25 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         if e.clasificacion_origen != "compras" and (otra := clasificacion_de_variante(bd, e, s)):
             e.rama, e.subcategoria, e.segmento = otra.rama, otra.subcategoria, otra.segmento
             e.clasificacion_origen = "variante"
-        ingrediente = ingrediente_de(bd, s)
-        conservar = ingrediente.ids if ingrediente else set()
-        if e.clasificacion_origen not in ("compras", "variante") and ingrediente:
-            # 24 nov 2026: si los productos con su ingrediente principal están casi todos en una subcategoría, esa es
-            # la suya; la IA no la elige (caso BDM Life Berberina en «Hierbas suecas»)
-            e.rama, e.subcategoria, e.segmento = ingrediente.rama, ingrediente.subcategoria, ingrediente.segmento
-            e.clasificacion_origen = "ingrediente"
-        elif e.clasificacion_origen not in ("compras", "variante"):
-            # Se clasifica con los parecidos que la IA ya revisó (v0.4)
-            sin_sub, _ = revisar_parecidos(bd, s, buscar_parecidos(bd, s, None), vistos) if not fijados else (None, [])
-            e.rama, e.subcategoria, e.segmento = clasificar(bd, s, sin_sub)
-            e.clasificacion_origen = "ia" if e.subcategoria else "sin_clasificar"
+        conservar: set[int] = set()
+        clasif = None
+        if e.clasificacion_origen not in ("variante", "compras"):  # nadie la confirma a mano desde la v0.5.4
+            clasif = clasificar_sujeto(bd, s, revisar=not fijados)
+            e.rama, e.subcategoria, e.segmento, e.clasificacion_origen = (clasif.rama, clasif.subcategoria,
+                                                                          clasif.segmento, clasif.origen)
+            conservar = clasif.conservar
+        elif ingrediente := ingrediente_de(bd, s):  # otro sabor: los de su ingrediente se quedan, como en la v0.5.3
+            conservar = set(ingrediente.ids)
 
         paso(2, "buscando productos parecidos en el catálogo y revisándolos con la IA")
         if fijados:  # Compras los fijó: no se revisan
             parecidos = [(bd.get(Producto, c.producto_id), c.similitud) for c in e.comparables]
             cargar_fichas(bd, [p for p, _ in parecidos])
         else:
-            parecidos, quitados = revisar_parecidos(bd, s, buscar_parecidos(bd, s, e.subcategoria, e.rama, conservar),
-                                                    vistos, conservar)
+            parecidos, quitados = parecidos_sujeto(bd, s, e.subcategoria, e.rama, conservar, vistos)
         mismo = mismo_de(s, parecidos)
-        if not e.subcategoria and e.clasificacion_origen not in ("compras", "variante"):
-            if fuente := mismo or subcategoria_de_parecidos(parecidos):
+        if not e.subcategoria and e.clasificacion_origen not in ("variante", "compras"):
+            if fuente := clasificacion_de_parecidos(parecidos, mismo):
                 e.rama, e.subcategoria, e.segmento = fuente.rama, fuente.subcategoria, fuente.segmento
                 e.clasificacion_origen = "parecidos"
                 if not fijados:  # ya con subcategoría, se quitan los de otra (11 nov 2026)
@@ -2161,6 +2225,8 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             e.explicacion += (f"\n\nAntecedente: «{caso['producto']}» quedó {caso['decision']}"
                               + (f" ({caso['motivo']})" if caso.get("motivo") else "") + ".")
         e.explicacion += nota_quitados(quitados)
+        if clasif is not None and not COMO_V053.get():
+            e.explicacion += f"\n\n{clasif.texto()}"
         if not revision.rechazo and revision.avisos:
             titulos = ", ".join(f"«{x['titulo']}»" for x in revision.avisos[:2])
             e.explicacion = (f"Aviso: podría caer en la regla {titulos} de Compras, pero no hay un dato del producto que "
@@ -2184,7 +2250,8 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             bd.rollback()
             log.exception("Radar de productos: no se pudo guardar la pantalla de la evaluación %s", evaluacion_id)
             e = bd.get(ProductoEvaluacion, evaluacion_id)
-    if e.estado == "lista":  # una idea sin proveedor que salió bien se vuelve búsqueda de proveedor (2026-11-09)
+    if e.estado == "lista" and MERCADO_FIJO.get() is None:  # (en una comparación no se abre nada)
+        # una idea sin proveedor que salió bien se vuelve búsqueda de proveedor (2026-11-09)
         from modulos.compras import busquedas
 
         busquedas.despues_de_evaluar(bd, e)

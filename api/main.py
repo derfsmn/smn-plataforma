@@ -99,6 +99,22 @@ def _revisar_seguimiento() -> None:
         seguimiento.revisar_programa(bd)
 
 
+def _revisar_reclasificar() -> None:
+    from core.bd import _fabrica
+    from modulos.compras import reclasificar
+
+    with _fabrica()() as bd:
+        reclasificar.revisar_programa(bd)
+
+
+def _revisar_examen() -> None:
+    from core.bd import _fabrica
+    from modulos.compras import examen_clasificacion
+
+    with _fabrica()() as bd:
+        examen_clasificacion.revisar_programa(bd)
+
+
 def _revisar_costos() -> None:
     from core.bd import _fabrica
     from ia.costos import revisar
@@ -116,7 +132,9 @@ async def programador() -> None:
     Vive dentro de la API, así que no depende de nadie: en el servidor corre mientras la API esté arriba."""
     while True:
         for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_precios_noche, _revisar_oportunidades,
-                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_costos, _revisar_innovacion):
+                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_reclasificar, _revisar_examen,
+                      _revisar_costos,
+                      _revisar_innovacion):
             try:
                 await asyncio.to_thread(tarea)
             except Exception:  # noqa: BLE001 - un error no debe detener el programador

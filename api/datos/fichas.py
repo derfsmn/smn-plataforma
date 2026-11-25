@@ -25,6 +25,7 @@ import re
 import struct
 import threading
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -96,11 +97,18 @@ _FORMATOS = (
     ("gomita", {"gomita", "gomitas", "gomas"}),
     ("polvo", {"polvo"}),
     ("liquido", {"liquido", "jarabe", "gotas", "bebida", "shot", "shots"}),
+    # 24 nov 2026 (plan de clasificación automática): una crema de colágeno no es un colágeno en polvo
+    ("crema", {"crema", "cremas", "gel", "unguento", "pomada", "locion", "balsamo", "serum", "roll", "mascarilla"}),
 )
 GRUPO_FORMATO = {"sobre": "polvo", "polvo": "polvo", "capsula": "solido", "tableta": "solido", "gomita": "gomita",
-                 "liquido": "liquido"}
+                 "liquido": "liquido", "crema": "topico"}
 NOMBRE_FORMATO = {"sobre": "sobre", "polvo": "polvo", "capsula": "cápsulas", "tableta": "tabletas", "gomita": "gomitas",
-                  "liquido": "líquido"}
+                  "liquido": "líquido", "crema": "crema"}
+
+
+# v0.5.4: para comparar contra la v0.5.3 sin adivinar (pedido de Diego, 24 nov 2026), el examen y la comparación corren
+# también «como la v0.5.3». En la operación normal siempre es False.
+COMO_V053: ContextVar[bool] = ContextVar("como_v053", default=False)
 
 
 def formato(*textos: str | None) -> str | None:
@@ -111,6 +119,8 @@ def formato(*textos: str | None) -> str | None:
             continue
         ps = set(re.findall(r"[a-zñ]+", _norm(texto)))
         for nombre, claves in _FORMATOS:
+            if nombre == "crema" and COMO_V053.get():
+                continue  # la v0.5.3 no conocía la forma «crema»
             if ps & claves:
                 return nombre
         tam = tamano(texto)

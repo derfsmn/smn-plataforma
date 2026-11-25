@@ -20,7 +20,7 @@ from modulos.compras.modelos import (RadarAccion, RadarArticulo, RadarDestinatar
 from nucleo.archivos import _raiz
 from nucleo.lectura import extraer_texto
 from nucleo.bitacora import registrar
-from nucleo.modelos import Archivo, Modulo, Usuario, ahora
+from nucleo.modelos import Archivo, IaTarea, Modulo, Usuario, ahora
 
 router = APIRouter(prefix="/api/compras/radar", tags=["compras · radar"])
 VER = requiere("compras.radar.ver")
@@ -180,14 +180,19 @@ def _detalle(bd: Session, r: RadarReporte) -> ReporteDetalle:
 def estado(_: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> EstadoRadar:
     cfg = configuracion()
     ultimo = bd.scalar(select(RadarReporte).order_by(RadarReporte.fecha.desc()))
-    motivos = puerta.motivos_api_apagada(bd)
+    # 25 nov 2026: el encabezado dice la IA que de verdad arma el reporte (antes decía «OpenAI» aunque fuera Ollama)
+    tarea = bd.scalar(select(IaTarea).where(IaTarea.codigo == "compras.radar_resumen"))
+    local = bool(tarea and tarea.proveedor_ia == "ollama")
+    motivos = [] if local else puerta.motivos_api_apagada(bd)
+    externa = "OpenAI" if cfg.ia_proveedor_externo == "openai" else "Anthropic"
+    modelo_local = (tarea.modelo if tarea else None) or cfg.ollama_modelo or "sin modelo"
     return EstadoRadar(
         activo=cfg.radar_activo, hora=cfg.radar_hora, zona_horaria=cfg.radar_zona_horaria,
         proxima_corrida=radar.proxima_corrida(bd),
         frecuencia=radar.texto_frecuencia(),
         en_curso=bool(bd.scalar(select(func.count()).select_from(RadarReporte).where(RadarReporte.estado == "en_curso"))),
         ultimo=_resumen(bd, ultimo) if ultimo else None, ia_encendida=not motivos,
-        ia_proveedor="OpenAI" if cfg.ia_proveedor_externo == "openai" else "Anthropic", ia_motivos=motivos,
+        ia_proveedor=f"local (Ollama · {modelo_local})" if local else externa, ia_motivos=motivos,
         ollama=bool(cfg.ollama_modelo) and puerta.estado_ollama()["disponible"],
         correo_configurado=bool(cfg.smtp_servidor),
         destinatarios_activos=bd.scalar(select(func.count()).select_from(RadarDestinatario).where(RadarDestinatario.activo)),

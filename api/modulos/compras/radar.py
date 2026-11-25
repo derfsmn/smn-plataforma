@@ -46,6 +46,14 @@ CATEGORIAS = ["PRODUCTO", "INGREDIENTE", "PROVEEDOR", "TENDENCIA", "REGULACIÓN"
 NIVELES = ["ALTA", "MEDIA", "TEMPRANA"]
 POR_LOTE = 20
 MAX_EXTRACTO = 1200
+# Lo que se le manda a la IA para armar el reporte (25 nov 2026): con la IA local hay que caber en su ventana
+RESUMEN_MAX_NOTAS = 40
+RESUMEN_EXTRACTO = 500
+RESUMEN_CONOCIMIENTO = 12000
+RESUMEN_SALIDA = 5000
+CLASIFICAR_SALIDA = 4000
+SIN_ESPACIO = ("la IA local se quedó sin espacio y la respuesta llegó cortada. Baja «Hallazgos por reporte» "
+               "o quita documentos de apoyo que ya no sirvan.")
 AGENTE = "Mozilla/5.0 (compatible; SMN-Radar/1.0; +https://supernaturista.mx)"
 
 REGLAS = """Reglas que no se rompen:
@@ -119,7 +127,13 @@ def _json_de(texto: str):
     inicio = min([i for i in (t.find("{"), t.find("[")) if i >= 0], default=-1)
     if inicio < 0:
         raise ValueError("La IA no respondió JSON.")
-    return json.loads(t[inicio:t.rfind("}" if t[inicio] == "{" else "]") + 1])
+    fin = t.rfind("}" if t[inicio] == "{" else "]")
+    if fin < inicio:  # 25 nov 2026: antes esto salía como «Expecting value: line 1 column 1 (char 0)»
+        raise ValueError("la respuesta de la IA llegó incompleta (empezó el JSON y no lo cerró).")
+    try:
+        return json.loads(t[inicio:fin + 1])
+    except json.JSONDecodeError as e:
+        raise ValueError(f"la IA respondió JSON mal formado ({e.msg}, posición {e.pos}).") from e
 
 
 def _fecha(valor) -> date | None:
@@ -410,7 +424,10 @@ def clasificar(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
                               for a in lote], ensure_ascii=False)
         try:
             r = puerta.ejecutar(bd, "compras.radar_clasificar", usuario_id=None, instrucciones=INSTRUCCIONES_CLASIFICAR,
-                                mensaje=mensaje, max_tokens=4000, esfuerzo="low")
+                                mensaje=mensaje, max_tokens=CLASIFICAR_SALIDA, esfuerzo="low", formato="json",
+                                contexto=puerta.ventana(INSTRUCCIONES_CLASIFICAR, mensaje, salida=CLASIFICAR_SALIDA))
+            if not r.completa:
+                raise ValueError(SIN_ESPACIO)
             por_id = {int(x["id"]): x for x in (_json_de(r.texto).get("notas") or []) if str(x.get("id", "")).isdigit()}
         except (ValueError, TypeError, KeyError) as e:
             # La IA a veces devuelve JSON mal formado: se reintenta en dos mitades antes de rendirse
@@ -437,7 +454,7 @@ def clasificar(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
         bd.commit()
 
 
-def contexto_conocimiento(bd: Session, maximo: int = 24000) -> str:
+def contexto_conocimiento(bd: Session, maximo: int = RESUMEN_CONOCIMIENTO) -> str:
     docs = bd.scalars(select(RadarDocumento).where(RadarDocumento.activo, RadarDocumento.caracteres > 0)
                       .order_by(RadarDocumento.subido_en.desc())).all()
     partes, total = [], 0
@@ -509,9 +526,10 @@ def resumir(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
     decisiones = ultimas_decisiones(bd, [s.senal_id for s in [*vivas, *descartadas]])
     mensaje = {
         "fecha": hoy_local().isoformat(),
-        "notas": [{"id": a.articulo_id, "titulo": a.titulo, "extracto": a.extracto or "", "sitio": a.sitio,
-                   "fecha": a.publicado_en.isoformat() if a.publicado_en else None, "pais": a.pais,
-                   "categoria": a.categoria, "nivel": a.nivel, "por_que": a.por_que} for a in relevantes[:80]],
+        "notas": [{"id": a.articulo_id, "titulo": a.titulo, "extracto": (a.extracto or "")[:RESUMEN_EXTRACTO],
+                   "sitio": a.sitio, "fecha": a.publicado_en.isoformat() if a.publicado_en else None, "pais": a.pais,
+                   "categoria": a.categoria, "nivel": a.nivel, "por_que": a.por_que}
+                  for a in relevantes[:RESUMEN_MAX_NOTAS]],
         "senales_existentes": [{"senal_id": s.senal_id, "titulo": s.titulo, "tipo": s.tipo,
                                 "desde": s.primera_vez.isoformat(), "decision_de_compras": s.estado,
                                 "nota_de_compras": decisiones.get(s.senal_id)} for s in vivas],
@@ -520,9 +538,14 @@ def resumir(bd: Session, reporte: RadarReporte, avisos: list[str]) -> None:
     texto = json.dumps(mensaje, ensure_ascii=False)
     if conocimiento := contexto_conocimiento(bd):
         texto += "\n\nBase de conocimiento de SMN (documentos que subió Compras):\n" + conocimiento
-    r = puerta.ejecutar(bd, "compras.radar_resumen", usuario_id=None,
-                        instrucciones=instrucciones_resumen(cfg.radar_max_hallazgos), mensaje=texto,
-                        max_tokens=8000, esfuerzo="medium")
+    instrucciones = instrucciones_resumen(cfg.radar_max_hallazgos)
+    # 25 nov 2026: sin `contexto` Ollama usaba su ventana corta (2-4 mil tokens), cortaba la respuesta y el reporte
+    # fallaba con «Expecting value». Ahora se pide la ventana que alcanza y que conteste solo JSON válido.
+    r = puerta.ejecutar(bd, "compras.radar_resumen", usuario_id=None, instrucciones=instrucciones, mensaje=texto,
+                        max_tokens=RESUMEN_SALIDA, esfuerzo="medium", formato="json",
+                        contexto=puerta.ventana(instrucciones, texto, salida=RESUMEN_SALIDA))
+    if not r.completa:
+        raise ValueError(SIN_ESPACIO)
     datos = _json_de(r.texto)
 
     por_id = {a.articulo_id: a for a in relevantes}
