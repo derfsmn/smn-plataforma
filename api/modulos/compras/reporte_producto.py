@@ -332,7 +332,7 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
     clasificacion = " › ".join(x.capitalize() for x in (e.rama, e.subcategoria, e.segmento) if x) or None
     unidad = None
     if s.precio and s.activo_g:
-        unidad = f"{_pesos(s.precio / s.activo_g)} por gramo de {s.ingrediente.lower() if s.ingrediente else 'activo'}"
+        unidad = f"{_pesos(s.precio / s.activo_g)} por gramo de {rp.solo_principal(s.ingrediente).lower() if s.ingrediente else 'activo'}"
     elif s.precio and tam:
         dim = "g" if "g" in tam else "ml" if "ml" in tam else "pz"
         unidad = rp._precio_unidad(s.precio / tam[dim], dim)
@@ -388,7 +388,7 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
         afuera.append((p.get("titulo") or s.nombre, donde, precio, por))
     for precio, donde in s.mercado:
         if s.activo_g:  # es el mismo producto que vio Compras: mismo contenido
-            por = f"{_pesos(precio / s.activo_g)} por gramo de {s.ingrediente.lower() if s.ingrediente else 'activo'}"
+            por = f"{_pesos(precio / s.activo_g)} por gramo de {rp.solo_principal(s.ingrediente).lower() if s.ingrediente else 'activo'}"
         elif dim:
             por = rp._precio_unidad(precio / tam[dim], dim)
         else:

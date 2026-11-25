@@ -62,3 +62,16 @@ def test_lanzamientos_solo_de_su_mismo_tipo():
              {"sku": "3", "descripcion": "BERBERINA GOTAS 30 ML", "por_tienda": 3.0}]
     assert [x["sku"] for x in rp.lanzamientos_de_su_tipo(bdm(False), misma)] == ["2"]
     assert rp.lanzamientos_de_su_tipo(bdm(False), misma[:1]) == []
+
+
+def test_fichas_sin_piezas_toman_las_capsulas_de_la_descripcion(catalogo, monkeypatch):
+    """Así vienen en el servidor: la ficha dice gramos y no piezas; solo 4 Health trae piezas. Antes: 57 % más caro."""
+    fichas = {p.sku: fi.Ficha(tipo="suplemento", forma="cápsulas", contenido_cantidad=D(n) / 2, contenido_unidad="g",
+                              piezas=(n if p.sku == "55039" else None), ingrediente_principal="Berberina")
+              for p, (_, _, _, n) in zip(catalogo, BERBERINAS)}
+    monkeypatch.setattr(rp, "ficha_de", lambda p: fichas.get(p.sku))
+    s = bdm(False)
+    f = rp.precio_anaquel(s, [(p, D("0.5")) for p in catalogo])
+    assert "por cápsula" in f.valor and "más barato" in f.valor, f.valor
+    for marca in ("BLIFE", "BIRDMAN", "NUTRAVIA"):
+        assert marca in f.detalle

@@ -571,8 +571,21 @@ def solo_piezas(tam: dict[str, Decimal], forma: str | None) -> dict[str, Decimal
     return tam
 
 
+def solo_principal(nombre: str) -> str:
+    """«Berberina + Piperina» → «Berberina»: los gramos de activo de la ficha son del primero (la piperina va en mg para
+    que se absorba mejor; BDM Life, 25 nov 2026)."""
+    return re.split(r"\s*(?:\+|,|/|\by\b|\bcon\b)\s*", nombre.strip())[0] or nombre
+
+
 def tamano_para_precio_de(p: Producto) -> dict[str, Decimal]:
-    return solo_piezas(tamano_de(p), formato_de(p))
+    """Tamaño para comparar precio. En cápsulas, tabletas y gomitas, si la ficha no dice cuántas piezas trae, se toman de
+    la descripción (BDM Life, 25 nov 2026: las fichas de las berberinas decían solo gramos y por cápsula quedaba solo
+    4 Health, la única con piezas en su ficha: «57 % más caro»)."""
+    tam, forma = tamano_de(p), formato_de(p)
+    if "pz" not in tam and forma and GRUPO_FORMATO.get(forma) in ("solido", "gomita"):
+        if pz := tamano(p.descripcion).get("pz"):
+            tam = {**tam, "pz": pz}
+    return solo_piezas(tam, forma)
 
 
 def formato_de(p: Producto) -> str | None:
@@ -1197,7 +1210,7 @@ def _por_activo(s: Sujeto, usados: list[Producto], campo: str
     # Como en `_por_unidad`: si hay de tamaño cercano (de la mitad al doble de su ingrediente), solo esos
     cercanos = [x for x in lista if gramos / 2 <= x[2] <= gramos * 2]
     dentro = [(p, x) for p, x, _ in (cercanos or lista) if RANGO_PRECIO[0] <= propio / x <= RANGO_PRECIO[1]]
-    return (gramos, propio, dentro, nombre.lower()) if dentro else None
+    return (gramos, propio, dentro, solo_principal(nombre).lower()) if dentro else None
 
 
 def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
