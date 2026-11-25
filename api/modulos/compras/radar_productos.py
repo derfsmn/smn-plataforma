@@ -1307,8 +1307,8 @@ def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
                            for p, x in sorted(dentro, key=lambda d: d[1]))
         return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestro anaquel, por gramo de {nombre}"),
                       f"{que} {_pesos(s.precio)} con {_n(gramos)} g de {nombre}: sale a {_pesos(propio)} por gramo. "
-                      f"Nuestros parecidos salen, en medio, a {_pesos(med)} por gramo: {contra}."
-                      f"{_lugar(propio, [x for _, x in dentro])}", False,
+                      f"{_lugar(propio, [x for _, x in dentro])} Nuestros parecidos salen, en medio, a {_pesos(med)} por gramo: "
+                      f"{contra}.", False,
                       *_precio_explicado(ratio, med * gramos, f"nuestros parecidos por gramo de {nombre}"),
                       meta=(med * gramos).quantize(Decimal("0.01")))
     if unidad := _por_unidad(s, [(p, Decimal(0)) for p in base], campo, todos=bool(mismos)):
@@ -1333,10 +1333,11 @@ def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
                          f"{abs(otra):.0f} % más {'caro' if otra > 0 else 'barato'} por toma. Falta la toma en sus fichas.")
             return Factor(_por_precio(ratio), _precio_valor(ratio, f"nuestro anaquel, por {un}"),
                           f"{que} {_pesos(s.precio)} por {_n(cantidad)} {un + 's' if un != NOMBRE_UNIDAD[dim] else dim}: sale a "
-                          f"{_pesos(propio) + ' por ' + un if un != NOMBRE_UNIDAD[dim] else _precio_unidad(propio, dim)}. "
+                          f"{_pesos(propio) + ' por ' + un if un != NOMBRE_UNIDAD[dim] else _precio_unidad(propio, dim)}."
+                          f"{_lugar(propio, [x for _, x in en_rango])}{aviso} "  # antes de la lista: el detalle se guarda en 1,000 letras
                           f"Nuestros parecidos salen, en medio, a "
                           f"{_pesos(med) + ' por ' + un if un != NOMBRE_UNIDAD[dim] else _precio_unidad(med, dim)}: {contra}."
-                          f"{_lugar(propio, [x for _, x in en_rango])}{aviso}", bool(aviso),
+                          , bool(aviso),
                           *_precio_explicado(ratio, med * cantidad, f"nuestros parecidos por {un}"),
                           meta=(med * cantidad).quantize(Decimal("0.01")))
     precios = [(p, getattr(p, campo)) for p in usados if getattr(p, campo)]
@@ -1470,7 +1471,7 @@ def _juntar_precio(afuera: Factor, anaquel: Factor | None, precio: Decimal | Non
                       afuera.mejora, afuera.meta)
     if a is None:
         return Factor(b, anaquel.valor, f"{anaquel.detalle} Afuera: {afuera.detalle[0].lower()}{afuera.detalle[1:]}",
-                      False, (anaquel.calculo or "") + " Solo cuenta nuestro anaquel: no hay precios de afuera.",
+                      anaquel.provisional, (anaquel.calculo or "") + " Solo cuenta nuestro anaquel: no hay precios de afuera.",
                       anaquel.mejora, anaquel.meta)
     final = round((a + b) / 2)
     pct = 75 - final  # el nivel del promedio, con los mismos cortes de cada mitad
@@ -1480,7 +1481,8 @@ def _juntar_precio(afuera: Factor, anaquel: Factor | None, precio: Decimal | Non
         return v.split(": ", 1)[1] if ": " in v else v
 
     return Factor(final, f"{nivel}: {sin_nivel(afuera.valor)}; {sin_nivel(anaquel.valor)}",
-                  f"Contra afuera: {afuera.detalle} Contra nuestro anaquel: {anaquel.detalle}", afuera.provisional,
+                  f"Contra afuera: {afuera.detalle} Contra nuestro anaquel: {anaquel.detalle}",
+                  afuera.provisional or anaquel.provisional,
                   f"Precio = promedio de dos mitades. Contra afuera {a}: {afuera.calculo} Contra nuestro anaquel {b}: "
                   f"{anaquel.calculo} ({a} + {b}) / 2 = {final}.",
                   _mejora_promedio(precio, afuera, anaquel, final), afuera.meta)

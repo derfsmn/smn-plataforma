@@ -382,7 +382,11 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
                        "imagen": p["imagen"]})
     # Con nuestro precio, cuántas porciones (o gramos) se lleva el cliente de cada uno
     se_lleva = None
-    if s.precio and porciones and con_porcion:
+    # Por porciones solo si al menos la mitad de con quién compite dicen sus porciones (BDM Life, 25 nov 2026: de 7
+    # berberinas solo Altus las dice y el cuadro comparaba contra ella sola); si no, por cápsula, gramo o mililitro
+    base_porcion = compite or usados
+    porciones_alcanzan = len([p for p in base_porcion if p["por_porcion"]]) >= max(2, (len(base_porcion) + 1) // 2)
+    if s.precio and porciones and con_porcion and porciones_alcanzan:
         se_lleva = {"monto": _f(s.precio), "unidad": "porciones", "filas": [
             {"nombre": s.marca or s.nombre, "cantidad": porciones, "tipo": "nuevo"}]
             + [{"nombre": p["descripcion"], "cantidad": round(float(s.precio) / p["por_porcion"]), "tipo": "parecido",
