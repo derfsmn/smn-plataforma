@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.8 · 2026-11-25
+
+Radar de productos: el precio se compara contra todos los de su mismo ingrediente y forma; el examen de clasificación ya no se reinicia al publicar
+
+**Cambios guardados:**
+- Radar: precio contra todos los de su ingrediente, por toma primero; examen que sigue al publicar
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.7 · 2026-11-25
 
 Radar de productos: el precio por cápsula compara contra todos los parecidos, no solo contra los que traen piezas en su ficha
