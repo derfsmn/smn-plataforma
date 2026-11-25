@@ -1381,3 +1381,16 @@ def test_consulta_sin_marca_del_proveedor_si_el_nombre_ya_trae_la_suya():
     # Una marca a media frase no quita la capturada
     assert co.consultas("PROTEINA BDM VAINILLA", "BIRDMAN", None, marcas_conocidas={"bdm"})[0][1].startswith("BIRDMAN")
     assert co.consultas("PROTEINA VAINILLA", "BIRDMAN", None, marcas_conocidas={"bdm"})[0][1].startswith("BIRDMAN")
+
+
+def test_bdm_se_busca_sin_presentacion_y_con_la_marca_de_su_nombre():
+    # 25 nov 2026: con «120 CAP DE 1.2G» Google regresaba otros productos de 120 cápsulas; la marca BDM-LIFE del
+    # catálogo es con la que se vende, no JUVETERNAL (quien lo surte)
+    d = "BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G"
+    marcas = {"bdm life", "bdm lab", "juveternal", "birdman"}
+    assert co.nombre_sin_medidas(d) == "BDM Life Berberina + Piperina + Omega 9 – Metabolismo"
+    assert co.marca_del_nombre(d, "JUVETERNAL", marcas) == "bdm life"
+    assert co.marca_del_nombre("BIRDMAN PROTEINA 510 G", "BIRDMAN", marcas) is None
+    assert co.marca_del_nombre("PROTEINA VEGETAL 510 G", "BIRDMAN", marcas) is None
+    assert co.evaluar(d, "bdm life", "BDM LIFE Berberina Piperina Omega 9 120 Cápsulas", 70, marcas).aceptada
+    assert co.evaluar(d, "bdm life", "Berberina 120 cápsulas Juveternal", 70, marcas).marca is False

@@ -185,6 +185,7 @@ type PrecioPantalla = Comun & {
     afuera: Afuera[];
     mercado_libre: Afuera[];
     mercado_libre_nota?: string | null;
+    busqueda_notas?: string[];
     mitades?: { afuera: MitadPrecio | null; anaquel: MitadPrecio | null; membresia?: MembresiaPrecio | null };
     membresia?: MembresiaPrecio | null;
     compite?: { sku: string; descripcion: string; imagen: string | null; clase: string; clasificacion?: string | null; por_tienda: number | null; precio: number | null; por_porcion: number | null; tamano: string | null }[];

@@ -61,6 +61,26 @@ def formas_marca(marca: str) -> set[str]:
     return formas
 
 
+def marca_del_nombre(descripcion: str | None, marca: str | None, marcas_conocidas: set[str]) -> str | None:
+    """La marca con que se vende cuando nuestro nombre empieza con ella y no es la capturada (BDM Life Berberina
+    capturado con marca JUVETERNAL, que es quien lo surte; 25 nov 2026). La más larga gana (BDM LIFE antes que BDM)."""
+    nombre, propia = normalizar(descripcion), normalizar(marca_comercial(marca))
+    if propia and re.search(rf"\b{re.escape(propia)}\b", nombre):
+        return None
+    for m in sorted(marcas_conocidas, key=len, reverse=True):
+        if m != propia and re.match(rf"{re.escape(m)}\b", nombre):
+            return m
+    return None
+
+
+def nombre_sin_medidas(texto: str | None) -> str:
+    """«BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G» -> sin «120 CAP DE 1.2G»: con la
+    presentación, Google regresaba otros productos de 120 cápsulas (25 nov 2026)."""
+    t = sin_presentacion(texto)
+    t = re.sub(r"(\s+(de|con|en|x|c/|y))+\s*$", "", t, flags=re.IGNORECASE)
+    return _limpiar(t)
+
+
 def sin_presentacion(texto: str | None) -> str:
     """El texto sin cantidades ni unidades: «Aceite de ajo 500 ml» -> «Aceite de ajo» (para buscadores de tiendas)."""
     return re.sub(r"\s+", " ", MEDIDA.sub(" ", texto or "")).strip()

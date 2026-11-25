@@ -351,6 +351,13 @@ def _nota_ml(e: ProductoEvaluacion, afuera: list[dict]) -> str | None:
     return "Mercado Libre: no se buscó en esta evaluación."
 
 
+def _notas_busqueda(e: ProductoEvaluacion) -> list[str]:
+    """Qué se buscó afuera y por qué no se tomó nada (Google, tiendas), para verlo en pantalla sin consultar la base
+    (BDM Life, 25 nov 2026). Mercado Libre va aparte."""
+    m = mp.Mercado.de_json(e.mercado)
+    return [x for x in (m.notas if m else []) if not x.startswith("Mercado Libre")][:12]
+
+
 def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: list[dict], parecidos: list[dict],
             porciones: int | None, mitades: dict | None = None) -> dict:
     usados = [p for p in parecidos if p["cuenta"]]
@@ -456,6 +463,7 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
                                      # precio de lista con IVA, igual que el nuestro (no el precio promedio vendido)
                                      "precio": p["precio_lista"] or p["precio"]} for p in compite],
             "mercado_libre": [a for a in afuera if a["mercado_libre"]], "mercado_libre_nota": _nota_ml(e, afuera),
+            "busqueda_notas": _notas_busqueda(e),
             "por_porcion": por_porcion, "porciones": porciones, "veces": veces, "barras": barras, "barras_nota": barras_nota,
             "se_lleva": se_lleva,
             "a_favor": a_favor, "en_contra": en_contra, "subiria": fila.mejora,

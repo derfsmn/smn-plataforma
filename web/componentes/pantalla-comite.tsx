@@ -1022,6 +1022,14 @@ function CuerpoPrecio({ p, lado }: { p: Pantalla; lado?: "anaquel" | "afuera" })
             </div>
           )}
           {!d.afuera.length && <p className="py-3 text-smn-gris-500">No se encontraron precios de este mismo producto afuera.</p>}
+          {d.busqueda_notas && d.busqueda_notas.length > 0 && (
+            <details className="mt-2 border-t border-smn-gris-100 pt-3" open={!d.afuera.length}>
+              <summary className="cursor-pointer text-sm font-semibold text-smn-gris-500">Qué se buscó afuera y qué se encontró</summary>
+              <ul className="mt-2 space-y-1.5 text-sm text-smn-gris-500">
+                {d.busqueda_notas.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            </details>
+          )}
         </div>
       </Tarjeta>
       )}

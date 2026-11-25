@@ -32,7 +32,7 @@ DIAS_VIGENCIA = 7  # al recalcular dentro de una semana se reusa la búsqueda y 
 MAX_PRECIOS = 30
 # Versión de la regla que decide si una publicación es el mismo producto. Una búsqueda sin precios hecha con una regla
 # anterior se vuelve a hacer al recalcular (25 nov 2026: la línea de la marca, «BDM Life» de JUVETERNAL)
-REGLA = 3  # 3: la consulta ya no antepone la marca del proveedor (BDM Life de JUVETERNAL, v0.5.12)
+REGLA = 4  # 4: también busca el nombre sin presentación y compara con la marca del nombre (BDM Life, v0.6.1)
 
 
 @dataclass
@@ -205,6 +205,15 @@ def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | Non
     if not consultas:
         m.notas.append("No hay nombre ni código de barras para buscarlo.")
         return m
+    # También como lo buscaría una persona: el nombre sin la presentación (BDM Life: con «120 CAP DE 1.2G» Google
+    # regresaba otros productos de 120 cápsulas). La presentación se sigue revisando al comparar los resultados.
+    if (desc := next((t for e, t in consultas if e == "descripcion"), None)) and \
+            (corto := co.nombre_sin_medidas(desc)) and co.normalizar(corto) != co.normalizar(desc) and len(corto.split()) >= 2:
+        consultas.append(("nombre", corto[:200]))
+    # Se compara contra la marca con que se vende si nuestro nombre empieza con ella (BDM-LIFE, no JUVETERNAL)
+    if vende := co.marca_del_nombre(nombre, marca, marcas):
+        m.notas.append(f"Se buscó con la marca «{vende.upper()}» de su nombre (capturada: {marca}).")
+        marca = vende
     _google(bd, m, nombre, marca, consultas, marcas, referencia)
     _tiendas(bd, m, nombre, marca, consultas, marcas)
     senal_de_venta(bd, m, nombre, marca, consultas, marcas, referencia)
