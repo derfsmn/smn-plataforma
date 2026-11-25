@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.1 · 2026-11-25
+
+busca afuera como persona
+
+**Cambios guardados:**
+- v0.6.1 BDM: buscar afuera sin presentacion y con su marca
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6 · 2026-11-25
 
 Radar de precios una sola vista + rebusca afuera BDM
