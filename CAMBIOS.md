@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.5 · 2026-11-25
+
+Clasificación automática de productos con examen y comparación; el radar de tendencias vuelve a armar su reporte con la IA local
+
+**Cambios guardados:**
+- Clasificaci├│n autom├ítica por votaci├│n (v0.5.4) y radar de tendencias con IA local que cabe
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.3 · 2026-11-24
 
 El radar de productos clasifica y compara contra los productos que ya vendemos con el mismo ingrediente principal (caso berberina)
