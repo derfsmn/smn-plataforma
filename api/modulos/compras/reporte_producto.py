@@ -331,7 +331,16 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
                                                               else None) if x) or (rp.NOMBRE_FORMATO.get(formato) or "")
     clasificacion = " › ".join(x.capitalize() for x in (e.rama, e.subcategoria, e.segmento) if x) or None
     unidad = None
-    if s.precio and s.activo_g:
+    # Cápsulas, tabletas y gomitas: por pieza, que es como se compara el Precio (25 nov 2026, BDM Life: decía solo
+    # «$9.56 por gramo de berberina» y el factor iba por cápsula)
+    pieza = {"capsula": "cápsula", "tableta": "tableta", "gomita": "gomita"}.get(formato or "")
+    pz = rp.solo_piezas(tam, formato).get("pz") if tam and pieza else None
+    if s.precio and pz:
+        unidad = f"{_pesos(s.precio / pz)} por {pieza}"
+        if s.activo_g:
+            unidad += (f" ({_pesos(s.precio / s.activo_g)} por gramo de "
+                       f"{rp.solo_principal(s.ingrediente).lower() if s.ingrediente else 'activo'})")
+    elif s.precio and s.activo_g:
         unidad = f"{_pesos(s.precio / s.activo_g)} por gramo de {rp.solo_principal(s.ingrediente).lower() if s.ingrediente else 'activo'}"
     elif s.precio and tam:
         dim = "g" if "g" in tam else "ml" if "ml" in tam else "pz"
@@ -397,8 +406,10 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
 
     # Factores y cifras
     peso, _ = rp.pesos(bd)
+    # Evaluaciones de antes del 25 nov 2026 no traen los dos temas del Precio: se enseña el Precio con su peso guardado
     lista_f = [(rp.NOMBRES[f], factores[f].peso if f in factores else peso[f], factores[f].puntaje if f in factores else None,
-                factores[f].valor if f in factores else None) for f in rp.FACTORES]
+                _valor_tema(f, factores[f]) if f in factores else None)
+               for f in rp.FACTORES if f in factores or not factores]
     # Solo los que pesan (Dirección, 20 nov 2026: Tendencia va dentro de la Demanda y Proveedor es contexto), del que
     # más pesa al que menos
     lista_f = sorted((x for x in lista_f if x[1]), key=lambda x: -x[1])
@@ -685,6 +696,17 @@ class Dona(Flowable):
         c.drawCentredString(cx, cy - t * 0.17, "de 100" if self.puntaje is not None else "sin datos")
 
 
+# Un tema del Precio sin datos no cuenta y su peso se reparte (25 nov 2026)
+SIN_TEMA_PRECIO = {"precio_afuera": "No cuenta: el radar de precios no lo encontró a la venta afuera.",
+                   "precio_anaquel": "No cuenta: no hay con qué compararlo en nuestro anaquel."}
+
+
+def _valor_tema(f: str, x) -> str | None:
+    if x.puntaje is None and f in SIN_TEMA_PRECIO:
+        return SIN_TEMA_PRECIO[f]
+    return (("Provisional. " if x.provisional and f.startswith("precio") else "") + (x.valor or "")) or None
+
+
 def _corto(x: str | None, largo: int = 95) -> str:
     """La primera idea del porqué, como en la tarjeta de la pantalla."""
     if not x:
@@ -891,7 +913,7 @@ def generar(r: Reporte) -> bytes:
     titulo = "4. ¿Qué vendemos hoy parecido?" + (" (SMNBI)" if r.ventana else "")
     bloque = [Spacer(1, 6), _h2(titulo), Spacer(1, 3)]
     def tabla(lista):
-        filas = [[_p(x, "cab") for x in ("SKU", "Producto", "Clas.")] +
+        filas = [[_p(x, "cab") for x in ("SKU", "Producto", "Clas. catálogo")] +
                  [_p(x, "cabn") for x in ("Piezas al mes", "Tiendas", "Pzas por tienda al mes", "Precio prom. con IVA", "Margen")]]
         for f in lista:
             nota = f" <font color='#777777'>({f.etiqueta})</font>" if f.etiqueta and f.etiqueta != "misma marca" else ""

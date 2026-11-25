@@ -3,7 +3,8 @@
 
 import type { Color } from "./precios";
 
-export type FactorClave = "demanda" | "categoria" | "rentabilidad" | "precio";
+// 25 nov 2026 (Diego): el Precio en dos temas, contra anaquel y contra afuera; las evaluaciones de antes traen «precio»
+export type FactorClave = "demanda" | "categoria" | "rentabilidad" | "precio" | "precio_anaquel" | "precio_afuera";
 
 export type FactorPantalla = {
   factor: FactorClave;
@@ -17,6 +18,7 @@ export type FactorPantalla = {
   detalle: string | null;
   calculo: string | null;
   mejora: string | null;
+  provisional?: boolean;
 };
 
 export type Titular = { antes: string; resaltado: string; despues: string };
@@ -86,7 +88,8 @@ export type MembresiaPrecio = {
   anaquel: MitadPrecio | null;
 };
 
-export type MitadPrecio = { puntaje: number | null; color: Color | null; valor: string | null; detalle: string; diferencia_pct: number | null; referencia: number | null };
+export type PorUnidad = { propio: number; medio: number; unidad: string; toma?: { piezas: number; tomas: number; por_toma: number; si_de_1_pct: number } | null };
+export type MitadPrecio = { puntaje: number | null; color: Color | null; valor: string | null; detalle: string; diferencia_pct: number | null; referencia: number | null; por_unidad?: PorUnidad | null; provisional?: boolean };
 
 type Comun = { titular: Titular; a_favor: string[]; en_contra: string[]; subiria: string | null; pasos: Paso[] };
 
@@ -146,21 +149,9 @@ export type Pantalla = {
     venta_3m: number | null;
     cadena?: { tiendas: number; venta: number | null; piezas: number; utilidad: number | null } | null;
   };
-  precio: Comun & {
-    referencia: number | null;
-    diferencia_pct: number | null;
-    afuera: Afuera[];
-    mercado_libre: Afuera[];
-    mercado_libre_nota?: string | null;
-    mitades?: { afuera: MitadPrecio | null; anaquel: MitadPrecio | null; membresia?: MembresiaPrecio | null };
-    membresia?: MembresiaPrecio | null;
-    compite?: { sku: string; descripcion: string; imagen: string | null; clase: string; por_tienda: number | null; precio: number | null; por_porcion: number | null; tamano: string | null }[];
-    por_porcion: number | null;
-    porciones: number | null;
-    veces: number | null;
-    barras: { nombre: string; valor: number; tipo: "nuevo" | "afuera" | "parecido"; sku?: string; imagen?: string | null }[];
-    se_lleva: { monto: number; unidad: string; filas: { nombre: string; cantidad: number; tipo: "nuevo" | "parecido"; sku?: string; imagen?: string | null }[] } | null;
-  };
+  precio: PrecioPantalla & { referencia: number | null; diferencia_pct: number | null };
+  precio_anaquel?: PrecioPantalla & { lado: "anaquel"; provisional: boolean };
+  precio_afuera?: PrecioPantalla & { lado: "afuera"; provisional: boolean };
   categoria: Comun & {
     productos: number | null;
     tipica: number | null;
@@ -186,6 +177,23 @@ export type Pantalla = {
   hasta: string | null;
   venta_al?: string | null; // se armó con la venta hasta esta fecha y se está rearmando con la nueva
   fuentes: string[];
+};
+
+type PrecioPantalla = Comun & {
+    referencia?: number | null;
+    diferencia_pct?: number | null;
+    afuera: Afuera[];
+    mercado_libre: Afuera[];
+    mercado_libre_nota?: string | null;
+    mitades?: { afuera: MitadPrecio | null; anaquel: MitadPrecio | null; membresia?: MembresiaPrecio | null };
+    membresia?: MembresiaPrecio | null;
+    compite?: { sku: string; descripcion: string; imagen: string | null; clase: string; clasificacion?: string | null; por_tienda: number | null; precio: number | null; por_porcion: number | null; tamano: string | null }[];
+    por_porcion: number | null;
+    porciones: number | null;
+    veces: number | null;
+    barras: { nombre: string; valor: number; tipo: "nuevo" | "afuera" | "parecido"; sku?: string; imagen?: string | null }[];
+    barras_nota?: string | null;
+    se_lleva: { monto: number; unidad: string; filas: { nombre: string; cantidad: number; tipo: "nuevo" | "parecido"; sku?: string; imagen?: string | null }[] } | null;
 };
 
 export const HEX: Record<Color, string> = { verde: "#2e8b57", amarillo: "#d99a1b", rojo: "#c8412f" };

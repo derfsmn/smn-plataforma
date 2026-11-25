@@ -7,7 +7,7 @@
 import { Imagen as ImagenSegura } from "@/componentes/imagen";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowRight, ArrowUpRight, ChevronRight, ImageOff, Loader2, X } from "lucide-react";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, mensajeDe, urlApi } from "@/lib/api";
 import type { Color } from "@/lib/precios";
 import {
@@ -37,7 +37,16 @@ const PILDORA: Record<Color, string> = {
   amarillo: "bg-yellow-500/15 text-yellow-800 ring-yellow-500/40 dark:text-yellow-300",
   rojo: "bg-red-600/10 text-red-700 ring-red-600/30 dark:text-red-400",
 };
-const NIVEL3: Record<FactorClave, string> = { demanda: "Cómo se calculó", categoria: "Cómo se calculó", rentabilidad: "Cómo se calculó", precio: "Cómo se calculó" };
+const NIVEL3: Record<FactorClave, string> = { demanda: "Cómo se calculó", categoria: "Cómo se calculó", rentabilidad: "Cómo se calculó", precio: "Cómo se calculó", precio_anaquel: "Cómo se calculó", precio_afuera: "Cómo se calculó" };
+
+/** La sección de la pantalla de un tema; los dos del Precio caen al Precio junto si la evaluación es de antes. */
+function seccion(p: Pantalla, f: FactorClave) {
+  return f === "precio_anaquel" || f === "precio_afuera" ? (p[f] ?? p.precio) : p[f];
+}
+
+// 4 temas (evaluaciones de antes) o 5 (el Precio en dos, 25 nov 2026)
+const COLUMNAS: Record<number, string> = { 4: "@6xl:grid-cols-4", 5: "@6xl:grid-cols-5" };
+const TIRA: Record<number, string> = { 4: "@5xl:grid-cols-4", 5: "@5xl:grid-cols-5" };
 
 function colorVeredicto(v: string): Color {
   const t = v.toLowerCase();
@@ -163,6 +172,18 @@ export function Niveles({ p, foto, inicio, recalcular }: { p: Pantalla; foto?: R
     return () => window.removeEventListener("keydown", tecla, { capture: true });
   }, [vista, abierto, atras]);
 
+  // 25 nov 2026 (Diego): al picar un tema la vista se quedaba abajo; cada cambio de nivel sube al inicio de la pantalla
+  const arriba = useRef<HTMLDivElement>(null);
+  const primera = useRef(true);
+  useEffect(() => {
+    if (primera.current) {
+      primera.current = false;
+      return;
+    }
+    const el = arriba.current;
+    if (el && el.getBoundingClientRect().top < 80) el.scrollIntoView({ behavior: quieto ? "auto" : "smooth", block: "start" });
+  }, [vista, quieto]);
+
   const nombre = [p.producto.nombre, p.producto.marca?.toUpperCase()].filter(Boolean).join(" · ");
   const factor = vista.n === 1 ? null : p.factores.find((f) => f.factor === vista.f)!;
   const migas: { texto: string; ir?: () => void }[] = [{ texto: inicio }, { texto: nombre, ir: vista.n > 1 ? () => setVista({ n: 1 }) : undefined }];
@@ -172,7 +193,7 @@ export function Niveles({ p, foto, inicio, recalcular }: { p: Pantalla; foto?: R
 
   return (
     <AbrirProducto.Provider value={abrirSku}>
-    <div className="@container text-tinta">
+    <div ref={arriba} className="@container scroll-mt-20 text-tinta">
       {/* en el nivel 1 la ruta sobra (el nombre ya está en grande) y quita espacio para que todo quepa sin bajar */}
       <div className={`mb-6 flex-wrap items-center gap-3 ${vista.n > 1 ? "flex" : "hidden"}`}>
         <nav aria-label="Niveles" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-[15px] text-smn-gris-500">
@@ -604,7 +625,7 @@ function Nivel1({ p, foto, abrir }: { p: Pantalla; foto?: ReactNode; abrir: (f: 
           )}
         </div>
       </div>
-      <div className="grid gap-4 @2xl:grid-cols-2 @6xl:grid-cols-4">
+      <div className={`grid gap-4 @2xl:grid-cols-2 ${COLUMNAS[p.factores.length] ?? COLUMNAS[4]}`}>
         {p.factores.map((f) => (
           <button key={f.factor} type="button" onClick={() => abrir(f.factor)} className="group flex items-center gap-4 rounded-2xl border border-smn-gris-100 bg-superficie px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-lg">
             <div className="shrink-0">
@@ -615,7 +636,10 @@ function Nivel1({ p, foto, abrir }: { p: Pantalla; foto?: ReactNode; abrir: (f: 
                 <span className="text-lg font-semibold">{f.nombre}</span>
                 <span className="text-smn-gris-500 tabular-nums">{num(f.peso)} %</span>
               </div>
-              <p className="text-sm text-smn-gris-700">{f.aporte != null ? `aporta ${num(f.aporte)} de ${num(f.de)} puntos` : "no cuenta todavía"}</p>
+              <p className="text-sm text-smn-gris-700">
+                {f.aporte != null ? `aporta ${num(f.aporte)} de ${num(f.de)} puntos` : "no cuenta todavía"}
+                {f.provisional && f.aporte != null && <span className="ml-1.5 rounded-full bg-aviso-fondo px-2 py-0.5 text-xs text-aviso-texto">provisional</span>}
+              </p>
               <p className="mt-1 line-clamp-2 text-[15px] leading-snug">{f.factor === "precio" ? precioCorto(p, f.valor) : corto(f.valor)}</p>
               <p className="mt-1 text-sm text-smn-gris-500 group-hover:text-tinta">
                 Ver por qué <ArrowRight className="inline h-3.5 w-3.5" />
@@ -636,7 +660,7 @@ function ColumnaFactor({ p, f, ir, children }: { p: Pantalla; f: FactorPantalla;
   return (
     <>
       <div className="min-w-0 space-y-4 @7xl:hidden">
-        <div className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-4">
+        <div className={`grid gap-3 @2xl:grid-cols-2 ${TIRA[p.factores.length] ?? TIRA[4]}`}>
           <div className="flex items-center gap-4 rounded-2xl border-2 border-tinta bg-superficie px-4 py-3">
             <MiniDona f={f} />
             <span className="min-w-0 flex-1">
@@ -692,8 +716,8 @@ function ColumnaGrande({ p, f, ir, children }: { p: Pantalla; f: FactorPantalla;
 }
 
 function Nivel2({ p, f, ir }: { p: Pantalla; f: FactorPantalla; ir: (v: Vista) => void }) {
-  const d = p[f.factor];
-  const izquierda = f.factor === "precio" && p.precio.se_lleva ? <SeLleva p={p} /> : null;
+  const d = seccion(p, f.factor);
+  const izquierda = (f.factor === "precio" || f.factor === "precio_anaquel") && p.precio.se_lleva ? <SeLleva p={p} /> : null;
   return (
     <div className="grid gap-6 @7xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] @7xl:gap-8">
       <ColumnaFactor p={p} f={f} ir={ir}>{izquierda}</ColumnaFactor>
@@ -701,6 +725,8 @@ function Nivel2({ p, f, ir }: { p: Pantalla; f: FactorPantalla; ir: (v: Vista) =
         <Frase t={d.titular} color={f.color} />
         {f.factor === "demanda" && <CuerpoDemanda p={p} />}
         {f.factor === "precio" && <CuerpoPrecio p={p} />}
+        {f.factor === "precio_anaquel" && <CuerpoPrecio p={p} lado="anaquel" />}
+        {f.factor === "precio_afuera" && <CuerpoPrecio p={p} lado="afuera" />}
         {f.factor === "categoria" && <CuerpoCategoria p={p} />}
         {f.factor === "rentabilidad" && <CuerpoRentabilidad p={p} />}
         <div className={`grid gap-5 ${d.subiria ? "@5xl:grid-cols-3" : "@3xl:grid-cols-2"}`}>
@@ -720,7 +746,7 @@ function Nivel2({ p, f, ir }: { p: Pantalla; f: FactorPantalla; ir: (v: Vista) =
 }
 
 function Pasos({ p, f, ir }: { p: Pantalla; f: FactorPantalla; ir: (v: Vista) => void }) {
-  const pasos = p[f.factor].pasos;
+  const pasos = seccion(p, f.factor).pasos;
   if (!pasos.length) return null;
   const conCifra = pasos.filter((x) => x.cifra != null);
   return (
@@ -862,7 +888,14 @@ function Mitad({ titulo, m, sin }: { titulo: string; m: MitadPrecio | null | und
                 : `${Math.abs(m.diferencia_pct)} % más ${m.diferencia_pct < 0 ? "barato" : "caro"}`
               : sin}
           </p>
-          {m?.referencia != null && m.puntaje != null && <p className="text-sm text-smn-gris-500">contra {pesos(m.referencia)} de referencia</p>}
+          {m?.puntaje != null &&
+            (m.por_unidad ? (
+              <p className="text-sm text-smn-gris-500">
+                por {m.por_unidad.unidad}: {pesos(m.por_unidad.propio)} contra {pesos(m.por_unidad.medio)} en medio{m.provisional ? " · provisional" : ""}
+              </p>
+            ) : (
+              m.referencia != null && <p className="text-sm text-smn-gris-500">contra {pesos(m.referencia)} de referencia</p>
+            ))}
         </div>
       </div>
       {m?.detalle && <p className="mt-3 line-clamp-4 text-[15px] leading-snug text-smn-gris-700">{m.detalle}</p>}
@@ -870,19 +903,38 @@ function Mitad({ titulo, m, sin }: { titulo: string; m: MitadPrecio | null | und
   );
 }
 
-function CuerpoPrecio({ p }: { p: Pantalla }) {
+function CuerpoPrecio({ p, lado }: { p: Pantalla; lado?: "anaquel" | "afuera" }) {
+  // lado: uno de los dos temas del Precio (25 nov 2026); sin lado, el Precio junto de las evaluaciones de antes
   const d = p.precio;
   const m = d.mitades;
   const abrir = useContext(AbrirProducto);
+  const mem = d.membresia;
+  const deMembresia = lado === "anaquel" ? mem?.anaquel : lado === "afuera" ? mem?.afuera : null;
   return (
     <div className="space-y-5">
-    {m && (m.afuera || m.anaquel) && (
+    {lado && m && (
+      <div className="grid gap-5 @3xl:grid-cols-2">
+        {lado === "afuera" ? (
+          <Mitad titulo="Con precio de lista · pesa la mitad del tema" m={m.afuera} sin="Sin precios de afuera" />
+        ) : (
+          <Mitad titulo="Con precio de lista · pesa la mitad del tema" m={m.anaquel} sin={m.anaquel ? "Sin con qué compararlo" : "Ya lo vendemos"} />
+        )}
+        {mem && (
+          <Mitad
+            titulo={`Con membresía · ${pesos(mem.precio, 2)}${mem.calculado ? " (calculado con su lista)" : ""} · pesa la otra mitad`}
+            m={deMembresia}
+            sin={lado === "afuera" ? "Sin precios de afuera" : "Sin con qué compararlo"}
+          />
+        )}
+      </div>
+    )}
+    {!lado && m && (m.afuera || m.anaquel) && (
       <div className="grid gap-5 @3xl:grid-cols-2">
         <Mitad titulo="Contra afuera · pesa la mitad" m={m.afuera} sin="Sin precios de afuera" />
         <Mitad titulo="Contra nuestro anaquel · pesa la mitad" m={m.anaquel} sin={m.anaquel ? "Sin con qué compararlo" : "Ya lo vendemos"} />
       </div>
     )}
-    {d.membresia && d.membresia.puntaje != null && (
+    {!lado && d.membresia && d.membresia.puntaje != null && (
       <Tarjeta>
         <Etiqueta>
           Con precio de membresía · {pesos(d.membresia.precio, 2)}
@@ -897,7 +949,7 @@ function CuerpoPrecio({ p }: { p: Pantalla }) {
         </p>
       </Tarjeta>
     )}
-    {!!d.compite?.length && (
+    {lado !== "afuera" && !!d.compite?.length && (
       <Tarjeta>
         <Etiqueta>Va a competir con · los parecidos del mismo formato que más venden</Etiqueta>
         <div className="mt-3 grid gap-3 @3xl:grid-cols-3">
@@ -912,7 +964,7 @@ function CuerpoPrecio({ p }: { p: Pantalla }) {
               <span className="min-w-0">
                 <span className="line-clamp-2 text-[15px] leading-snug">{c.descripcion}</span>
                 <span className="block text-sm text-smn-gris-500 tabular-nums">
-                  {[c.clase && `Clase ${c.clase}`, c.por_tienda != null && `${num(c.por_tienda)} pzas/tienda`, pesos(c.precio), c.por_porcion != null && `${pesos(c.por_porcion)} por porción`].filter(Boolean).join(" · ")}
+                  {[c.clasificacion && `Clas. catálogo ${c.clasificacion}`, c.por_tienda != null && `${num(c.por_tienda)} pzas/tienda`, pesos(c.precio), c.por_porcion != null && `${pesos(c.por_porcion)} por porción`].filter(Boolean).join(" · ")}
                 </span>
               </span>
             </button>
@@ -920,7 +972,8 @@ function CuerpoPrecio({ p }: { p: Pantalla }) {
         </div>
       </Tarjeta>
     )}
-    <div className="grid gap-5 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div className={`grid gap-5 ${lado ? "" : "@5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"}`}>
+      {lado !== "anaquel" && (
       <Tarjeta>
         <Etiqueta>Cómo se ve afuera · quién lo vende</Etiqueta>
         <div className="mt-3 divide-y divide-smn-gris-100">
@@ -971,7 +1024,9 @@ function CuerpoPrecio({ p }: { p: Pantalla }) {
           {!d.afuera.length && <p className="py-3 text-smn-gris-500">No se encontraron precios de este mismo producto afuera.</p>}
         </div>
       </Tarjeta>
-      {d.barras.length > 0 && (
+      )}
+      {lado !== "afuera" && d.barras_nota && d.barras.length === 0 && <p className="text-[15px] text-smn-gris-500">{d.barras_nota}</p>}
+      {lado !== "afuera" && d.barras.length > 0 && (
         <Tarjeta>
           <p className="font-semibold">Precio por porción</p>
           <p className="mb-4 text-sm text-smn-gris-500">Pesos con IVA por porción</p>
@@ -1092,7 +1147,7 @@ function CuerpoRentabilidad({ p }: { p: Pantalla }) {
 // ---------------------------------------------------------------- Nivel 3
 
 function Nivel3({ p, f, ir }: { p: Pantalla; f: FactorPantalla; ir: (v: Vista) => void }) {
-  const pasos = p[f.factor].pasos;
+  const pasos = seccion(p, f.factor).pasos;
   const conCifra = pasos.some((x) => x.cifra != null);
   return (
     <div className="space-y-8">
@@ -1220,7 +1275,7 @@ function Nivel4({ p, f, abrir }: { p: Pantalla; f: FactorPantalla; abrir: (x: Pa
             <thead className="text-left text-sm text-smn-gris-500">
               <tr className="border-b border-smn-gris-100">
                 <th className="py-2 pl-3 font-normal">Producto</th>
-                <th className="py-2 font-normal">Clas.</th>
+                <th className="py-2 font-normal">Clas. catálogo</th>
                 <th className="py-2 text-right font-normal">Pzas por tienda al mes</th>
                 <th className="py-2 text-right font-normal">Precio prom.</th>
                 <th className="py-2 text-right font-normal">Porciones</th>

@@ -456,7 +456,7 @@ def test_recalibracion_9_nov():
     assert rp.sin_senal({"tendencia": rp.Factor(None, None, "Sin datos")}) == set()
     s = rp.Sujeto(tipo="idea", nombre="Producto ficticio")
     texto = rp.explicacion_simple(s, 84, "verde", "alta", factores, peso, fuera)
-    assert "5 de 5 factores" in texto and "no cuenta: ni lo sube ni lo baja" in texto
+    assert f"{len(rp.FACTORES) - 1} de {len(rp.FACTORES) - 1} factores" in texto and "no cuenta: ni lo sube ni lo baja" in texto
     assert "Es una oportunidad" not in texto and "Faltan datos de tendencia" not in texto
 
 

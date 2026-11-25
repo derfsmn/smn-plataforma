@@ -438,6 +438,7 @@ def y_si(bd: Session, e: ProductoEvaluacion, pregunta: str) -> Seccion | None:
     nuevos = {"rentabilidad": rp.f_rentabilidad(bd, s2, None, None, None, tope=mediana).puntaje}
     if mediana:
         nuevos["precio"] = rp._por_precio(precio_n / mediana)
+        nuevos["precio_afuera"] = nuevos["precio"]  # desde el 25 nov 2026 el Precio pesa en dos temas
     total = peso = 0
     for f in e.factores:
         p = nuevos.get(f.factor, f.puntaje)

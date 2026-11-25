@@ -14,7 +14,9 @@ from tests.test_reporte_producto import R, _idea, catalogo_creatinas  # noqa: F4
 def test_pesos_de_direccion():
     peso, origen = rp.pesos(None)
     assert origen == "direccion" and sum(peso.values()) == 100
-    assert (peso["demanda"], peso["categoria"], peso["rentabilidad"], peso["precio"]) == (50, 25, Decimal("12.5"), Decimal("12.5"))
+    assert (peso["demanda"], peso["categoria"], peso["rentabilidad"]) == (50, 25, Decimal("12.5"))
+    # Diego, 25 nov 2026: el Precio en dos temas de 6.25; el Precio junto ya no pesa
+    assert (peso["precio_anaquel"], peso["precio_afuera"], peso["precio"]) == (Decimal("6.25"), Decimal("6.25"), 0)
     assert peso["tendencia"] == 0 and peso["proveedor"] == 0
 
 
@@ -61,7 +63,9 @@ def test_pantalla_de_wonu(admin: TestClient, sincrono, catalogo_creatinas):  # n
     r = admin.get(f"{R}/evaluaciones/{e['id']}/pantalla")
     assert r.status_code == 200, r.text
     p = r.json()
-    assert p["pesos_direccion"] and [f["factor"] for f in p["factores"]] == ["demanda", "categoria", "rentabilidad", "precio"]
+    assert p["pesos_direccion"] and [f["factor"] for f in p["factores"]] == ["demanda", "categoria", "rentabilidad",
+                                                                           "precio_anaquel", "precio_afuera"]
+    assert p["precio_anaquel"]["lado"] == "anaquel" and p["precio_afuera"]["titular"]["resaltado"]
     con = [f for f in p["factores"] if f["puntaje"] is not None]
     assert abs(sum(f["aporte"] for f in con) - p["puntaje"]) <= 1  # el anillo suma la calificación
     assert p["cifras"]["porciones"] == 30 and p["cifras"]["por_porcion"] == 19.97 and p["cifras"]["margen"] == 32.22

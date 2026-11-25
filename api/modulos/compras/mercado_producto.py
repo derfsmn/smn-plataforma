@@ -30,6 +30,9 @@ log = logging.getLogger("smn.compras.mercado_producto")
 ORIGEN = pc.PRODUCTO
 DIAS_VIGENCIA = 7  # al recalcular dentro de una semana se reusa la búsqueda y no se vuelve a pagar
 MAX_PRECIOS = 30
+# Versión de la regla que decide si una publicación es el mismo producto. Una búsqueda sin precios hecha con una regla
+# anterior se vuelve a hacer al recalcular (25 nov 2026: la línea de la marca, «BDM Life» de JUVETERNAL)
+REGLA = 2
 
 
 @dataclass
@@ -41,6 +44,7 @@ class Mercado:
     buscado_en: str | None = None
     clave: str = ""  # qué se buscó; si cambia, no se reusa
     senales: list[dict] = field(default_factory=list)  # señal de venta en internet (senal_venta.Senal), 22 nov 2026
+    regla: int = REGLA
 
     def mediana(self) -> Decimal | None:
         return Decimal(str(median([Decimal(str(p["precio"])) for p in self.precios]))) if self.precios else None
@@ -48,7 +52,7 @@ class Mercado:
     def a_json(self) -> str:
         return json.dumps({"precios": self.precios, "notas": self.notas, "publicacion": self.publicacion,
                            "costo_usd": str(self.costo_usd), "buscado_en": self.buscado_en, "clave": self.clave,
-                           "senales": self.senales},
+                           "senales": self.senales, "regla": self.regla},
                           ensure_ascii=False)
 
     @classmethod
@@ -58,10 +62,12 @@ class Mercado:
         d = json.loads(texto)
         return cls(precios=d.get("precios") or [], notas=d.get("notas") or [], publicacion=d.get("publicacion"),
                    costo_usd=Decimal(d.get("costo_usd") or "0"), buscado_en=d.get("buscado_en"), clave=d.get("clave") or "",
-                   senales=d.get("senales") or [])
+                   senales=d.get("senales") or [], regla=int(d.get("regla") or 1))
 
     def vigente(self, clave: str) -> bool:
         if self.clave != clave or not self.buscado_en:
+            return False
+        if not self.precios and self.regla < REGLA:
             return False
         return (ahora() - datetime.fromisoformat(self.buscado_en)).days < DIAS_VIGENCIA
 

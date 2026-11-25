@@ -3,6 +3,7 @@ dictamen «véndelo en $336.87», porque los gramos de «120 CAP DE 1.2G» (lo q
 los gramos de las fichas de las otras berberinas y todas menos una salían «muy distintas»; y la Demanda se comparaba
 contra una canela de Ceylán por ser el único lanzamiento de 2026 de su subcategoría."""
 from decimal import Decimal as D
+from decimal import Decimal
 
 import pytest
 
@@ -129,3 +130,49 @@ def test_tipo_de_la_ficha_no_descarta_su_mismo_ingrediente(monkeypatch):
     assert all(rp.precio_cercano(s, p) for p in ps)
     f = rp.precio_anaquel(s, [(p, D("0.5")) for p in ps])
     assert "más barato" in f.valor and "por cápsula" in f.valor
+
+
+def test_precio_en_dos_temas_sin_afuera_pesa_todo_el_anaquel():
+    """Diego, 25 nov 2026: Precio contra anaquel y contra afuera, cada uno la mitad. Sin precios de afuera, ese tema no
+    cuenta y su peso se reparte como el de cualquier factor sin datos."""
+    peso = rp.PESOS_DIRECCION
+    base = {"demanda": rp.Factor(80, "x", ""), "categoria": rp.Factor(80, "x", ""), "rentabilidad": rp.Factor(45, "x", "")}
+    junto = {**base, "precio": rp.Factor(100, "x", "")}
+    viejo = {**{f: peso[f] for f in base}, "precio": Decimal("12.5")}
+    dos = {**base, "precio": rp.Factor(100, "x", ""), "precio_anaquel": rp.Factor(100, "x", ""),
+           "precio_afuera": rp.Factor(None, None, "Sin precios de afuera")}
+    # Antes la mitad que faltaba la tomaba el anaquel (78); ahora el tema sin datos reparte su peso entre todos (77)
+    assert rp.sumar(junto, viejo)[0] == 78 and rp.sumar(dos, peso)[0] == 77
+    con_afuera = {**dos, "precio_afuera": rp.Factor(50, "x", "")}
+    assert rp.sumar(con_afuera, peso)[0] == round((40 + 20 + 45 * 0.125 + 100 * 0.0625 + 50 * 0.0625))
+
+
+def test_dictamen_avisa_marca_propia():
+    s = rp.Sujeto(tipo="idea", nombre="BDM Life Berberina + Piperina", marca="JUVETERNAL", precio=Decimal("459"),
+                  costo=Decimal("236.55"), margen=Decimal("40.2"), ingrediente="Berberina", forma="Cápsula",
+                  contenido="120 CAP DE 1.2G")
+    vidanat = Producto(producto_id=1, sku="80565", descripcion="BERBERINA 60 CAP", marca="VIDANAT/VITAMINAS",
+                       precio_lista_con_impuestos=Decimal("200"), activo=True)
+    f = {"demanda": rp.Factor(80, "", ""), "precio": rp.Factor(100, "", "")}
+    texto = rp.dictamen(s, "amarillo", f, [(vidanat, Decimal("0.6"))], Decimal(45))
+    assert "marca propia" in texto and "BERBERINA 60 CAP" in texto
+
+
+def test_google_acepta_la_linea_de_la_marca():
+    """25 nov 2026: BDM Life es la línea de JUVETERNAL; «BDM» es otra marca del catálogo y Google lo rechazaba."""
+    from modulos.compras import coincidencia as co
+
+    d = "BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G"
+    e = co.evaluar(d, "JUVETERNAL", "BDM Life Berberina + Piperina + Omega 9 120 Cápsulas", 70, {"bdm", "4 health"})
+    assert e.marca is True and e.aceptada
+    otra = co.evaluar(d, "JUVETERNAL", "4 Health Berberina 120 Cápsulas", 70, {"bdm", "4 health"})
+    assert otra.marca is False and not otra.aceptada
+
+
+def test_busqueda_sin_precios_con_regla_vieja_se_repite():
+    from modulos.compras import mercado_producto as mp
+
+    viejo = mp.Mercado.de_json('{"precios": [], "buscado_en": "' + mp.ahora().isoformat() + '", "clave": "x"}')
+    assert viejo.regla == 1 and not viejo.vigente("x")
+    nuevo = mp.Mercado.de_json(mp.Mercado(buscado_en=mp.ahora().isoformat(), clave="x").a_json())
+    assert nuevo.vigente("x")

@@ -46,6 +46,7 @@ def calificar(bd: Session, p: Producto, v: rr.Ventana, hoy: date) -> dict:
         "demanda": rp.f_demanda(bd, s, parecidos, v),
         "rentabilidad": rp.f_rentabilidad(bd, s, p.subcategoria, v),
         "precio": rp.f_precio(s, parecidos),
+        **rp.precios_por_lado(s, parecidos),
         "tendencia": rp.f_tendencia(bd, s, hoy, p.subcategoria),
         "categoria": rp.f_categoria(bd, s, p.subcategoria, parecidos, v),
         "proveedor": rp.f_proveedor(bd, s, parecidos),

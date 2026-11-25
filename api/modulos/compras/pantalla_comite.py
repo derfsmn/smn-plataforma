@@ -37,6 +37,9 @@ log = logging.getLogger("smn.compras.pantalla_comite")
 
 IVA = Decimal("1.16")
 CUATRO = ("demanda", "categoria", "rentabilidad", "precio")
+# Diego, 25 nov 2026: el Precio en dos temas (anaquel y afuera), cada uno con la mitad. Las evaluaciones de antes siguen
+# con los cuatro hasta que se recalculen
+CINCO = ("demanda", "categoria", "rentabilidad", "precio_anaquel", "precio_afuera")
 TRAMOS = ("4", "8", "12")  # mes 1, 2 y 3 del pronóstico
 ESCENARIOS = (("pesimista", "Pesimista"), ("esperado", "Esperado"), ("optimista", "Optimista"))
 MAX_PARECIDOS = 10
@@ -317,7 +320,7 @@ def _mitad(f: rp.Factor | None, precio: Decimal | None) -> dict | None:
         return None
     pct = round(float((precio / f.meta - 1) * 100)) if f.puntaje is not None and precio and f.meta else None
     return {"puntaje": f.puntaje, "color": color_de(f.puntaje), "valor": f.valor, "detalle": rpt._sin_metodo(f.detalle),
-            "diferencia_pct": pct, "referencia": _f(f.meta)}
+            "diferencia_pct": pct, "referencia": _f(f.meta), "por_unidad": f.por_unidad, "provisional": f.provisional}
 
 
 def _mitades(e: ProductoEvaluacion, s: rp.Sujeto, productos: list[Producto], parecidos: list[dict]) -> dict:
@@ -370,22 +373,25 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
                    or [p for p in parecidos if p["por_porcion"]])
     veces = (round(por_porcion / median(p["por_porcion"] for p in con_porcion), 1)
              if por_porcion and con_porcion else None)
+    # Por porciones solo si al menos la mitad de con quién compite dicen sus porciones (BDM Life, 25 nov 2026: de 7
+    # berberinas solo Altus las dice y el cuadro comparaba contra ella sola); si no, por cápsula, gramo o mililitro
+    base_porcion = compite or usados
+    con_dato = len([p for p in base_porcion if p["por_porcion"]])
+    porciones_alcanzan = con_dato >= max(2, (len(base_porcion) + 1) // 2)
+    barras_nota = (f"Precio por porción: solo {con_dato} de {len(base_porcion)} con los que compite traen sus porciones "
+                   "en la ficha; no alcanza para comparar por porción." if por_porcion and not porciones_alcanzan else None)
     # Barras de precio por porción: nosotros, afuera (el más barato y el más caro) y los parecidos
     barras = []
-    if por_porcion:
+    if por_porcion and porciones_alcanzan:
         barras.append({"nombre": f"{s.marca or s.nombre} con nosotros", "valor": por_porcion, "tipo": "nuevo"})
         con_afuera = [a for a in afuera if a["por_porcion"]]
         for a in ([con_afuera[0], con_afuera[-1]] if len(con_afuera) > 1 else con_afuera):
             barras.append({"nombre": f"En {a['vendedor']}", "valor": a["por_porcion"], "tipo": "afuera"})
-    for p in con_porcion[:4]:
+    for p in (con_porcion[:4] if barras else []):
         barras.append({"nombre": p["descripcion"], "valor": p["por_porcion"], "tipo": "parecido", "sku": p["sku"],
                        "imagen": p["imagen"]})
     # Con nuestro precio, cuántas porciones (o gramos) se lleva el cliente de cada uno
     se_lleva = None
-    # Por porciones solo si al menos la mitad de con quién compite dicen sus porciones (BDM Life, 25 nov 2026: de 7
-    # berberinas solo Altus las dice y el cuadro comparaba contra ella sola); si no, por cápsula, gramo o mililitro
-    base_porcion = compite or usados
-    porciones_alcanzan = len([p for p in base_porcion if p["por_porcion"]]) >= max(2, (len(base_porcion) + 1) // 2)
     if s.precio and porciones and con_porcion and porciones_alcanzan:
         se_lleva = {"monto": _f(s.precio), "unidad": "porciones", "filas": [
             {"nombre": s.marca or s.nombre, "cantidad": porciones, "tipo": "nuevo"}]
@@ -424,7 +430,9 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
     ana = mitades.get("anaquel")
     if ana and ana["diferencia_pct"] is not None:
         d = ana["diferencia_pct"]
-        texto = f"{abs(d)} % {'abajo' if d <= 0 else 'arriba'} de nuestro anaquel ({_pesos(ana['referencia'])} en medio)"
+        pu = ana.get("por_unidad")
+        texto = (f"{abs(d)} % {'abajo' if d <= 0 else 'arriba'} de nuestro anaquel"
+                 + (f", por {pu['unidad']}: {_por_unidad(pu)}" if pu else f" ({_pesos(ana['referencia'])} en medio)"))
         (a_favor if d <= 0 else en_contra).append(texto[0].upper() + texto[1:])
     if pct is not None:
         resaltado = f"{abs(pct)} % más {'barato' if pct < 0 else 'caro'}" if pct else "al mismo precio"
@@ -443,14 +451,72 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
     else:
         titular = _de_valor(fila.valor, "Sin precios para comparar")
     return {"titular": titular, "referencia": _f(referencia), "diferencia_pct": pct, "afuera": afuera[:10],
-            "mitades": mitades, "membresia": mitades.get("membresia"), "compite": [{**{k: p[k] for k in ("sku", "descripcion", "imagen", "clase", "por_tienda", "por_porcion",
-                                                                   "tamano")},
+            "mitades": mitades, "membresia": mitades.get("membresia"), "compite": [{**{k: p[k] for k in ("sku", "descripcion", "imagen", "clase", "clasificacion", "por_tienda",
+                                                                   "por_porcion", "tamano")},
                                      # precio de lista con IVA, igual que el nuestro (no el precio promedio vendido)
                                      "precio": p["precio_lista"] or p["precio"]} for p in compite],
             "mercado_libre": [a for a in afuera if a["mercado_libre"]], "mercado_libre_nota": _nota_ml(e, afuera),
-            "por_porcion": por_porcion, "porciones": porciones, "veces": veces, "barras": barras, "se_lleva": se_lleva,
+            "por_porcion": por_porcion, "porciones": porciones, "veces": veces, "barras": barras, "barras_nota": barras_nota,
+            "se_lleva": se_lleva,
             "a_favor": a_favor, "en_contra": en_contra, "subiria": fila.mejora,
             "pasos": [{"titulo": f"Paso {i}", "texto": t} for i, t in enumerate(_frases(fila.calculo), 1)]}
+
+
+def _por_unidad(pu: dict) -> str:
+    """«$3.82 contra $5.22 en medio» (25 nov 2026: decía «contra $626.00 de referencia», el total de 120 cápsulas)."""
+    return f"{_pesos(Decimal(str(pu['propio'])))} contra {_pesos(Decimal(str(pu['medio'])))} en medio"
+
+
+def _temas_precio(precio: dict, anaquel, afuera) -> dict:
+    """Los dos temas del Precio que se pican por separado (Diego, 25 nov 2026), cada uno con su titular, a favor,
+    en contra, qué lo subiría y sus pasos. Sale de lo mismo que el Precio junto."""
+    mitades = precio.get("mitades") or {}
+    ana, fue = mitades.get("anaquel"), mitades.get("afuera")
+    comun = {k: precio[k] for k in ("mitades", "membresia", "compite", "afuera", "mercado_libre", "mercado_libre_nota",
+                                     "por_porcion", "porciones", "barras", "barras_nota", "se_lleva", "veces")}
+
+    def pasos(fila) -> list[dict]:
+        return [{"titulo": f"Paso {i}", "texto": t} for i, t in enumerate(_frases(fila.calculo), 1)]
+
+    # Contra nuestro anaquel
+    a_favor, en_contra = [], []
+    if ana and ana["diferencia_pct"] is not None:
+        d, pu = ana["diferencia_pct"], ana.get("por_unidad")
+        texto = (f"{abs(d)} % {'abajo' if d <= 0 else 'arriba'} de nuestro anaquel"
+                 + (f", por {pu['unidad']}: {_por_unidad(pu)}" if pu else f" ({_pesos(Decimal(str(ana['referencia'])))} en medio)"))
+        (a_favor if d <= 0 else en_contra).append(texto[0].upper() + texto[1:])
+        toma = (pu or {}).get("toma")
+        if toma and toma["si_de_1_pct"]:
+            t = (f"Se toma de {_n(toma['piezas'])} {pu['unidad']}s ({_pesos(Decimal(str(toma['por_toma'])))} por toma): si "
+                 f"las demás se toman de 1, sale {abs(toma['si_de_1_pct'])} % más "
+                 f"{'caro' if toma['si_de_1_pct'] > 0 else 'barato'} por toma. Falta la toma en sus fichas")
+            (en_contra if toma["si_de_1_pct"] > 0 else a_favor).append(t)
+        resaltado = f"{abs(d)} % más {'barato' if d < 0 else 'caro'}" if d else "al mismo precio"
+        despues = (f" por {pu['unidad']}: {_por_unidad(pu)}." if pu else
+                   f" que el precio de en medio de nuestros parecidos ({_pesos(Decimal(str(ana['referencia'])))}).")
+        titular = {"antes": "Contra nuestro anaquel está ", "resaltado": resaltado, "despues": despues}
+    else:
+        titular = _de_valor(anaquel.valor, "Sin con qué compararlo en nuestro anaquel")
+    en_contra += [x for x in precio["en_contra"] if "porciones: con el mismo dinero" in x or x.startswith("Por porción")]
+    a_favor += [x for x in precio["a_favor"] if x.startswith("Por porción")]
+    t_anaquel = {**comun, "lado": "anaquel", "titular": titular, "a_favor": a_favor, "en_contra": en_contra,
+                 "subiria": anaquel.mejora, "pasos": pasos(anaquel), "provisional": bool(anaquel.provisional)}
+
+    # Contra afuera
+    a_favor = [x for x in precio["a_favor"] if "mercado" in x or x.startswith("Igual al precio de")]
+    en_contra = [x for x in precio["en_contra"] if "mercado" in x]
+    if fue and fue["diferencia_pct"] is not None:
+        d = fue["diferencia_pct"]
+        titular = {"antes": "Contra afuera está ",
+                   "resaltado": f"{abs(d)} % más {'barato' if d < 0 else 'caro'}" if d else "al mismo precio",
+                   "despues": f" que el precio de en medio del mercado ({_pesos(Decimal(str(fue['referencia'])))})."}
+    else:
+        titular = {"antes": "", "resaltado": "Sin precios de afuera",
+                   "despues": ": el radar de precios no lo encontró a la venta en internet. No cuenta; su peso pasa a "
+                              "nuestro anaquel."}
+    t_afuera = {**comun, "lado": "afuera", "titular": titular, "a_favor": a_favor, "en_contra": en_contra,
+                "subiria": afuera.mejora, "pasos": pasos(afuera), "provisional": bool(afuera.provisional)}
+    return {"precio_anaquel": t_anaquel, "precio_afuera": t_afuera}
 
 
 def _categoria(bd: Session, e: ProductoEvaluacion, s: rp.Sujeto, v: rr.Ventana | None, fila, parecidos: list[dict]) -> dict:
@@ -648,17 +714,19 @@ def _armar(bd: Session, e: ProductoEvaluacion, fotos: list[str] | None = None, v
     except (ValueError, TypeError, KeyError):
         pron = None
     direccion = e.pesos_origen == "direccion"
-    peso = {f: (filas[f].peso if f in filas else rp.PESOS_DIRECCION[f]) for f in CUATRO}
-    cubierto = sum((peso[f] for f in CUATRO if f in filas and filas[f].puntaje is not None), Decimal(0)) or Decimal(1)
+    temas = CINCO if "precio_anaquel" in filas else CUATRO
+    peso = {f: (filas[f].peso if f in filas else rp.PESOS_DIRECCION[f]) for f in temas}
+    cubierto = sum((peso[f] for f in temas if f in filas and filas[f].puntaje is not None), Decimal(0)) or Decimal(1)
     factores = []
-    for f in CUATRO:
+    for f in temas:
         x = filas.get(f)
         p = x.puntaje if x else None
         factores.append({"factor": f, "nombre": rp.NOMBRES[f], "peso": _f(peso[f]), "puntaje": p, "color": color_de(p),
                          "de": _f(peso[f] * 100 / cubierto) if p is not None else None,
                          "aporte": _f(peso[f] * p / cubierto) if p is not None else None,
                          "valor": x.valor if x else None, "detalle": rpt._sin_metodo(x.detalle) if x else None,
-                         "calculo": x.calculo if x else None, "mejora": x.mejora if x else None})
+                         "calculo": x.calculo if x else None, "mejora": x.mejora if x else None,
+                         "provisional": bool(x and x.provisional)})
     parecidos, productos = _parecidos(bd, e, s, v)
     afuera = _afuera(e, s, porciones)
     # La venta que se presenta es la de la prueba en 10 tiendas, que es lo que aprueba el comité; la de toda la cadena
@@ -675,6 +743,7 @@ def _armar(bd: Session, e: ProductoEvaluacion, fotos: list[str] | None = None, v
                           "utilidad": cad_esperado["utilidad"]} if cad_esperado else None)
     precio = _precio(e, s, r, filas.get("precio") or vacio, afuera, parecidos, porciones,
                      _mitades(e, s, productos, parecidos))
+    temas_precio = _temas_precio(precio, filas.get("precio_anaquel") or vacio, filas.get("precio_afuera") or vacio)
     prov = filas.get("proveedor")
     esperado = next((x for x in escenarios if x["clave"] == "esperado"), None)
     color = e.color_final or e.color
@@ -703,6 +772,7 @@ def _armar(bd: Session, e: ProductoEvaluacion, fotos: list[str] | None = None, v
                       "puntaje": prov.puntaje if prov else None, "detalle": prov.detalle if prov else None},
         "demanda": demanda,
         "precio": precio,
+        **temas_precio,
         "categoria": categoria,
         "rentabilidad": _rentabilidad(bd, e, s, r, filas.get("rentabilidad") or vacio),
         "parecidos": parecidos,

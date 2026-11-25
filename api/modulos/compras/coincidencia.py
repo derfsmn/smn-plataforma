@@ -159,12 +159,18 @@ def evaluar(descripcion: str | None, marca: str | None, titulo: str, umbral: flo
             marcas_conocidas: set[str], posicion: int | None = None) -> Evaluacion:
     candidato = normalizar(titulo)
     propia = normalizar(marca_comercial(marca))
+    # La línea de la marca que viene en nuestro propio nombre también es nuestra marca (BDM Life Berberina, 25 nov 2026:
+    # la marca capturada es JUVETERNAL y Google la publica como «BDM Life…»; «BDM» es otra marca del catálogo y se
+    # rechazaba como «marca distinta»)
+    nuestro = normalizar(descripcion)
+    linea = {m for m in marcas_conocidas if m != propia and re.search(rf"\b{re.escape(m)}\b", nuestro)}
     if not propia:
         coincide_marca = None
-    elif any(re.search(rf"\b{re.escape(f)}\b", candidato) for f in formas_marca(propia)):
+    elif any(re.search(rf"\b{re.escape(f)}\b", candidato) for f in formas_marca(propia) | linea):
         coincide_marca = True
     else:
-        otra = any(m != propia and re.search(rf"\b{re.escape(m)}\b", candidato) for m in marcas_conocidas)
+        otra = any(m != propia and m not in linea and re.search(rf"\b{re.escape(m)}\b", candidato)
+                   for m in marcas_conocidas)
         coincide_marca = False if otra else None
 
     # Se comparan nombres limpios de los dos lados: sin palabras vacías, cantidades, unidades ni la marca
@@ -204,7 +210,11 @@ def evaluar(descripcion: str | None, marca: str | None, titulo: str, umbral: flo
             return p in destino
         return any(d.startswith(p[:5]) or (len(d) >= 4 and p.startswith(d)) for d in destino)
 
-    sin_palabra = sorted(p for p in set(origen) if len(p) >= 3 and not re.search(r"\d", p) and not esta(p))
+    # Lo que va después de un guion largo es el lema del producto («… Omega 9 – Metabolismo»): ayuda a la calificación
+    # pero no se exige (BDM Life, 25 nov 2026: Google no trae «Metabolismo» en el título)
+    lema = set(limpio(normalizar(" ".join(re.split(r"\s[–—]\s|\s-\s", descripcion or "")[1:]))))
+    sin_palabra = sorted(p for p in set(origen) if len(p) >= 3 and not re.search(r"\d", p) and not esta(p)
+                         and p not in lema)
     mismo_producto = nombre >= 65 and not faltan and not sin_palabra
 
     esperadas, encontradas = presentaciones(descripcion), presentaciones(titulo)
