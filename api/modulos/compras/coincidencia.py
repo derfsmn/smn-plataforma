@@ -108,7 +108,7 @@ def _sin_publicidad(descripcion: str) -> str:
 
 def consultas(descripcion: str | None, marca: str | None, codigo_barras: str | None,
               consulta_manual: str | None = None, nombre_tienda: str | None = None,
-              barras_primero: bool = False) -> list[tuple[str, str]]:
+              barras_primero: bool = False, marcas_conocidas: set[str] | None = None) -> list[tuple[str, str]]:
     """[(estrategia, texto)]: a lo más el código de barras y una búsqueda por descripción.
 
     Sin `barras_primero`: marca y descripción primero, como el flujo de n8n de Diego, y el código de barras solo si con
@@ -120,6 +120,13 @@ def consultas(descripcion: str | None, marca: str | None, codigo_barras: str | N
     salida = []
     comercial = marca_comercial(marca)
     texto = _sin_publicidad(descripcion or "")
+    # Si nuestro nombre ya trae la marca con que se vende (BDM Life… capturado con marca JUVETERNAL, que es quien lo
+    # surte), no se antepone la capturada: «JUVETERNAL BDM Life…» no lo encontraba en Google (25 nov 2026)
+    propia = normalizar(comercial)
+    # Solo cuenta si el nombre empieza con esa marca, para que una palabra común que también es marca no la quite
+    if marcas_conocidas and any(m != propia and re.match(rf"{re.escape(m)}\b", normalizar(texto))
+                                for m in marcas_conocidas) and not re.search(rf"\b{re.escape(propia)}\b", normalizar(texto)):
+        comercial = ""
     if comercial:
         texto = re.sub(rf"\b{re.escape(comercial)}\b", " ", texto, flags=re.IGNORECASE)
     texto = _limpiar(f"{comercial} {texto}")

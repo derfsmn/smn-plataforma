@@ -1372,3 +1372,12 @@ def test_buscar_y_vigilar_por_clase(admin, limpio):
     assert despues["B"]["vigilados"] == antes["B"]["vigilados"]
     lista = admin.get("/api/compras/precios/catalogo", params={"solo_vigilados": True, "clase": "AA"}).json()
     assert {a, b} <= {p["producto_id"] for p in lista["productos"]} and c not in {p["producto_id"] for p in lista["productos"]}
+
+
+def test_consulta_sin_marca_del_proveedor_si_el_nombre_ya_trae_la_suya():
+    # BDM Life capturado con marca JUVETERNAL: «JUVETERNAL BDM Life…» no salía en Google (25 nov 2026)
+    d = "BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G"
+    assert co.consultas(d, "JUVETERNAL", None, marcas_conocidas={"bdm", "juveternal"})[0][1].startswith("BDM Life")
+    # Una marca a media frase no quita la capturada
+    assert co.consultas("PROTEINA BDM VAINILLA", "BIRDMAN", None, marcas_conocidas={"bdm"})[0][1].startswith("BIRDMAN")
+    assert co.consultas("PROTEINA VAINILLA", "BIRDMAN", None, marcas_conocidas={"bdm"})[0][1].startswith("BIRDMAN")

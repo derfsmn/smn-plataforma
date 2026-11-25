@@ -53,6 +53,31 @@ def _n(t: str | None) -> str:
     return rp._norm(t).strip()
 
 
+def canon(sub: str | None) -> str:
+    """Subcategorías casi repetidas del catálogo cuentan como una (Diego, 25 nov 2026): ACEITE/ACEITES,
+    MINERAL/MINERALES, GOMITA/GOMITAS, MULTIUSO/MULTIUSOS, TE/TE EN SOBRE."""
+    t = _n(sub).replace(" en sobre", "").strip()
+
+    def raiz(w: str) -> str:
+        if len(w) > 5 and w.endswith("es"):
+            w = w[:-2]
+        elif len(w) > 3 and w.endswith("s"):
+            w = w[:-1]
+        return w[:-1] if len(w) > 4 and w.endswith("e") else w
+
+    return " ".join(raiz(w) for w in t.split())
+
+
+def repetidas(catalogo: list[Producto]) -> list[tuple[str, list[tuple[str, int]]]]:
+    """Grupos de subcategorías del catálogo que el examen cuenta como una, con cuántos productos tiene cada nombre."""
+    grupos: dict[str, Counter] = defaultdict(Counter)
+    for q in catalogo:
+        if q.subcategoria:
+            grupos[canon(q.subcategoria)][q.subcategoria.strip()] += 1
+    return sorted(((k, c.most_common()) for k, c in grupos.items() if len({_n(x) for x in c}) > 1),
+                  key=lambda x: -sum(n for _, n in x[1]))
+
+
 def huella_nombre(p: Producto) -> frozenset[str]:
     """Palabras del nombre sin marca, sabor, números ni unidades: el mismo producto en otro sabor o tamaño da lo mismo."""
     return frozenset(rp.raices(rp.palabras(rp.sin_sabor(p.descripcion))) - rp.raices(rp.palabras(p.marca)))
@@ -104,7 +129,20 @@ class Resultado:
 
     @property
     def bien_sub(self) -> bool:
+        return bool(self.sub) and canon(self.sub) == canon(self.sub_real)
+
+    @property
+    def bien_sub_estricta(self) -> bool:
         return bool(self.sub) and _n(self.sub) == _n(self.sub_real)
+
+    @property
+    def mas_votada(self) -> str | None:
+        return self.finalistas.split(";")[0].rsplit(" ", 2)[0].strip() if self.finalistas else self.sub
+
+    @property
+    def bien_si_mas_votada(self) -> bool:
+        """¿Habría atinado tomando siempre la más votada, sin la IA? Para medir si la IA ayuda o estorba."""
+        return bool(self.mas_votada) and canon(self.mas_votada) == canon(self.sub_real)
 
     @property
     def bien_rama(self) -> bool:
@@ -236,7 +274,8 @@ def examinar(bd: Session, n: int | None = 300, avance=None, guardar: _Path | Non
                     avance(i, len(elegidos), resultados)
     finally:
         rp.CATALOGO_FIJO.reset(marca)
-    return resultados, {"catalogo": len(catalogo), "examinables": len(examinables), "lanzados": len(lanzados)}
+    return resultados, {"catalogo": len(catalogo), "examinables": len(examinables), "lanzados": len(lanzados),
+                        "repetidas": repetidas(catalogo)}
 
 
 def casos(bd: Session) -> list[dict]:
@@ -295,7 +334,9 @@ def resumen(resultados: list[Resultado], lista_casos: list[dict]) -> dict:
     for k, meta in UMBRAL.items():
         v = medidos[k]
         pasa[k] = None if v is None else (v <= meta if k in ("sin_parecidos", "otra_forma_top5") else v >= meta)
-    return {"examinados": len(resultados), "con_error": len(resultados) - len(ok),
+    otros = {"subcategoria_estricta": _pct(sum(r.bien_sub_estricta for r in contables), len(contables)),
+             "si_mas_votada": _pct(sum(r.bien_si_mas_votada for r in contables), len(contables))}
+    return {"otros": otros, "examinados": len(resultados), "con_error": len(resultados) - len(ok),
             "posibles_errores_catalogo": len(ok) - len(contables), "contables": len(contables),
             "lanzamientos": len(lanz), "medidos": medidos, "pasa": pasa, "deptos": deptos,
             "origenes": Counter(r.origen for r in contables),
@@ -350,6 +391,11 @@ def a_excel(ruta: str, version: str, resultados: list[Resultado], res: dict, lis
         h.append(fila)
         if ok is not None:
             h.cell(h.max_row, 4).fill = verde if ok else rojo
+    otros = res.get("otros") or {}
+    if otros:
+        h.append([])
+        h.append(["Subcategoría correcta sin juntar las repetidas (ACEITE ≠ ACEITES)", otros.get("subcategoria_estricta")])
+        h.append(["Subcategoría correcta si siempre se tomara la más votada, sin la IA", otros.get("si_mas_votada")])
     h.append([])
     h.append(["De dónde salió la subcategoría", "Productos", "Acierto %"])
     h.cell(h.max_row, 1).font = Font(bold=True)
@@ -435,6 +481,14 @@ def a_excel(ruta: str, version: str, resultados: list[Resultado], res: dict, lis
         for celda in hoja[1]:
             celda.font = Font(bold=True)
         hoja.freeze_panes = "A2"
+    if universo_txt.get("repetidas"):
+        rr_ = wb.create_sheet("Subcategorías repetidas")
+        rr_.append(["El examen las cuenta como una sola. Para que Compras las junte en el catálogo (25 nov 2026)."])
+        rr_.append(["Grupo", "Nombres en el catálogo (productos activos)"])
+        for k, nombres in universo_txt["repetidas"]:
+            rr_.append([k.upper(), "; ".join(f"{x} ({n})" for x, n in nombres)])
+        rr_.column_dimensions["A"].width = 30
+        rr_.column_dimensions["B"].width = 90
     wb.save(ruta)
 
 
@@ -461,7 +515,7 @@ import threading as _threading  # noqa: E402
 _log = _logging.getLogger(__name__)
 # El examen va con la versión del clasificador, no con la de la plataforma (Diego, 25 nov 2026): publicar un cambio de
 # precio, demanda o pantalla no lo vuelve a empezar. Súbela solo cuando cambie la forma de clasificar.
-CLASIFICADOR = "v0.5.4"
+CLASIFICADOR = "v0.5.11"  # 25 nov 2026: respetar votos, misma forma, subcategorías repetidas
 
 
 def clave() -> str | None:
@@ -523,7 +577,11 @@ def correr(version: str, corrida: str, n: int | None) -> dict:
         AVANCE["como"] = "v0.5.3"
         marca = fi.COMO_V053.set(True)
         try:
-            antes, _ = examinar(bd, n, avance, ruta(version, f"{corrida}_v053", "avance"))
+            # La v0.5.3 no cambia: su avance se guarda aparte y se reusa entre versiones del clasificador (25 nov 2026)
+            base = ruta("v0.5.3", f"{corrida}_v053", "avance")
+            if not base.exists() and (previo := ruta("v0.5.4", f"{corrida}_v053", "avance")).exists():
+                base.write_text(previo.read_text())
+            antes, _ = examinar(bd, n, avance, base)
             casos_antes = casos(bd)
         finally:
             fi.COMO_V053.reset(marca)
@@ -539,7 +597,7 @@ def correr(version: str, corrida: str, n: int | None) -> dict:
                 (antes, res_antes))
         bd.rollback()
     datos = {"version": version, "corrida": corrida, "medidos": res["medidos"], "pasa": res["pasa"],
-             "medidos_v053": res_antes["medidos"],
+             "medidos_v053": res_antes["medidos"], "otros": res.get("otros"),
              "examinados": res["examinados"], "posibles_errores_catalogo": res["posibles_errores_catalogo"]}
     ruta(version, corrida, "json").write_text(_json.dumps(datos, ensure_ascii=False, default=str))
     return datos

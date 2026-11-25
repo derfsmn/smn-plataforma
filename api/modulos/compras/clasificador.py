@@ -41,6 +41,14 @@ SEGURA = 0.7
 SOSPECHA_ACUERDO = 0.8
 SOSPECHA_MIN = 4  # vecinos de su ingrediente y forma para poder sospechar del catálogo
 FINALISTAS = 3
+# 25 nov 2026 (examen v0.5.4: 19 fallas en que la más votada era la buena y la IA la cambió): la IA solo desempata entre
+# las finalistas que van parejas, con al menos este tanto de los votos de la primera
+VENTAJA_IA = 0.75
+# «Misma forma, mismo mundo» (25 nov 2026: un extracto de 30 ml caía en «Saborizada», el agua): una subcategoría solo
+# entra si tiene productos de la forma del producto (cápsulas, gotas, líquido, polvo, gomitas, crema)
+MUNDO_MIN = 0.15  # parte de la subcategoría con esa forma
+MUNDO_MIN_N = 3  # o al menos tantos productos con esa forma
+GOTAS_ML = 60  # un líquido de hasta 60 ml es un gotero o extracto, no una bebida
 
 
 def _n(t: str | None) -> str:
@@ -49,6 +57,14 @@ def _n(t: str | None) -> str:
 
 def grupo(forma: str | None) -> str | None:
     return fi.GRUPO_FORMATO.get(forma) if forma else None
+
+
+def mundo(gr: str | None, tam: dict | None) -> str | None:
+    """La forma para «mismo mundo»: como el grupo, pero un líquido chico (gotero, extracto) aparte de las bebidas."""
+    if gr == "liquido":
+        ml = (tam or {}).get("ml")
+        return "gotas" if ml is not None and ml <= GOTAS_ML else "liquido"
+    return gr
 
 
 @dataclass
@@ -103,6 +119,7 @@ class _Fila:
     raices: frozenset[str]
     grupo: str | None
     marca: str
+    mundo: str | None = None  # el grupo, con los goteros aparte de las bebidas (25 nov 2026)
 
 
 class Indice:
@@ -111,13 +128,27 @@ class Indice:
     def __init__(self, catalogo: list[Producto]):
         self.filas: dict[int, _Fila] = {}
         self.por_raiz: dict[str, list[int]] = defaultdict(list)
+        self.mundos: dict[str, Counter] = defaultdict(Counter)  # subcategoría → cuántos de cada forma
         for p in catalogo:
             marca = rp.raices(rp.palabras(p.marca))
             rs = frozenset(rp.raices(rp.palabras(rp.sin_sabor(p.descripcion))) - marca)
-            self.filas[p.producto_id] = _Fila(p, rs, grupo(rp.formato_de(p)), _n(p.marca))
+            g = grupo(rp.formato_de(p))
+            self.filas[p.producto_id] = _Fila(p, rs, g, _n(p.marca), mundo(g, rp.tamano(p.descripcion)))
+            if p.subcategoria:
+                self.mundos[_n(p.subcategoria)][self.filas[p.producto_id].mundo] += 1
             for r in rs:
                 self.por_raiz[r].append(p.producto_id)
         self._sospecha: dict[int, bool] = {}
+
+    def en_mundo(self, sub: str, m: str | None) -> bool:
+        """¿La subcategoría tiene productos de esta forma? Sin forma conocida, todas entran."""
+        if not m:
+            return True
+        cuenta = self.mundos.get(sub)
+        if not cuenta:
+            return True
+        n = cuenta.get(m, 0)
+        return n >= MUNDO_MIN_N or n / sum(cuenta.values()) >= MUNDO_MIN
 
     def visibles(self, ids) -> list[_Fila]:
         fuera = rp.OCULTOS.get()
@@ -136,8 +167,9 @@ class Indice:
             s = rp.Sujeto(tipo="idea", nombre=f.p.descripcion or "", marca=f.p.marca)
             for r in rp._candidatas_ingrediente(s):
                 mates = [x for x in self.por_raiz.get(r, ()) if x != pid]
+                # misma forma con goteros aparte de bebidas: un extracto de 30 ml no es error por no estar con las aguas
                 mates = [self.filas[x] for x in mates if self.filas[x].p.subcategoria
-                         and (not f.grupo or not self.filas[x].grupo or self.filas[x].grupo == f.grupo)]
+                         and (not f.mundo or not self.filas[x].mundo or self.filas[x].mundo == f.mundo)]
                 if len(mates) < SOSPECHA_MIN:
                     continue
                 sub, n = Counter(_n(x.p.subcategoria) for x in mates).most_common(1)[0]
@@ -286,6 +318,15 @@ def clasificar(bd: Session, s: rp.Sujeto, usar_ia: bool = True) -> Clasificacion
         k = _n(v.producto.subcategoria)
         peso[k] += v.peso
         quien[k].append(v)
+    # Misma forma, mismo mundo: fuera las subcategorías sin productos de su forma (si queda alguna)
+    suyo_mundo = mundo(grupo(rp.formato_sujeto(s)), rp.tamano(s.contenido, s.nombre))
+    fuera_mundo = [k for k in peso if not idx.en_mundo(k, suyo_mundo)]
+    if fuera_mundo and len(fuera_mundo) < len(peso):
+        for k in fuera_mundo:
+            del peso[k]
+            del quien[k]
+    else:
+        fuera_mundo = []
     total = sum(peso.values())
     orden = sorted(peso, key=lambda k: -peso[k])
     nombre = {k: Counter(v.producto.subcategoria for v in quien[k]).most_common(1)[0][0] for k in orden}
@@ -293,10 +334,11 @@ def clasificar(bd: Session, s: rp.Sujeto, usar_ia: bool = True) -> Clasificacion
     ganadora, origen = orden[0], "votos"
     parte = peso[ganadora] / total
     seguridad = "segura" if parte >= SEGURA else "dudosa"
-    if seguridad == "dudosa" and usar_ia and len(orden) > 1:
+    parejas = [k for k in orden[:FINALISTAS] if peso[k] >= VENTAJA_IA * peso[orden[0]]]
+    if seguridad == "dudosa" and usar_ia and len(parejas) > 1:
         ejemplos = {nombre[k]: [v.producto.descripcion or v.producto.sku for v in
-                                sorted(quien[k], key=lambda v: -v.peso)] for k in orden[:FINALISTAS]}
-        if (elegida := desempatar(bd, s, [nombre[k] for k in orden[:FINALISTAS]], ejemplos)):
+                                sorted(quien[k], key=lambda v: -v.peso)] for k in parejas}
+        if (elegida := desempatar(bd, s, [nombre[k] for k in parejas], ejemplos)):
             ganadora = _n(elegida)
             origen = "votos_ia"
             parte = peso[ganadora] / total
@@ -326,4 +368,6 @@ def clasificar(bd: Session, s: rp.Sujeto, usar_ia: bool = True) -> Clasificacion
         top = sorted(vec, key=lambda v: -v.peso)[:2]
         c.razones.append(f"{len(vec)} de sus productos más parecidos también ("
                          + "; ".join(v.producto.descripcion or v.producto.sku for v in top) + ")")
+    if fuera_mundo:
+        c.razones.append(f"no entran {len(fuera_mundo)} subcategoría(s) sin productos de su forma")
     return c

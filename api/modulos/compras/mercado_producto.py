@@ -151,6 +151,12 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
         else:
             m.notas.append("Google Shopping: ningún resultado es claramente el mismo producto." if candidatos
                            else "Google Shopping no regresó resultados.")
+            # Qué se vio y por qué no se tomó, para poder revisarlo sin repetir la búsqueda (25 nov 2026)
+            vistos = sorted((c for c in candidatos.values() if c.evaluacion), key=lambda c: -c.evaluacion.calificacion)[:3]
+            if vistos:
+                m.notas.append("Google Shopping, lo más parecido: " + " | ".join(
+                    f"«{c.titulo[:90]}» ({c.evaluacion.motivo})" for c in vistos))
+            m.notas.append("Google Shopping, se buscó: " + " · ".join(f"«{t}»" for _, t in consultas))
         corrida.estado = "completa"
     except dfs.SinPresupuesto as e:
         m.notas.append(f"Google Shopping: no se buscó, {e}")
@@ -193,11 +199,12 @@ def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | Non
     """Busca el producto en Google Shopping y en las tiendas clave. Nunca lanza: lo que falle queda en las notas."""
     m = Mercado(buscado_en=ahora().isoformat(), clave=clave_de(nombre, marca, codigo_barras))
     # Por código de barras primero, como el radar de precios (ajuste precios_barras_primero; 13 nov 2026)
-    consultas = co.consultas(nombre, marca, codigo_barras, barras_primero=configuracion().precios_barras_primero)
+    marcas = pc._marcas(bd)
+    consultas = co.consultas(nombre, marca, codigo_barras, barras_primero=configuracion().precios_barras_primero,
+                             marcas_conocidas=marcas)
     if not consultas:
         m.notas.append("No hay nombre ni código de barras para buscarlo.")
         return m
-    marcas = pc._marcas(bd)
     _google(bd, m, nombre, marca, consultas, marcas, referencia)
     _tiendas(bd, m, nombre, marca, consultas, marcas)
     senal_de_venta(bd, m, nombre, marca, consultas, marcas, referencia)

@@ -1395,6 +1395,9 @@ def precios_por_lado(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], inter
         return junto
 
     salida = {"precio_afuera": lado(afuera, m.afuera if m else None)}
+    if salida["precio_afuera"].puntaje is None:  # la tarjeta decía solo «Sin datos» (BDM Life, 25 nov 2026)
+        salida["precio_afuera"] = dataclasses.replace(
+            salida["precio_afuera"], valor="No cuenta: no se encontró a la venta afuera; su peso se reparte")
     if anaquel is None:
         salida["precio_anaquel"] = Factor(None, "Ya lo vendemos", "Ya vendemos este mismo producto: el anaquel es él "
                                           "mismo, así que solo cuenta el precio contra afuera.")
