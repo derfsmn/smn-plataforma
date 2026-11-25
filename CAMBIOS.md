@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.7 · 2026-11-25
+
+Radar de productos: el precio por cápsula compara contra todos los parecidos, no solo contra los que traen piezas en su ficha
+
+**Cambios guardados:**
+- Radar: c├ípsulas de la descripci├│n si la ficha no las dice; precio por gramo del ingrediente principal
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.6 · 2026-11-25
 
 Radar de productos: el precio se compara por cápsula o por gramo de ingrediente; los productos de la misma marca van aparte; los lanzamientos que se comparan son solo del mismo tipo
