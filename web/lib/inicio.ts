@@ -33,7 +33,7 @@ export const NOMBRES_RUTA: Record<string, string> = {
   conocimiento: "Base de conocimiento",
   corridas: "Corridas",
   tabla: "Tabla",
-  todos: "Todos los productos",
+  todos: "Cómo va el radar",
   reporte: "Reporte a Excel",
   producto: "Producto",
   contraloria: "Contraloría",

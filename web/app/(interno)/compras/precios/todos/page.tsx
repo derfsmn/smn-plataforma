@@ -1,5 +1,6 @@
 "use client";
-// Radar de precios · Todos los productos: un renglón por producto de la última corrida (filtrado y paginado por la API, pensado para 4,000);
+// Radar de precios · Cómo va el radar (solo administración, plan del 25 nov): avance de la noche, contra cada tienda, por qué
+// hay productos sin comparar, «Correr ahora», «Prueba con Excel» y la lista técnica de todos los productos: un renglón por producto de la última corrida (filtrado y paginado por la API, pensado para 4,000);
 // al picarle se abre la página del producto.
 
 import { AnimatePresence, motion } from "motion/react";
@@ -15,6 +16,7 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto, Insignia, Selector } from "@/componentes/ui";
 import { Diferencia, ICONO_COINCIDENCIA, Miniatura, monto, precio } from "../piezas";
 import { PruebaExcel, UltimaPrueba } from "../prueba";
+import { ComoVa } from "../como-va";
 
 // Ligas viejas de avisos y de la pantalla anterior
 const ALIAS: Record<string, Grupo> = { caros: "rojo", baratos: "verde", sin_coincidencia: "revisar" };
@@ -155,6 +157,7 @@ function Productos() {
     }
   };
 
+  if (!administra) return <p className="text-smn-gris-500">Esta pantalla es de administración del radar.</p>;
   if (!r) return <Esqueleto className="h-72" />;
 
   const tarjetas: { id: Grupo; texto: string; icono?: typeof Tags; color?: Color }[] = [
@@ -171,6 +174,7 @@ function Productos() {
 
   return (
     <>
+      <ComoVa />
       <Entrada className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl text-sm text-smn-gris-500">
           <p>

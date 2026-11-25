@@ -149,6 +149,11 @@ def test_mercado_confiable_un_precio_y_precios_que_se_salen():
     assert tb._mediana([x.precio_comparable for x in quedan]) == Decimal("140.00")
     # Todos distintos entre sí: no hay mercado claro
     assert "no coinciden" in tb.mercado_confiable([o("A", 50), o("B", 120), o("C", 300)])[2]
+    # Una tienda cuenta una vez, con su precio más bajo (plan del 24 nov, caso 3 Mag Blend)
+    unicos = tb.una_por_tienda([o("Walmart", 349, "walmart.com.mx"), o("Walmart Express", 220, "walmart.com.mx"),
+                                o("Chedraui", 250), o("chedraui ", 260), o("Farmacia Ficticia EJ", 240)], ["Walmart", "Chedraui"])
+    assert [(x.vendedor, x.precio_comparable) for x in unicos] == [("Walmart Express", 220), ("Chedraui", 250),
+                                                                  ("Farmacia Ficticia EJ", 240)]
 
 
 def test_lote_de_noche_por_clase_y_venta(limpio, monkeypatch):
@@ -240,6 +245,37 @@ def test_tablero_y_reporte_a_excel(limpio, admin, tmp_path):
     assert a in rojos("lista") and a not in rojos("membresia")
     m = admin.get("/api/compras/precios/tablero?grupo=todos&precio=membresia").json()
     assert m["cuadros"]["verde"] > t["cuadros"]["verde"]
+    # Por agente (Diego, 25 nov): el proveedor del producto trae el agente de tblProveedores
+    from datos.modelos import Carga, Proveedor
+    with Session(motor()) as bd:
+        carga = Carga(fuente="ETL_VENTAS", disparada_por="manual", estado="completa")
+        bd.add(carga)
+        bd.flush()
+        bd.merge(Proveedor(proveedor="PEJ01", nombre="Proveedor Ficticio EJ", agente="AGEJ", carga_id=carga.carga_id))
+        bd.get(Producto, a).codigo_proveedor = "PEJ01"
+        bd.commit()
+    tb.olvidar()
+    g = admin.get("/api/compras/precios/tablero?grupo=todos&agente=AGEJ").json()
+    assert g["agentes"] == ["AGEJ"] and [x["producto_id"] for x in g["filas"]] == [a] and g["filas"][0]["agente"] == "AGEJ"
+    assert g["catalogo"] == 1 and g["comparados"] == 1
+    assert sum(t["sin_comparar"].values()) == t["cuadros"]["sin_referencia"]
+    assert b in {x["producto_id"] for x in admin.get("/api/compras/precios/tablero?grupo=todos&agente=sin_agente").json()["filas"]}
+    # Dinero en juego: venta del mes × diferencia; sin referencia, 0. De inicio vienen 20, ordenados por eso
+    assert Decimal(col["en_juego"]) >= 0 and admin.get("/api/compras/precios/tablero").json()["por_pagina"] == 20
+    # El buscador encuentra cualquier producto aunque no pida acción
+    assert [x["producto_id"] for x in admin.get("/api/compras/precios/tablero?q=CREATINA EJ").json()["filas"]] == [b]
+    d = admin.get(f"/api/compras/precios/tablero/producto/{a}").json()
+    assert d["producto_id"] == a and d["agente"] == "AGEJ" and d["mercado"] == col["mercado"]
+    assert admin.get("/api/compras/precios/tablero/producto/999999").status_code == 404
+    # «Descargar Excel» lleva todo lo filtrado
+    r = admin.get("/api/compras/precios/tablero/excel?grupo=todos&agente=AGEJ")
+    assert r.status_code == 200 and "Agente_AGEJ" in r.headers["content-disposition"]
+    assert admin.get("/api/compras/precios/tablero/excel?agente=NADIE").status_code == 400
+    with Session(motor()) as bd:  # no dejar el proveedor ficticio a otras pruebas
+        bd.get(Producto, a).codigo_proveedor = None
+        bd.delete(bd.get(Proveedor, "PEJ01"))
+        bd.commit()
+    tb.olvidar()
     # Reporte: una marca completa más la categoría (sin repetir) y un producto suelto
     opciones = admin.get("/api/compras/precios/reporte/opciones?modo=marca&q=BIRDMAN EJ").json()
     assert opciones and opciones[0]["clave"] == "BIRDMAN EJ"

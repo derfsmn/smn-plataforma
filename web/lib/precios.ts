@@ -395,6 +395,10 @@ export type FilaTablero = {
   tendencia_pct: string | null;
   validacion: "validado" | "dudoso" | "sin_referencia" | null;
   revisado_en: string | null;
+  agente: string | null; // comprador del proveedor (tblProveedores.Agente)
+  venta_mes: string;
+  en_juego: string; // venta del mes × diferencia del precio lista contra el mercado
+  aviso: string | null; // por qué no se compara
 };
 
 export type AvanceNoche = {
@@ -425,6 +429,10 @@ export type Tablero = {
   acciones: Record<string, number>;
   tiendas: TiendaContra[];
   clases: string[];
+  agentes: string[];
+  comparados: number;
+  sin_comparar: Record<string, number>;
+  catalogo: number;
   total: number;
   pagina: number;
   por_pagina: number;

@@ -102,6 +102,20 @@ class Renglon:
     mediana: Decimal | None = None  # mediana de los precios que cuentan (None si no hay referencia firme)
     aviso: str | None = None  # por qué no se compara (un solo precio, precios que no coinciden)
     apartados: list = field(default_factory=list)  # (observación, motivo) que se salen de los demás
+    agente: str | None = None  # comprador del proveedor del producto (tblProveedores.Agente)
+
+    @property
+    def venta_mes(self) -> Decimal:
+        """Venta de un mes promedio, de las 26 semanas de la evaluación."""
+        return (Decimal(self.evaluacion.venta_importe or 0) * Decimal("30.4") / 182).quantize(Decimal("0.01"))
+
+    @property
+    def en_juego(self) -> Decimal:
+        """Dinero al mes en la diferencia contra el mercado: venta del mes × la diferencia del precio lista (en valor
+        absoluto: más caros es venta que se puede ir, más baratos es margen que se deja). Sin referencia, 0."""
+        if self.dif is None:
+            return Decimal(0)
+        return (self.venta_mes * abs(Decimal(self.dif)) / 100).quantize(Decimal("0.01"))
 
     @property
     def cuadro(self) -> str:
@@ -129,12 +143,13 @@ def renglones(bd: Session, productos: list[Producto], hasta: date | None = None)
     limites = {pid: v.limite_pct for pid, v in vigilados.items() if v.limite_pct is not None}
     obs = precios_que_cuentan(bd, filas, por_id)
     claves = precios.tiendas_clave()
+    agentes = agentes_de(bd, {p.codigo_proveedor for p in productos if p.codigo_proveedor})
     ev = Evaluador(bd, productos)
     salida = []
     for p in productos:
         f, c = filas.get(p.producto_id, (None, None))
         base = precios.nuestro(f)[0] if f else None
-        cuentan = [o for o, v in obs.get(p.producto_id, []) if not no_cuenta(o, v, p.descripcion, base)]
+        cuentan = una_por_tienda([o for o, v in obs.get(p.producto_id, []) if not no_cuenta(o, v, p.descripcion, base)], claves)
         quedan, apartados, aviso = mercado_confiable(cuentan)
         # Solo se compara contra los precios que hoy cuentan (los mismos que se ven en la pantalla). Si ninguno cuenta
         # (Compras marcó «Está mal», la noche los dejó dudosos), no hay referencia aunque la corrida guardara una mediana.
@@ -155,7 +170,8 @@ def renglones(bd: Session, productos: list[Producto], hasta: date | None = None)
                     limite=precios.limite(limites.get(p.producto_id)), evaluacion=e, membresia=membresia,
                     dif_membresia=dif_m,
                     color_membresia=precios.color(dif_m, limites.get(p.producto_id)) if dif_m is not None else None,
-                    mediana=mediana if firme else None, aviso=aviso, apartados=apartados)
+                    mediana=mediana if firme else None, aviso=aviso, apartados=apartados,
+                    agente=agentes.get(p.codigo_proveedor or ""))
         for o in quedan:
             t = precios.tienda_clave(o.vendedor, o.dominio, claves)
             if t:
@@ -166,6 +182,35 @@ def renglones(bd: Session, productos: list[Producto], hasta: date | None = None)
         r.otras.sort(key=lambda x: x[1])
         salida.append(r)
     return salida
+
+
+def agentes_de(bd: Session, codigos: set[str]) -> dict[str, str]:
+    """{proveedor: agente} de tblProveedores (Diego, 2026-11-25: «cada producto está asignado a un agente»)."""
+    from datos.modelos import Proveedor
+    salida: dict[str, str] = {}
+    lista = sorted(codigos)
+    for i in range(0, len(lista), 1500):
+        for cod, ag in bd.execute(select(Proveedor.proveedor, Proveedor.agente).where(Proveedor.proveedor.in_(lista[i:i + 1500]))):
+            if (ag or "").strip():
+                salida[cod] = ag.strip()
+    return salida
+
+
+def una_por_tienda(cuentan: list, claves=None) -> list:
+    """Una tienda cuenta una vez, con su precio más bajo (plan del 24 nov: el mismo Walmart con dos publicaciones
+    contaba dos veces en la mediana). La tienda es la tienda clave o, si no es clave, el vendedor sin mayúsculas."""
+    claves = precios.tiendas_clave() if claves is None else claves
+    mejor: dict[str, object] = {}
+    orden: list[str] = []
+    for o in cuentan:
+        t = precios.tienda_clave(o.vendedor, o.dominio, claves) or " ".join((o.vendedor or o.dominio or "").lower().split())
+        if t not in mejor:
+            orden.append(t)
+            mejor[t] = o
+        elif o.precio_comparable is not None and (mejor[t].precio_comparable is None
+                                                  or o.precio_comparable < mejor[t].precio_comparable):
+            mejor[t] = o
+    return [mejor[t] for t in orden]
 
 
 # ---------------------------------------------------------------- cuándo el mercado es confiable

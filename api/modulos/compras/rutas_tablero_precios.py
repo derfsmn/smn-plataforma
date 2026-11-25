@@ -5,6 +5,7 @@ puede marcarlo; deshacer una marca es de quien administra el radar.
 """
 import json
 import re
+from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -68,6 +69,10 @@ class FilaTablero(BaseModel):
     tendencia_pct: Decimal | None
     validacion: str | None  # validado / dudoso / sin_referencia / None (nunca revisado)
     revisado_en: datetime | None
+    agente: str | None = None  # comprador del proveedor (tblProveedores.Agente)
+    venta_mes: Decimal = Decimal(0)
+    en_juego: Decimal = Decimal(0)  # venta del mes × diferencia del precio lista contra el mercado
+    aviso: str | None = None  # por qué no se compara
 
 
 class AvanceNoche(BaseModel):
@@ -105,6 +110,10 @@ class Tablero(BaseModel):
     acciones: dict[str, int]  # cuántos piden bajar, negociar, subir
     tiendas: list[Tienda]
     clases: list[str]
+    agentes: list[str] = []
+    comparados: int = 0  # productos con precio del mercado firme
+    sin_comparar: dict[str, int] = {}  # por qué no se comparan (para «Cómo va el radar»)
+    catalogo: int = 0  # productos del radar con resultado
     total: int
     pagina: int
     por_pagina: int
@@ -138,38 +147,104 @@ def _fila(r: tb.Renglon) -> FilaTablero:
         limite_pct=r.limite, tiendas={t: v[0] for t, v in r.tiendas.items()}, otras=len(r.otras), accion=e.accion,
         accion_texto=e.accion_texto, detalle=e.detalle, precio_sugerido=e.precio_sugerido, margen=e.margen,
         margen_minimo=e.margen_minimo, tendencia=e.tendencia, tendencia_pct=e.tendencia_pct,
-        validacion=r.vigilado.validacion if r.vigilado else None, revisado_en=r.vigilado.revisado_en if r.vigilado else None)
+        validacion=r.vigilado.validacion if r.vigilado else None, revisado_en=r.vigilado.revisado_en if r.vigilado else None,
+        agente=r.agente, venta_mes=r.venta_mes, en_juego=r.en_juego, aviso=r.aviso)
 
 
 Grupo = Literal["accion", "rojo", "amarillo", "verde", "sin_referencia", "subir", "todos"]
 PIDE_ACCION = ("bajar", "bajar_y_negociar", "negociar", "subir")
 
 
-@router.get("/tablero", response_model=Tablero)
-def tablero(grupo: Grupo = "accion", clase: str = "", q: str = "", marca: str = "", pagina: int = 1, por_pagina: int = 50,
-            precio: Literal["lista", "membresia"] = "lista", _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Tablero:
-    """La pantalla principal: avance de la noche, cuatro cuadros, contra cada tienda y lo que pide acción por venta."""
-    pagina, por_pagina = max(1, pagina), min(max(1, por_pagina), 200)
-    a = noche.avance(bd)
-    rs = tb.renglones_vigentes(bd)
-    cuadros = {k: sum(1 for r in rs if r.cuadro_de(precio) == k) for k in ("rojo", "amarillo", "verde", "sin_referencia")}
-    acciones = {k: sum(1 for r in rs if r.evaluacion.accion == k) for k in ("bajar", "bajar_y_negociar", "negociar", "subir")}
-    clases = sorted({r.evaluacion.clase for r in rs if r.evaluacion.clase},
-                    key=lambda c: noche.CLASES.index(c) if c in noche.CLASES else 99)
+def _por_que_no(r: tb.Renglon) -> str:
+    a = (r.aviso or "").lower()
+    if a.startswith("solo un precio"):
+        return "Un solo precio confirmado; falta una segunda tienda"
+    if "no coinciden" in a or "muy distintos" in a:
+        return "Los precios encontrados no coinciden entre sí"
+    if "mercados en línea" in a:
+        return "Solo hay precios de mercados en línea"
+    estado = r.fila.estado if r.fila else None
+    if estado == "sin_coincidencia":
+        return "No se encontró el mismo producto en internet"
+    if estado in ("sin_precios", "con_precios"):
+        return "Sin precios validados"
+    return "No se pudo revisar (falla o sin presupuesto)"
+
+
+def _filtrar(todos: list, grupo: str, clase: str, q: str, marca: str, agente: str, orden: str, precio: str):
+    """(renglones del agente elegido, los que cumplen los filtros, ya ordenados). Lo usan la pantalla y su Excel."""
+    sin_agente = agente == "sin_agente"
+    rs = [r for r in todos if not agente or (sin_agente and not r.agente) or r.agente == agente]
     texto = q.strip().lower()
+    if texto:
+        grupo = "todos"  # el buscador encuentra cualquier producto, pida acción o no
     elegidas = [r for r in rs
                 if (grupo == "todos" or (grupo == "accion" and r.evaluacion.accion in PIDE_ACCION)
                     or (grupo == "subir" and r.evaluacion.accion == "subir") or r.cuadro_de(precio) == grupo)
                 and (not clase or r.evaluacion.clase == clase.upper()) and (not marca or r.producto.marca == marca)
                 and (not texto or any(texto in (v or "").lower() for v in (r.producto.sku, r.producto.descripcion,
                                                                             r.producto.marca, r.producto.codigo_barras)))]
-    elegidas.sort(key=lambda r: (-r.evaluacion.venta_importe, r.producto.descripcion or ""))
+    if orden == "venta":
+        elegidas.sort(key=lambda r: (-r.evaluacion.venta_importe, r.producto.descripcion or ""))
+    else:
+        elegidas.sort(key=lambda r: (-r.en_juego, -r.evaluacion.venta_importe, r.producto.descripcion or ""))
+    return rs, elegidas
+
+
+Orden = Literal["en_juego", "venta"]
+
+
+@router.get("/tablero", response_model=Tablero)
+def tablero(grupo: Grupo = "accion", clase: str = "", q: str = "", marca: str = "", agente: str = "", pagina: int = 1,
+            por_pagina: int = 20, orden: Orden = "en_juego", precio: Literal["lista", "membresia"] = "lista",
+            _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Tablero:
+    """Precios contra el mercado (Diego, 2026-11-25): de inicio los 20 con más dinero en juego al mes; filtros por agente,
+    clase y marca; con el buscador, cualquier producto del radar. Los botones cuentan sobre el agente elegido."""
+    pagina, por_pagina = max(1, pagina), min(max(1, por_pagina), 200)
+    a = noche.avance(bd)
+    todos = tb.renglones_vigentes(bd)
+    rs, elegidas = _filtrar(todos, grupo, clase, q, marca, agente, orden, precio)
+    cuadros = {k: sum(1 for r in rs if r.cuadro_de(precio) == k) for k in ("rojo", "amarillo", "verde", "sin_referencia")}
+    acciones = {k: sum(1 for r in rs if r.evaluacion.accion == k) for k in ("bajar", "bajar_y_negociar", "negociar", "subir")}
+    clases = sorted({r.evaluacion.clase for r in todos if r.evaluacion.clase},
+                    key=lambda c: noche.CLASES.index(c) if c in noche.CLASES else 99)
     inicio = (pagina - 1) * por_pagina
     return Tablero(actualizado=tb.actualizado(bd), en_curso=precios.en_curso(bd) is not None,
                    avance=AvanceNoche(**a.__dict__, texto=_texto_avance(a)), alerta_pct=configuracion().precios_alerta_pct,
                    cuadros=cuadros, acciones=acciones, tiendas=[Tienda(**t) for t in tb.contra_tiendas(rs, precio)], clases=clases,
-                   total=len(elegidas), pagina=pagina, por_pagina=por_pagina,
+                   agentes=sorted({r.agente for r in todos if r.agente}), comparados=sum(1 for r in rs if r.color),
+                   sin_comparar=dict(Counter(_por_que_no(r) for r in rs if not r.color).most_common()),
+                   catalogo=len(rs), total=len(elegidas), pagina=pagina, por_pagina=por_pagina,
                    filas=[_fila(r) for r in elegidas[inicio:inicio + por_pagina]])
+
+
+@router.get("/tablero/producto/{producto_id}", response_model=FilaTablero)
+def tablero_producto(producto_id: int, _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> FilaTablero:
+    """El renglón de un producto para el panel de detalle (aunque no tenga resultado todavía)."""
+    r = next((x for x in tb.renglones_vigentes(bd) if x.producto.producto_id == producto_id), None)
+    if r is None:
+        p = bd.get(Producto, producto_id)
+        if not p:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Ese producto no existe en el catálogo.")
+        r = tb.renglones(bd, [p])[0]
+    return _fila(r)
+
+
+@router.get("/tablero/excel")
+def tablero_excel(request: Request, grupo: Grupo = "accion", clase: str = "", q: str = "", marca: str = "", agente: str = "",
+                  orden: Orden = "en_juego", ctx: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Response:
+    """«Descargar Excel»: todo lo que cumple los filtros de la pantalla (no solo la página que se ve)."""
+    _, elegidas = _filtrar(tb.renglones_vigentes(bd), grupo, clase, q, marca, agente, orden, "lista")
+    if not elegidas:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No hay productos con estos filtros.")
+    hoy = precios.hoy_local()
+    titulo = f"Agente {agente}" if agente and agente != "sin_agente" else "Precios contra el mercado"
+    contenido = rep.armar(bd, elegidas, list(rep.POR_OMISION), hoy, titulo)
+    registrar(bd, "precios_excel_pantalla", usuario_id=ctx.usuario.usuario_id, ip=ip_de(request),
+              detalle={"productos": len(elegidas), "grupo": grupo, "agente": agente or None})
+    bd.commit()
+    nombre = f"Radar_de_precios_{_nombre(titulo)}_{hoy:%Y-%m-%d}.xlsx"
+    return Response(contenido, media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 # ---------------------------------------------------------------- precios de un producto con su validación
@@ -240,6 +315,12 @@ def validacion(producto_id: int, _: Contexto = Depends(VER), bd: Session = Depen
     malas = val.marcas_mal(bd, producto_id)
     cache: dict = {}
     salida = []
+    # Mismas reglas que la pantalla: una tienda cuenta una vez y lo que se sale de los demás se aparta
+    pasan = [o for o, v in obs if not tb.no_cuenta(o, v, p.descripcion, base)]
+    unicos = tb.una_por_tienda(pasan)
+    _, apartados, _ = tb.mercado_confiable(unicos)
+    por_apartar = {id(o): m for o, m in apartados}
+    ids_unicos = {id(o) for o in unicos}
     for o, v in sorted(obs, key=lambda x: x[0].precio_comparable):
         if o.es_propia:
             continue
@@ -247,6 +328,10 @@ def validacion(producto_id: int, _: Contexto = Depends(VER), bd: Session = Depen
         comp = json.loads(v.comprobaciones or "{}") if v else {}
         sello = json.loads(v.sello or "{}") if v else {}
         motivo = tb.no_cuenta(o, v, p.descripcion, base)
+        if motivo is None and id(o) not in ids_unicos:
+            motivo = "Ya cuenta el precio más bajo de esta misma tienda"
+        elif motivo is None and id(o) in por_apartar:
+            motivo = por_apartar[id(o)]
         salida.append(PrecioValidado(
             observacion_id=o.observacion_id, vendedor=o.vendedor, tienda_clave=precios.tienda_clave(o.vendedor, o.dominio),
             titulo=ident.titulo, liga=o.liga, precio=o.precio_comparable, cuenta=motivo is None,
