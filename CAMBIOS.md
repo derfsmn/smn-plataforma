@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.11 · 2026-11-25
+
+clasificador respeta votos y forma; Google sin marca del proveedor
+
+**Cambios guardados:**
+- v0.5.11 clasificador y busqueda en Google del BDM
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.10 · 2026-11-25
 
 Precio contra anaquel y contra afuera, vista arriba, textos, Google con la linea de la marca
