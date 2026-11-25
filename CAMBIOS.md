@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.9 · 2026-11-25
+
+Precio: se lleva contra todas, provisional y aviso visibles
+
+**Cambios guardados:**
+- v0.5.9 precio: se lleva contra todas, provisional y aviso antes de la lista
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.8 · 2026-11-25
 
 Radar de productos: el precio se compara contra todos los de su mismo ingrediente y forma; el examen de clasificación ya no se reinicia al publicar
