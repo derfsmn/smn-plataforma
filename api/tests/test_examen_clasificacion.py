@@ -75,4 +75,16 @@ def test_examen_esconde_al_producto_y_marca_errores_del_catalogo(monkeypatch, tm
         assert wb.sheetnames == ["Resumen", "Fallas", "Posibles errores del catálogo", "Parecidos dudosos", "Casos",
                                  "Detalle"]
         assert wb["Posibles errores del catálogo"].max_row == 2 and wb["Fallas"].max_row == 1 + 7 - bien
+        # Si se reinicia la API, el examen sigue desde lo guardado y no recalcula (Diego, 25 nov 2026)
+        guardado = tmp_path / "avance.json"
+        r1, _ = ex.examinar(bd, None, guardar=guardado)
+        assert guardado.exists()
+
+        def no_otra_vez(*a, **k):
+            raise AssertionError("ya estaba guardado")
+
+        monkeypatch.setattr(ex, "examinar_uno", no_otra_vez)
+        r2, _ = ex.examinar(bd, None, guardar=guardado)
+        foto = lambda rs: [(r.sku, r.sub, r.origen, r.bien_sub, [q.producto_id for q, _ in r.parecidos]) for r in rs]  # noqa: E731
+        assert foto(r2) == foto(r1)
         bd.rollback()

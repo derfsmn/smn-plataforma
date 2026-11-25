@@ -69,9 +69,12 @@ def test_reclasificacion_espera_la_comparacion(monkeypatch, tmp_path):
         archivos_ruta = str(tmp_path)
 
     monkeypatch.setattr(config, "configuracion", lambda: C())
+    assert ex.clave() == ex.CLASIFICADOR  # va con el clasificador, no con la versión de la plataforma (25 nov 2026)
     assert not reclasificar.comparacion_lista()
-    assert [c for c, _ in ex.pendientes(C.plataforma_version)] == ["100", "comparacion", "completo"]
-    ex.ruta(C.plataforma_version, "comparacion", "xlsx").write_text("")
-    ex.ruta(C.plataforma_version, "comparacion", "json").write_text("{}")
+    assert [c for c, _ in ex.pendientes(ex.clave())] == ["100", "comparacion", "completo"]
+    ex.ruta(ex.clave(), "comparacion", "xlsx").write_text("")
+    ex.ruta(ex.clave(), "comparacion", "json").write_text("{}")
     assert reclasificar.comparacion_lista()
-    assert [c for c, _ in ex.pendientes(C.plataforma_version)] == ["100", "completo"]
+    assert [c for c, _ in ex.pendientes(ex.clave())] == ["100", "completo"]
+    C.plataforma_version = "v9.9.10-otra"  # otra versión de la plataforma con el mismo clasificador: no se repite
+    assert [c for c, _ in ex.pendientes(ex.clave())] == ["100", "completo"] and reclasificar.comparacion_lista()

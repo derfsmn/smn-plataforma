@@ -16,6 +16,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+import json as _json
+from pathlib import Path as _Path
+
 from sqlalchemy import select, true
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -188,7 +191,23 @@ def examinar_uno(bd: Session, p: Producto, catalogo: list[Producto], por_huella:
     return r
 
 
-def examinar(bd: Session, n: int | None = 300, avance=None) -> tuple[list[Resultado], dict]:
+def _a_dict(r: Resultado) -> dict:
+    d = {k: v for k, v in r.__dict__.items() if k != "parecidos"}
+    d["parecidos"] = [[q.producto_id, str(sim)] for q, sim in r.parecidos]
+    return d
+
+
+def _de_dict(bd: Session, d: dict) -> Resultado:
+    pares = d.pop("parecidos", [])
+    r = Resultado(**d)
+    r.parecidos = [(q, Decimal(sim)) for pid, sim in pares if (q := bd.get(Producto, pid))]
+    return r
+
+
+def examinar(bd: Session, n: int | None = 300, avance=None, guardar: _Path | None = None
+             ) -> tuple[list[Resultado], dict]:
+    """`guardar`: archivo donde se va guardando el avance cada 25 productos; si ya existe, sigue desde ahí (Diego, 25
+    nov 2026: publicar reiniciaba el examen desde cero)."""
     catalogo, examinables, lanzados = universo(bd)
     rp.cargar_fichas(bd, catalogo)
     por_huella: dict = defaultdict(list)
@@ -198,11 +217,23 @@ def examinar(bd: Session, n: int | None = 300, avance=None) -> tuple[list[Result
     elegidos = muestra(examinables, lanzados, n)
     marca = rp.CATALOGO_FIJO.set(catalogo)
     resultados = []
+    hechos: dict[str, dict] = {}
+    if guardar and guardar.exists():
+        try:
+            hechos = {d["sku"]: d for d in _json.loads(guardar.read_text())}
+        except (OSError, ValueError, KeyError, TypeError):
+            hechos = {}
     try:
         for i, p in enumerate(elegidos, 1):
-            resultados.append(examinar_uno(bd, p, catalogo, por_huella, por_sub, lanzados))
-            if avance and (i % 25 == 0 or i == len(elegidos)):
-                avance(i, len(elegidos), resultados)
+            if p.sku in hechos:
+                resultados.append(_de_dict(bd, dict(hechos[p.sku])))
+            else:
+                resultados.append(examinar_uno(bd, p, catalogo, por_huella, por_sub, lanzados))
+            if i % 25 == 0 or i == len(elegidos):
+                if guardar:
+                    guardar.write_text(_json.dumps([_a_dict(r) for r in resultados], ensure_ascii=False, default=str))
+                if avance:
+                    avance(i, len(elegidos), resultados)
     finally:
         rp.CATALOGO_FIJO.reset(marca)
     return resultados, {"catalogo": len(catalogo), "examinables": len(examinables), "lanzados": len(lanzados)}
@@ -424,12 +455,21 @@ def limpiar(texto: str) -> str:
 # «no tengo noches»): al arrancar una versión publicada, el examen se corre solo en segundo plano, primero con 100
 # productos y luego con todo el catálogo, y el Excel se descarga desde la plataforma. Una vez por versión.
 
-import json as _json  # noqa: E402
 import logging as _logging  # noqa: E402
 import threading as _threading  # noqa: E402
-from pathlib import Path as _Path  # noqa: E402
 
 _log = _logging.getLogger(__name__)
+# El examen va con la versión del clasificador, no con la de la plataforma (Diego, 25 nov 2026): publicar un cambio de
+# precio, demanda o pantalla no lo vuelve a empezar. Súbela solo cuando cambie la forma de clasificar.
+CLASIFICADOR = "v0.5.4"
+
+
+def clave() -> str | None:
+    """De qué clasificador es el examen; None en la laptop o sin versión publicada."""
+    from core.config import configuracion
+
+    v = configuracion().plataforma_version
+    return CLASIFICADOR if v and v != "local" else None
 # 100 productos (las dos versiones) → comparación de las evaluaciones vigentes v0.5.3 contra v0.5.4 → catálogo completo
 CORRIDAS = (("100", 100), ("comparacion", None), ("completo", None))
 MAX_INTENTOS = 2
@@ -466,7 +506,6 @@ def pendientes(version: str) -> list[tuple[str, int | None]]:
 def correr(version: str, corrida: str, n: int | None) -> dict:
     from core.bd import motor
 
-    ruta(version, corrida, "intentos").write_text(str(_intentos(version, corrida) + 1))
     AVANCE.update(corrida=corrida, como=None, hechos=0, total=0, bien=0)
     if corrida == "comparacion":
         from modulos.compras import comparar_versiones as cv
@@ -484,12 +523,12 @@ def correr(version: str, corrida: str, n: int | None) -> dict:
         AVANCE["como"] = "v0.5.3"
         marca = fi.COMO_V053.set(True)
         try:
-            antes, _ = examinar(bd, n, avance)
+            antes, _ = examinar(bd, n, avance, ruta(version, f"{corrida}_v053", "avance"))
             casos_antes = casos(bd)
         finally:
             fi.COMO_V053.reset(marca)
         AVANCE["como"] = version
-        resultados, univ = examinar(bd, n, avance)
+        resultados, univ = examinar(bd, n, avance, ruta(version, f"{corrida}_actual", "avance"))
         sospecha = {r.sku: r.sospechoso for r in resultados}
         for r in antes:  # los posibles errores del catálogo no cuentan en ninguna de las dos
             r.sospechoso = sospecha.get(r.sku, r.sospechoso)
@@ -510,8 +549,8 @@ def revisar_programa(bd: Session) -> None:  # noqa: ARG001 - el trabajo abre su 
     """Lo llama el programador cada minuto: en una versión publicada, si falta algún examen, lo corre en su hilo."""
     from core.config import configuracion
 
-    version = configuracion().plataforma_version
-    if _corriendo.is_set() or not version or version == "local" or not pendientes(version):
+    version = clave()
+    if _corriendo.is_set() or not version or not pendientes(version):
         return
 
     def trabajo() -> None:
@@ -520,7 +559,8 @@ def revisar_programa(bd: Session) -> None:  # noqa: ARG001 - el trabajo abre su 
                 try:
                     correr(version, corrida, n)
                     _log.info("Examen de clasificación %s %s listo", version, corrida)
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 - solo una falla cuenta como intento; reiniciar la API no
+                    ruta(version, corrida, "intentos").write_text(str(_intentos(version, corrida) + 1))
                     _log.exception("Examen de clasificación %s %s falló", version, corrida)
         finally:
             AVANCE["corrida"] = None
@@ -533,8 +573,9 @@ def revisar_programa(bd: Session) -> None:  # noqa: ARG001 - el trabajo abre su 
 def estado() -> dict:
     from core.config import configuracion
 
-    version = configuracion().plataforma_version
-    salida = {"version": version, "corriendo": _corriendo.is_set(), "avance": dict(AVANCE), "corridas": {}}
+    version = clave() or "local"
+    salida = {"version": configuracion().plataforma_version, "clasificador": version, "corriendo": _corriendo.is_set(),
+              "avance": dict(AVANCE), "corridas": {}}
     for c, _ in CORRIDAS:
         j = ruta(version, c, "json")
         if j.exists():

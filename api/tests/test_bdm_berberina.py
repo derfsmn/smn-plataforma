@@ -47,13 +47,33 @@ def test_precio_por_capsula_sin_dosis(catalogo, monkeypatch):
     assert "$3.82 por cápsula" in f.detalle
 
 
-def test_precio_por_gramo_de_berberina_con_dosis(catalogo):
-    s = bdm(True)
-    f = rp.precio_anaquel(s, [(p, D("0.5")) for p in catalogo])
-    # 459 / 48 g = $9.56 por gramo; las de tamaño cercano (24 a 96 g de berberina): 4 Health $5.11, Blife $9.02,
-    # Birdman $11.93 y Nutravia $15.63 por gramo; en medio $10.48: 9 % más barato = 84
-    assert "por gramo de berberina" in f.valor and "$9.56 por gramo" in f.detalle and "YPENZA" not in f.detalle
-    assert f.puntaje == 84
+def test_precio_por_toma_cuando_las_fichas_lo_dicen(catalogo):
+    """Diego, 25 nov 2026: «debe ser cuánto alcanza cada presentación». BDM se toma de 2 cápsulas: 60 tomas, $7.65 por
+    toma. Las demás (1 cápsula por toma): 4 Health $2.56, Blife $4.51, Birdman $5.97, Ypenza $6.83, Nutravia $7.82; en
+    medio $5.97: 28 % más caro por toma = 47."""
+    f = rp.precio_anaquel(bdm(True), [(p, D("0.5")) for p in catalogo])
+    assert "por toma" in f.valor and "más caro" in f.valor and "$7.65 por toma" in f.detalle and "YPENZA" in f.detalle
+    assert "más barato que 1 de los 5" in f.detalle
+    assert f.puntaje == 47
+
+
+def test_por_capsula_avisa_si_no_sabemos_la_toma_de_los_demas(catalogo, monkeypatch):
+    monkeypatch.setattr(rp, "ficha_de", lambda p: None)
+    f = rp.precio_anaquel(bdm(True), [(p, D("0.5")) for p in catalogo])
+    assert "por cápsula" in f.valor and f.provisional
+    assert "se toma de 2 cápsulas" in f.detalle and "si se toman de 1, sale 28 % más caro por toma" in f.detalle
+
+
+def test_por_capsula_contra_todas_las_berberinas_y_sin_las_faciales_de_la_marca(monkeypatch):
+    """El caso real del 25 nov 2026: 7 berberinas (3 de 30 cápsulas) y faciales de Juveternal entre los parecidos."""
+    lista = BERBERINAS + [("60416", "ALTUS NATURA BERBERINA ACIDO ALFA LIPOICO CANELA 30 CAP", "143.56", 30),
+                          ("79653", "NATURAL WISDOM BERBERINA COMPLEX 30 CAP", "173.61", 30),
+                          ("10853", "JUVETERNAL VITAMINA E FACIAL 90 CAP", "195.67", 90)]
+    ps = [Producto(sku=a, descripcion=b, precio_lista_con_impuestos=D(c)) for a, b, c, _ in lista]
+    monkeypatch.setattr(rp, "ficha_de", lambda p: None)
+    f = rp.precio_anaquel(bdm(False), [(p, D("0.5")) for p in ps])
+    assert "ALTUS" in f.detalle and "NATURAL WISDOM" in f.detalle and "FACIAL" not in f.detalle
+    assert "más barato que 6 de los 7" in f.detalle and f.puntaje == 100
 
 
 def test_lanzamientos_solo_de_su_mismo_tipo():
@@ -75,3 +95,37 @@ def test_fichas_sin_piezas_toman_las_capsulas_de_la_descripcion(catalogo, monkey
     assert "por cápsula" in f.valor and "más barato" in f.valor, f.valor
     for marca in ("BLIFE", "BIRDMAN", "NUTRAVIA"):
         assert marca in f.detalle
+
+
+def test_fichas_del_servidor_una_sola_con_tomas_no_manda(monkeypatch):
+    """Fichas reales del servidor (25 nov 2026): piezas sí, tomas solo Altus, mg nadie. Con una sola que dice sus tomas
+    no se compara por toma: se compara por cápsula contra las 7 y se avisa la otra cuenta."""
+    lista = [("13898", "BERBERINA MAS CANELA 30 CAP", "206.50", 30, None), ("55039", "BERBERINA 180 CAP", "437.50", 180, None),
+             ("60416", "BERBERINA ACIDO ALFA LIPOICO CANELA 30 CAP", "156.50", 30, 30),
+             ("79653", "BERBERINA COMPLEX 30 CAP", "200.50", 30, None), ("82094", "BERBERINA HCL 90 CAP", "545.00", 90, None),
+             ("83570", "PURE BERBERINE 180 CAP", "712.00", 180, None), ("90509", "BERBERINA HCI 60 CAP", "469.00", 60, None)]
+    ps = [Producto(sku=a, descripcion=b, precio_lista_con_impuestos=D(c)) for a, b, c, _, _ in lista]
+    fichas = {a: fi.Ficha(tipo="suplemento", forma="cápsulas", contenido_cantidad=D(n), contenido_unidad="pz", piezas=n,
+                          porciones=po, ingrediente_principal="berberina") for a, _, _, n, po in lista}
+    monkeypatch.setattr(rp, "ficha_de", lambda p: fichas.get(p.sku))
+    f = rp.precio_anaquel(bdm(True), [(p, D("0.5")) for p in ps])
+    assert "por cápsula" in f.valor and "más barato que 6 de los 7" in f.detalle and f.provisional
+    assert "26 % más caro por toma" in f.detalle and f.puntaje == 100
+
+
+def test_tipo_de_la_ficha_no_descarta_su_mismo_ingrediente(monkeypatch):
+    """Tipos reales del servidor (25 nov 2026): BDM «suplemento» contra «complemento auxiliar en la diabetes»; antes
+    salían «Otro tipo de producto» y la calificación quedaba contra 4 Health sola (57 % más caro)."""
+    tipos = {"13898": "complemento auxiliar en la diabetes", "55039": "suplemento de berberina",
+             "82094": "complemento auxiliar en la diabetes", "83570": "complemento alimenticio",
+             "90509": "complemento auxiliar en la diabetes"}
+    ps = [Producto(sku=a, descripcion=b, precio_lista_con_impuestos=D(c)) for a, b, c, _ in BERBERINAS]
+    fichas = {p.sku: fi.Ficha(tipo=tipos[p.sku], forma="cápsulas", contenido_cantidad=D(n), contenido_unidad="pz",
+                              piezas=n, ingrediente_principal="berberina") for p, (_, _, _, n) in zip(ps, BERBERINAS)}
+    monkeypatch.setattr(rp, "ficha_de", lambda p: fichas.get(p.sku))
+    s = bdm(False)
+    s.ficha = fi.Ficha(tipo="suplemento", forma="cápsulas", contenido_cantidad=D("144"), contenido_unidad="g",
+                       piezas=120, ingrediente_principal="BERBERINA + PIPERINA")
+    assert all(rp.precio_cercano(s, p) for p in ps)
+    f = rp.precio_anaquel(s, [(p, D("0.5")) for p in ps])
+    assert "más barato" in f.valor and "por cápsula" in f.valor

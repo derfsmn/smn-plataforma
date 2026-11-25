@@ -82,11 +82,10 @@ def revisar(bd: Session, aplicar: bool = True, limite: int | None = None, avance
 def comparacion_lista() -> bool:
     """No se reclasifica ninguna evaluación hasta que exista la comparación v0.5.3 contra esta versión, para que cada
     cambio esté explicado antes de que pase (Diego, 24 nov 2026: «revisa bien todo»)."""
-    from core.config import configuracion
     from modulos.compras import examen_clasificacion as ex
 
-    version = configuracion().plataforma_version
-    return bool(version) and version != "local" and ex.ruta(version, "comparacion", "json").exists()
+    version = ex.clave()
+    return bool(version) and ex.ruta(version, "comparacion", "json").exists()
 
 
 def en_horario(momento: datetime | None = None) -> bool:

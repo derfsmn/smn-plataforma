@@ -652,12 +652,11 @@ def examen_estado(_: Contexto = Depends(requiere(AJUSTAR))) -> dict:
 @router.get("/examen/excel")
 def examen_excel(corrida: str = "100", _: Contexto = Depends(requiere(AJUSTAR))) -> FileResponse:
     """El Excel del examen de clasificación de esta versión: corrida «100» o «completo»."""
-    from core.config import configuracion
     from modulos.compras import examen_clasificacion as ex
 
     if corrida not in {c for c, _ in ex.CORRIDAS}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "La corrida es «100», «comparacion» o «completo».")
-    archivo = ex.ruta(configuracion().plataforma_version, corrida)
+    archivo = ex.ruta(ex.clave() or "local", corrida)
     if not archivo.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Ese examen todavía no termina. Revisa cómo va en /api/compras/productos/examen.")
     return FileResponse(archivo, filename=archivo.name,
