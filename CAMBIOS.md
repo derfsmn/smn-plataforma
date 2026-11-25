@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.5.6 · 2026-11-25
+
+Radar de productos: el precio se compara por cápsula o por gramo de ingrediente; los productos de la misma marca van aparte; los lanzamientos que se comparan son solo del mismo tipo
+
+**Cambios guardados:**
+- Radar: precio por c├ípsula o gramo de activo, misma marca aparte, lanzamientos de su mismo tipo (BDM Berberina)
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.5.5 · 2026-11-25
 
 Clasificación automática de productos con examen y comparación; el radar de tendencias vuelve a armar su reporte con la IA local
