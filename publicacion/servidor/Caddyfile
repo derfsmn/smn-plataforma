@@ -3,7 +3,8 @@
 	default_sni 172.31.104.4
 }
 
-https://172.31.104.4 {
+# Nombre interno: cada equipo lo tiene en su archivo hosts (172.31.104.4 plataformaia.smn.internal)
+https://172.31.104.4, https://plataformaia.smn.internal {
 	tls internal
 
 	# Encabezados de seguridad (revisión de seguridad 2026-11-22, M5). El micrófono queda permitido para Naturi.

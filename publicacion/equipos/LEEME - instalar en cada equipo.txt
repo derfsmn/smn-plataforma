@@ -1,0 +1,30 @@
+﻿PLATAFORMA SMN - INSTALAR EN CADA EQUIPO DE COMPRAS (una sola vez, unos 2 minutos)
+
+Que se necesita
+- Usuario o contrasena de ADMINISTRADOR del equipo.
+- Esta carpeta con 2 archivos: instalar_plataforma_smn.cmd y "Certificado plataforma SMN.crt".
+  Copiala desde la carpeta compartida o USB, no por correo.
+
+FORMA RAPIDA
+1. Clic derecho en instalar_plataforma_smn.cmd > Ejecutar como administrador > Si.
+2. Deben salir [1/3], [2/3], [3/3] y "OK: plataformaia.smn.internal apunta a 172.31.104.4".
+3. Cierra TODAS las ventanas de Chrome y Edge.
+4. Entra a https://plataformaia.smn.internal  -> debe salir el candado, sin "No seguro".
+
+FORMA MANUAL (si el .cmd esta bloqueado)
+A) Alias
+   1. Inicio > escribe "Bloc de notas" > clic derecho > Ejecutar como administrador.
+   2. Archivo > Abrir > C:\Windows\System32\drivers\etc  (cambia el filtro a "Todos los archivos") > hosts.
+   3. Al final agrega en un renglon nuevo:   172.31.104.4 plataformaia.smn.internal
+   4. Guarda (Ctrl+G) y cierra.
+B) Certificado
+   1. Doble clic en "Certificado plataforma SMN.crt" > Instalar certificado.
+   2. Equipo local > Siguiente > Si.
+   3. "Colocar todos los certificados en el siguiente almacen" > Examinar >
+      "Entidades de certificacion raiz de confianza" > Aceptar > Siguiente > Finalizar > Si.
+C) Cierra Chrome/Edge y entra a https://plataformaia.smn.internal
+
+SI ALGO FALLA
+- "No se puede acceder al sitio": revisa el renglon del hosts (paso A3) y que el equipo este en la red SMN/VPN.
+- Sigue "No seguro": el certificado quedo en otro almacen; repite B eligiendo "Entidades de certificacion raiz de confianza".
+- Mientras tanto se puede seguir entrando por https://172.31.104.4 como hoy.

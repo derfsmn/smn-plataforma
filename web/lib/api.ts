@@ -12,6 +12,9 @@ export function urlApi(): string {
       u.hostname = window.location.hostname;
       return u.origin;
     }
+    // En el servidor Caddy sirve la web y /api en la misma dirección, por IP o por nombre
+    // (plataformaia.smn.internal). Se usa la misma con la que se abrió la página para que viaje la cookie.
+    if (u.protocol === "https:") return window.location.origin;
   } catch {}
   return API_CONFIGURADA;
 }
