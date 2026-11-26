@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.5 · 2026-11-26
+
+Monitor en vivo y parecidos por ingrediente
+
+**Cambios guardados:**
+- v0.6.5 monitor en vivo y parecidos por ingrediente
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.4 · 2026-11-26
 
 monitor
