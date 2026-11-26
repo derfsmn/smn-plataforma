@@ -185,7 +185,8 @@ def carpeta() -> Path:
 
 
 def ruta(ext: str = "xlsx", regla: int | None = None) -> Path:
-    return carpeta() / f"prueba_precios_afuera_regla{regla or mp.REGLA}.{ext}"
+    # «_noche»: la de día se apagó a mano en el servidor el 26 nov (intentos=2); esta vuelve a correr, ya de noche
+    return carpeta() / f"prueba_precios_afuera_regla{regla or mp.REGLA}_noche.{ext}"
 
 
 def _publicada() -> bool:
@@ -203,9 +204,29 @@ def correr(bd: Session) -> dict:
     return res
 
 
-def revisar_programa(bd: Session) -> None:  # noqa: ARG001 - el trabajo abre su propia sesión
-    """Lo llama el programador cada minuto: con una versión publicada, si falta la prueba de esta regla, la corre."""
+def de_noche() -> bool:
+    """Solo en la ventana nocturna del radar de precios (6 pm a 6 am): de día frenaba las evaluaciones de Compras
+    (Diego, 26 nov 2026: el BDM tardó 25 minutos en el paso 3 mientras corría la prueba)."""
+    from datetime import datetime
+
+    from core.config import configuracion
+    from modulos.compras import nocturno_precios as noc
+    from modulos.compras import precios as pc
+
+    cfg = configuracion()
+    return noc.en_ventana(datetime.now(pc.zona()).hour, cfg.precios_nocturno_desde, cfg.precios_nocturno_hasta)
+
+
+def _hay_evaluaciones(bd: Session) -> bool:
+    return bool(bd.scalar(select(ProductoEvaluacion.evaluacion_id).where(ProductoEvaluacion.estado == "en_curso").limit(1)))
+
+
+def revisar_programa(bd: Session) -> None:
+    """Lo llama el programador cada minuto: con una versión publicada, de noche y sin evaluaciones corriendo, si falta
+    la prueba de esta regla, la corre."""
     if _corriendo.is_set() or not _publicada() or ruta().exists() or _intentos() >= 2:
+        return
+    if not de_noche() or _hay_evaluaciones(bd):
         return
 
     def trabajo() -> None:

@@ -148,7 +148,11 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
     candidatos: dict[str, co.Candidato] = {}
     try:
         tareas = [{"keyword": texto, "depth": cfg.precios_profundidad, "tag": f"{n}"} for n, (_, texto) in enumerate(consultas)]
+        log.info("Precios de afuera (%s): se mandan %s búsquedas a Google Shopping: %s", referencia, len(tareas),
+                 " · ".join(f"«{t}»" for _, t in consultas))
         ids = dfs.enviar(bd, corrida, "productos", tareas)
+        log.info("Precios de afuera (%s): DataForSEO aceptó %s de %s; esperando a que Google conteste", referencia,
+                 len(ids), len(tareas))
         # Una búsqueda que DataForSEO no acepta no regresa nada y antes no se decía (BDM Life, 25 nov 2026: solo
         # quedaba la del código de barras y Google regresaba cualquier cosa)
         if faltan := [n for n in range(len(consultas)) if str(n) not in ids]:
@@ -164,7 +168,11 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
             for item in items:
                 if c := co.candidato_de(item):
                     candidatos.setdefault(c.clave, c).estrategias.add(estrategia)
+        log.info("Precios de afuera (%s): Google regresó %s resultados; comparando si alguno es el mismo producto",
+                 referencia, len(candidatos))
         elegido, iguales = _elegir(bd, nombre, marca, list(candidatos.values()), marcas)
+        log.info("Precios de afuera (%s): %s", referencia,
+                 f"tomado «{elegido.titulo[:80]}»" if elegido else "ninguno es el mismo producto")
         if elegido:
             m.publicacion = elegido.titulo[:300]
             _agregar(m, [elegido, *iguales], "google")
@@ -191,6 +199,7 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
 
 
 def _tiendas(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: list[tuple[str, str]], marcas: set[str]) -> None:
+    log.info("Precios de afuera: buscando «%s» en las tiendas clave", nombre[:80])
     ultima = [0.0]
     for tienda in td.conectores(pc.tiendas_directas()):
         cands: dict[str, co.Candidato] = {}

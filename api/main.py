@@ -14,7 +14,7 @@ from core import ajustes
 from core.bd import motor
 from core.config import configuracion
 from ia import rutas as ia_rutas
-from nucleo import administracion, archivos, autenticacion, notificaciones, pendientes, salud, visor_bitacora
+from nucleo import administracion, archivos, autenticacion, en_vivo, notificaciones, pendientes, salud, visor_bitacora
 from nucleo import configuracion as configuracion_rutas
 from datos import etl, smnbi
 from datos import rutas as datos_rutas
@@ -152,6 +152,7 @@ async def programador() -> None:
 
 @asynccontextmanager
 async def arranque(_: FastAPI):
+    en_vivo.instalar()  # bitácora en vivo de Estado del sistema (26 nov 2026)
     # Aplica los ajustes guardados en Administración > Configuración (si la base está lista)
     try:
         with Session(motor()) as bd:
@@ -209,6 +210,7 @@ app.include_router(autenticacion.router)
 app.include_router(administracion.router)
 app.include_router(pendientes.router)
 app.include_router(visor_bitacora.router)
+app.include_router(en_vivo.router)
 app.include_router(notificaciones.router)
 app.include_router(archivos.router)
 app.include_router(ia_rutas.router)

@@ -59,3 +59,23 @@ def test_google_dice_que_busqueda_no_acepto(admin, monkeypatch):
                    set(), "idea 1")
     assert any("no aceptó la búsqueda «BDM Life Berberina» (40501 Invalid Field: 'keyword'.)" in n for n in m.notas)
     assert pa.motivo(m) == pa.RECHAZADA
+
+
+def test_solo_corre_de_noche(monkeypatch):
+    arranco = []
+    monkeypatch.setattr(pa, "_publicada", lambda: True)
+    monkeypatch.setattr(pa, "_intentos", lambda: 0)
+    monkeypatch.setattr(pa, "_hay_evaluaciones", lambda bd: False)
+    monkeypatch.setattr(pa.threading, "Thread", lambda **k: type("T", (), {"start": lambda self: arranco.append(1)})())
+    monkeypatch.setattr(pa, "ruta", lambda ext="xlsx", regla=None: type("R", (), {"exists": lambda self: False})())
+    monkeypatch.setattr(pa, "de_noche", lambda: False)
+    pa.revisar_programa(None)
+    assert not arranco
+    monkeypatch.setattr(pa, "de_noche", lambda: True)
+    monkeypatch.setattr(pa, "_hay_evaluaciones", lambda bd: True)
+    pa.revisar_programa(None)
+    assert not arranco  # una evaluación de Compras va primero
+    monkeypatch.setattr(pa, "_hay_evaluaciones", lambda bd: False)
+    pa.revisar_programa(None)
+    assert arranco == [1]
+    pa._corriendo.clear()

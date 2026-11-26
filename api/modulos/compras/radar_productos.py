@@ -2304,6 +2304,8 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         # Se guarda en cada paso para que la pantalla diga en cuál va y no se quede esperando a que todo termine
         e.avance = f"Paso {n} de {PASOS}: {texto}"
         bd.commit()
+        # También al log, para ver en el servidor en qué paso va cada evaluación (Diego, 26 nov 2026)
+        log.info("Radar de productos: evaluación %s, %s", evaluacion_id, e.avance)
 
     try:
         paso(1, "leyendo la ficha técnica y clasificando el producto")
@@ -2434,6 +2436,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             e.explicacion = (f"Aviso: podría caer en la regla {titulos} de Compras, pero no hay un dato del producto que "
                              f"lo pruebe. No cambia el color; que Compras lo confirme.\n\n{e.explicacion}")
         e.estado, e.avance = "lista", None
+        log.info("Radar de productos: evaluación %s lista", evaluacion_id)
     except Exception as ex:  # noqa: BLE001
         log.exception("Radar de productos: falló la evaluación %s", evaluacion_id)
         bd.rollback()
