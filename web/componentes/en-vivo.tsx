@@ -2,7 +2,8 @@
 
 // Qué está corriendo ahora y bitácora en vivo de la API (Diego, 26 nov 2026: «un log visible en el sitio para ver
 // qué se está corriendo»). Se actualiza sola cada 5 segundos.
-import { Activity, Pause, Play } from "lucide-react";
+import { Activity, MonitorPlay, Pause, Play } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
@@ -62,7 +63,10 @@ export function EnVivo() {
       <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-4 sm:p-5">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-smn-naranja" />
-          <h2 className="text-lg font-semibold">Qué está corriendo ahora</h2>
+          <h2 className="flex-1 text-lg font-semibold">Qué está corriendo ahora</h2>
+          <Link href="/admin/monitor" className="inline-flex items-center gap-1.5 rounded-full bg-smn-naranja px-3 py-1.5 text-sm font-semibold text-smn-negro hover:opacity-90">
+            <MonitorPlay className="h-4 w-4" /> Abrir monitor
+          </Link>
         </div>
         <p className="mt-0.5 mb-4 text-sm text-smn-gris-500">
           Los procesos pesados que comparten el servidor (búsquedas en internet, tiendas e IA local). Se actualiza cada 5 segundos.

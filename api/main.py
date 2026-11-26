@@ -168,6 +168,10 @@ async def arranque(_: FastAPI):
                 log.warning("Se cerraron %s cargas del ETL de ventas que quedaron a medias", n)
             if n := smnbi.cerrar_huerfanas(bd):
                 log.warning("Se cerraron %s cargas de tablas de SMNBI que quedaron a medias", n)
+            from modulos.compras import radar as radar_tendencias
+
+            if n := radar_tendencias.cerrar_huerfanas(bd):
+                log.warning("Se cerró la corrida del Radar de tendencias que quedó a medias; se reintenta sola")
             if n := radar_productos.cerrar_huerfanas(bd):
                 log.warning("Se cerraron %s evaluaciones del Radar de productos que quedaron a medias", n)
             if n := oportunidades.cerrar_huerfanas(bd):

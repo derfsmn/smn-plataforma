@@ -603,12 +603,18 @@ def correr(version: str, corrida: str, n: int | None) -> dict:
     return datos
 
 
-def revisar_programa(bd: Session) -> None:  # noqa: ARG001 - el trabajo abre su propia sesión
+def revisar_programa(bd: Session) -> None:
     """Lo llama el programador cada minuto: en una versión publicada, si falta algún examen, lo corre en su hilo."""
     from core.config import configuracion
 
     version = clave()
     if _corriendo.is_set() or not version or not pendientes(version):
+        return
+    # Solo de noche y sin evaluaciones de Compras, como la prueba de precios de afuera (26 nov 2026: de día competía
+    # con las evaluaciones por la IA local)
+    from modulos.compras import prueba_afuera as pa
+
+    if not pa.de_noche() or pa._hay_evaluaciones(bd):
         return
 
     def trabajo() -> None:

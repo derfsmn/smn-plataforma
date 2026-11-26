@@ -49,3 +49,31 @@ def test_evaluacion_en_curso_sale_con_su_paso(admin):
 
 def test_sin_permiso_no_ve(cliente):
     assert cliente.get("/api/nucleo/en-vivo").status_code in (401, 403)
+
+
+def test_monitor_trae_todo_en_una_consulta(admin):
+    from datetime import date, timedelta
+
+    from core.bd import _fabrica
+    from modulos.compras.modelos import RadarReporte
+    from nucleo.modelos import ahora
+
+    with _fabrica()() as bd:
+        r = RadarReporte(fecha=date(2031, 3, 4), origen="programado", estado="listo",
+                         iniciado_en=ahora() - timedelta(hours=1), terminado_en=ahora() - timedelta(minutes=20))
+        bd.add(r)
+        bd.commit()
+        try:
+            d = admin.get("/api/nucleo/en-vivo/monitor").json()
+            assert set(d) >= {"servidor", "procesos", "linea", "avisos", "carriles", "horas"}
+            assert {"sistema", "ia", "dataforseo"} <= set(d["servidor"])
+            assert any(b["carril"] == "Radar de tendencias" and b["estado"] == "listo" for b in d["linea"])
+        finally:
+            bd.delete(r)
+            bd.commit()
+
+
+def test_avance_por_paso():
+    assert en_vivo._paso("Paso 3 de 6: buscando") == 2.5 / 6
+    p = en_vivo._proceso("evaluacion", "x", None, None, 0.4)
+    assert p["progreso"] == 0.4 and not p["lento"]

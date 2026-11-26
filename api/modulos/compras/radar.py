@@ -825,6 +825,18 @@ def proxima_corrida(bd: Session) -> datetime:
     return hoy_hora + timedelta(days=1)
 
 
+def cerrar_huerfanas(bd: Session) -> int:
+    """Al arrancar: la corrida del día que quedó «en curso» murió con el reinicio. Se marca con error y queda lista para
+    reintentarse en el siguiente minuto (26 nov 2026: se quedaba «en curso» 3 horas sin correr y Estado del sistema la
+    mostraba como si siguiera)."""
+    filas = bd.scalars(select(RadarReporte).where(RadarReporte.estado == "en_curso")).all()
+    for r in filas:
+        r.estado, r.error = "error", "La plataforma se reinició a medio camino; se vuelve a intentar sola."
+        r.terminado_en = ahora() - timedelta(minutes=31)  # sin esperar la media hora entre reintentos
+    bd.commit()
+    return len(filas)
+
+
 def revisar_programa(bd: Session) -> RadarReporte | None:
     """Lo llama el programador cada minuto. Corre el radar del día si ya es la hora y no ha corrido.
     Si la plataforma estuvo apagada a la hora, corre en cuanto vuelve (marcado como tardío).

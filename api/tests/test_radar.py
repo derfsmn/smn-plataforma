@@ -363,6 +363,29 @@ def test_json_mal_formado_reintenta_y_sin_ia_no_manda_correo(admin: TestClient, 
     assert not simulado.correos  # sin IA no se manda el correo a los destinatarios
 
 
+def test_corrida_a_medias_se_cierra_al_arrancar_y_se_reintenta():
+    from datetime import date, timedelta
+
+    from core.bd import _fabrica
+    from modulos.compras import radar
+    from modulos.compras.modelos import RadarReporte
+    from nucleo.modelos import ahora
+
+    with _fabrica()() as bd:
+        r = RadarReporte(fecha=date(2031, 1, 2), origen="programado", estado="en_curso", iniciado_en=ahora() - timedelta(minutes=20))
+        bd.add(r)
+        bd.commit()
+        try:
+            assert radar.cerrar_huerfanas(bd) >= 1
+            bd.refresh(r)
+            assert r.estado == "error" and r.terminado_en < ahora() - timedelta(minutes=30)
+            otra = radar.tomar_reporte(bd, r.fecha, "tardio")
+            assert otra is not None and otra.estado == "en_curso" and otra.intentos == 2
+        finally:
+            bd.delete(r)
+            bd.commit()
+
+
 def test_resumen_pide_ventana_y_json_y_avisa_si_llega_cortado(admin: TestClient, simulado, monkeypatch):
     """25 nov 2026: con Ollama sin ventana la respuesta llegaba cortada y el aviso decía «Expecting value»."""
     from ia import puerta
