@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.6 · 2026-11-26
+
+Parecidos revisados por la IA y marca completa
+
+**Cambios guardados:**
+- v0.6.6 parecidos del ingrediente pasan por la IA, marca completa
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.5 · 2026-11-26
 
 Monitor en vivo y parecidos por ingrediente
