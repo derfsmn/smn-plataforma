@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.7 · 2026-11-26
+
+Conexiones a la base e Inventarios
+
+**Cambios guardados:**
+- v0.6.7 conexiones a la base + iniciativa Inventarios
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.6 · 2026-11-26
 
 Parecidos revisados por la IA y marca completa
