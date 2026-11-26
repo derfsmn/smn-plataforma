@@ -13,6 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from statistics import median
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.config import configuracion
@@ -22,7 +23,7 @@ from modulos.compras import dataforseo as dfs
 from modulos.compras import precios as pc
 from modulos.compras import senal_venta as sv
 from modulos.compras import tiendas as td
-from modulos.compras.modelos_precios import PrecioCorrida
+from modulos.compras.modelos_precios import PrecioCorrida, PrecioEnvio
 from nucleo.modelos import ahora
 
 log = logging.getLogger("smn.compras.mercado_producto")
@@ -32,7 +33,7 @@ DIAS_VIGENCIA = 7  # al recalcular dentro de una semana se reusa la búsqueda y 
 MAX_PRECIOS = 30
 # Versión de la regla que decide si una publicación es el mismo producto. Una búsqueda sin precios hecha con una regla
 # anterior se vuelve a hacer al recalcular (25 nov 2026: la línea de la marca, «BDM Life» de JUVETERNAL)
-REGLA = 4  # 4: también busca el nombre sin presentación y compara con la marca del nombre (BDM Life, v0.6.1)
+REGLA = 5  # 5: consultas en texto plano, sin «+» ni «–», como las del radar de precios (BDM Life, v0.6.2)
 
 
 @dataclass
@@ -122,6 +123,18 @@ def _elegir(bd: Session, nombre: str, marca: str | None, candidatos: list[co.Can
     return elegido, iguales
 
 
+def _mensajes_envio(bd: Session, corrida_id: int) -> dict[str, str]:
+    """{tag: «código mensaje»} de lo que contestó DataForSEO al recibir cada búsqueda."""
+    salida = {}
+    for r in bd.scalars(select(PrecioEnvio.respuesta).where(PrecioEnvio.corrida_id == corrida_id)):
+        try:
+            for t in json.loads(r or "[]"):
+                salida[str(t.get("tag") or "")] = f"{t.get('estado')} {t.get('mensaje') or ''}".strip()
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return salida
+
+
 def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: list[tuple[str, str]], marcas: set[str],
             referencia: str) -> None:
     if falta := dfs.configurado():
@@ -136,6 +149,13 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
     try:
         tareas = [{"keyword": texto, "depth": cfg.precios_profundidad, "tag": f"{n}"} for n, (_, texto) in enumerate(consultas)]
         ids = dfs.enviar(bd, corrida, "productos", tareas)
+        # Una búsqueda que DataForSEO no acepta no regresa nada y antes no se decía (BDM Life, 25 nov 2026: solo
+        # quedaba la del código de barras y Google regresaba cualquier cosa)
+        if faltan := [n for n in range(len(consultas)) if str(n) not in ids]:
+            mensajes = _mensajes_envio(bd, corrida.corrida_id)
+            for n in faltan:
+                por_que = f" ({mensajes[str(n)]})" if mensajes.get(str(n)) else ""
+                m.notas.append(f"Google Shopping no aceptó la búsqueda «{consultas[n][1]}»{por_que}.")
         for tag, items in dfs.recoger("productos", ids).items():
             if isinstance(items, str):
                 m.notas.append(f"Google Shopping: {items}.")
@@ -210,6 +230,9 @@ def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | Non
     if (desc := next((t for e, t in consultas if e == "descripcion"), None)) and \
             (corto := co.nombre_sin_medidas(desc)) and co.normalizar(corto) != co.normalizar(desc) and len(corto.split()) >= 2:
         consultas.append(("nombre", corto[:200]))
+    # Como vienen los nombres del catálogo de SMNBI (los del radar de precios): solo letras y números. Las ideas de
+    # Compras traen «+» y «–» y Google regresaba cualquier cosa (BDM Life: una muñeca de Disney; 25 nov 2026)
+    consultas = list(dict.fromkeys((e, co.texto_plano(t)) for e, t in consultas))
     # Se compara contra la marca con que se vende si nuestro nombre empieza con ella (BDM-LIFE, no JUVETERNAL)
     if vende := co.marca_del_nombre(nombre, marca, marcas):
         m.notas.append(f"Se buscó con la marca «{vende.upper()}» de su nombre (capturada: {marca}).")

@@ -73,6 +73,11 @@ def marca_del_nombre(descripcion: str | None, marca: str | None, marcas_conocida
     return None
 
 
+def texto_plano(texto: str) -> str:
+    """Para el buscador: sin signos como «+», «–», «&» o comillas; las medidas (1.2G) se quedan."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w.,/ ]+", " ", texto)).strip()
+
+
 def nombre_sin_medidas(texto: str | None) -> str:
     """«BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G» -> sin «120 CAP DE 1.2G»: con la
     presentación, Google regresaba otros productos de 120 cápsulas (25 nov 2026)."""

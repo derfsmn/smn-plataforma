@@ -1394,3 +1394,9 @@ def test_bdm_se_busca_sin_presentacion_y_con_la_marca_de_su_nombre():
     assert co.marca_del_nombre("PROTEINA VEGETAL 510 G", "BIRDMAN", marcas) is None
     assert co.evaluar(d, "bdm life", "BDM LIFE Berberina Piperina Omega 9 120 Cápsulas", 70, marcas).aceptada
     assert co.evaluar(d, "bdm life", "Berberina 120 cápsulas Juveternal", 70, marcas).marca is False
+
+
+def test_consulta_en_texto_plano():
+    assert co.texto_plano("BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G") == \
+        "BDM Life Berberina Piperina Omega 9 Metabolismo 120 CAP DE 1.2G"
+    assert co.texto_plano("Proteína Vegetal 510 g") == "Proteína Vegetal 510 g"

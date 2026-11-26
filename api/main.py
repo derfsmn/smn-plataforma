@@ -115,6 +115,14 @@ def _revisar_examen() -> None:
         examen_clasificacion.revisar_programa(bd)
 
 
+def _revisar_prueba_afuera() -> None:
+    from core.bd import _fabrica
+    from modulos.compras import prueba_afuera
+
+    with _fabrica()() as bd:
+        prueba_afuera.revisar_programa(bd)
+
+
 def _revisar_costos() -> None:
     from core.bd import _fabrica
     from ia.costos import revisar
@@ -132,7 +140,7 @@ async def programador() -> None:
     Vive dentro de la API, así que no depende de nadie: en el servidor corre mientras la API esté arriba."""
     while True:
         for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_precios_noche, _revisar_oportunidades,
-                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_reclasificar, _revisar_examen,
+                      _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_reclasificar, _revisar_examen, _revisar_prueba_afuera,
                       _revisar_costos,
                       _revisar_innovacion):
             try:

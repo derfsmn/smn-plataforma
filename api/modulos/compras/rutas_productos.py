@@ -663,6 +663,25 @@ def examen_excel(corrida: str = "100", _: Contexto = Depends(requiere(AJUSTAR)))
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+@router.get("/prueba-afuera")
+def prueba_afuera_estado(_: Contexto = Depends(requiere(AJUSTAR))) -> dict:
+    """Cómo va la prueba por lote de los precios de afuera (se corre sola al publicar una regla de búsqueda nueva)."""
+    from modulos.compras import prueba_afuera as pa
+
+    return pa.estado()
+
+
+@router.get("/prueba-afuera/excel")
+def prueba_afuera_excel(_: Contexto = Depends(requiere(AJUSTAR))) -> FileResponse:
+    from modulos.compras import prueba_afuera as pa
+
+    archivo = pa.ruta()
+    if not archivo.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "La prueba todavía no termina. Revisa cómo va en /api/compras/productos/prueba-afuera.")
+    return FileResponse(archivo, filename=archivo.name,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 class Comparables(BaseModel):
     skus: list[str] = Field(max_length=rp.MAX_COMPARABLES)
 
