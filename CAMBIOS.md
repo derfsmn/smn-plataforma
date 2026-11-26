@@ -1,5 +1,17 @@
 # Registro de cambios
 
+## v0.6.9 · 2026-11-26
+
+Demanda contra todo su tipo de producto
+
+**Cambios guardados:**
+- Pruebas independientes de datos viejos
+- Gu├¡a de equipos
+- v0.6.9 Demanda contra todo su tipo de producto
+
+**Migraciones nuevas:**
+- 0056_precios_corrida_pedido.py
+
 ## v0.6.8 · 2026-11-26
 
 Entrar con plataformaia.smn.internal sin aviso de No seguro
