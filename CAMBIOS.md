@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.3 · 2026-11-26
+
+en vivo en Estado del sistema
+
+**Cambios guardados:**
+- v0.6.3 que esta corriendo y bitacora en vivo
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.2 · 2026-11-26
 
 precios de afuera por lote
