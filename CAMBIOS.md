@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.4 · 2026-11-26
+
+monitor
+
+**Cambios guardados:**
+- v0.6.4 monitor
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.3 · 2026-11-26
 
 en vivo en Estado del sistema
