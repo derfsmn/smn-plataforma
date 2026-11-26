@@ -754,3 +754,49 @@ def test_precio_anaquel_contra_su_familia_aunque_no_sean_parecidos(monkeypatch):
     assert [p.producto_id for p in s.familia][:3] == [1, 2, 3] and 5 not in {p.producto_id for p in s.familia}
     f = rp.precio_anaquel(s, [])
     assert f.puntaje is not None and "gramo" in (f.valor or "") + f.detalle
+
+
+def test_walmart_bloqueado_y_formato_raro_son_falla(monkeypatch):
+    """26 nov 2026: Walmart contesta «Verifica tu identidad» desde el servidor; se dice así, y una página sin la parte
+    de resultados es falla, no «no lo vende»."""
+    from modulos.compras import tiendas as td
+
+    monkeypatch.setattr(td, "_pedir", lambda url, h: "<html><title>Verifica tu identidad</title></html>")
+    with pytest.raises(td.ErrorTienda, match="bloqueó.*verificar identidad"):
+        td.Walmart().buscar("colageno")
+    monkeypatch.setattr(td, "_pedir", lambda url, h: '<script id="__NEXT_DATA__">{"props":{"pageProps":{}}}</script>')
+    with pytest.raises(td.ErrorTienda, match="formato"):
+        td.Walmart().buscar("colageno")
+    vacia = '<script id="__NEXT_DATA__">{"props":{"pageProps":{"initialData":{"searchResult":{"itemStacks":[]}}}}}</script>'
+    monkeypatch.setattr(td, "_pedir", lambda url, h: vacia)
+    assert td.Walmart().buscar("colageno") == []  # de verdad no salió nada
+
+
+def test_busquedas_de_rescate_con_marca_e_ingrediente():
+    """Diego, 26 nov 2026: «jamás se encontrará el nombre igualito». Si con el nombre completo no sale, se busca como
+    una persona: la marca con su variante y la marca con su ingrediente."""
+    from datos.fichas import Ficha
+
+    s = rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT", contenido="360 G", forma="Polvo",
+                  ficha=Ficha(variante="Femme", ingrediente_principal="Colágeno hidrolizado"))
+    r = rp.busquedas_de_rescate(s)
+    assert r[0].startswith("B-FIT Femme COLAGENO") and r[1].lower().startswith("b-fit col")
+    sin_ficha = rp.busquedas_de_rescate(rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT"))
+    assert sin_ficha and "colageno" in sin_ficha[-1].lower()
+    assert rp.busquedas_de_rescate(rp.Sujeto(tipo="idea", nombre="COLAGENO")) == []  # sin marca no se inventa
+
+
+def test_google_hace_rescate_solo_si_no_encontro(monkeypatch):
+    from modulos.compras import mercado_producto as mp
+
+    llamadas = []
+
+    def google(bd, m, nombre, marca, consultas, marcas, referencia):
+        llamadas.append([t for _, t in consultas])
+
+    monkeypatch.setattr(mp, "_google", google)
+    monkeypatch.setattr(mp, "_tiendas", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "senal_de_venta", lambda *a, **k: None)
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    mp.buscar(None, "COLAGENO + INOSITOL 360 G", "B-FIT", None, "prueba", ["B-FIT Femme COLAGENO INOSITOL", "B-FIT colágeno"])
+    assert len(llamadas) == 2 and len(llamadas[1]) == 2, llamadas  # primero lo normal y luego las 2 de rescate

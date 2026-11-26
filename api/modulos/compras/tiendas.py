@@ -232,13 +232,21 @@ class Walmart(Tienda):
     def buscar(self, texto: str) -> list[Resultado]:
         html = _pedir(f"{self.base}/search?q={quote_plus(texto)}", {"Accept": "text/html,application/xhtml+xml"})
         bajo = html.lower()
-        if "/blocked" in bajo or "verify you are human" in bajo:
-            raise ErrorTienda("bloqueó la consulta automática")
+        # 26 nov 2026: desde el servidor Walmart contesta «Verifica tu identidad» (su bloqueo contra consultas
+        # automáticas); antes se reportaba como «cambió el formato». Sus precios siguen llegando por Google Shopping.
+        if any(x in bajo for x in ("/blocked", "verify you are human", "verifica tu identidad", "captcha",
+                                   "robot or human", "eres un robot")):
+            raise ErrorTienda("bloqueó la consulta automática: pidió verificar identidad")
         m = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
         if not m:
             raise ErrorTienda("cambió el formato de su página de resultados")
         datos = _json(m.group(1))
-        pilas = _primero(datos, [("props", "pageProps", "initialData", "searchResult", "itemStacks")]) or []
+        busqueda = _primero(datos, [("props", "pageProps", "initialData", "searchResult")])
+        if not isinstance(busqueda, dict) or "itemStacks" not in busqueda:
+            # Sin esa parte no se sabe si lo vende: se avisa como falla, no como «no salió en su buscador» (radar de
+            # precios, 26 nov 2026)
+            raise ErrorTienda("cambió el formato de su página de resultados")
+        pilas = busqueda.get("itemStacks") or []
         salida, vistos = [], set()
         for pila in pilas if isinstance(pilas, list) else []:
             for it in (pila.get("items") or []) if isinstance(pila, dict) else []:

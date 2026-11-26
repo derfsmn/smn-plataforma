@@ -1625,7 +1625,27 @@ def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | No
     if (previo := mp.Mercado.de_json(bd.scalar(q.order_by(ProductoEvaluacion.evaluacion_id.desc())))) and previo.vigente(clave):
         return previo
     referencia = f"propuesta {e.propuesta_id}" if e.propuesta_id else f"idea {e.idea_id}"
-    return mp.buscar(bd, nombre, s.marca, s.codigo_barras, referencia)
+    return mp.buscar(bd, nombre, s.marca, s.codigo_barras, referencia, busquedas_de_rescate(s))
+
+
+def busquedas_de_rescate(s: Sujeto) -> list[str]:
+    """Como lo buscaría una persona si con el nombre completo no sale (Diego, 26 nov 2026: «jamás se encontrará el
+    nombre igualito»): la marca con su variante (Femme) y el nombre sin medidas, y la marca con su ingrediente
+    principal («B FIT colágeno»)."""
+    marca = (s.marca or "").strip()
+    if not marca:
+        return []
+    corto = mp.co.nombre_sin_medidas(sin_sabor(s.nombre) or s.nombre)
+    variante = (s.ficha.variante if s.ficha else None) or ""
+    ingrediente = (s.ficha.ingrediente_principal if s.ficha else None) or s.ingrediente or ""
+    if not ingrediente and (suyo := _candidatas_ingrediente(s)):
+        ingrediente = next((w for w in palabras(sin_sabor(s.nombre)) if w[:6] == suyo[0]), "")
+    salida = []
+    if variante and _norm(variante) not in _norm(corto):
+        salida.append(f"{marca} {variante} {corto}")
+    if ingrediente:
+        salida.append(f"{marca} {solo_principal(ingrediente)}")
+    return salida
 
 
 MIN_FAMILIA = 3

@@ -33,7 +33,7 @@ DIAS_VIGENCIA = 7  # al recalcular dentro de una semana se reusa la búsqueda y 
 MAX_PRECIOS = 30
 # Versión de la regla que decide si una publicación es el mismo producto. Una búsqueda sin precios hecha con una regla
 # anterior se vuelve a hacer al recalcular (25 nov 2026: la línea de la marca, «BDM Life» de JUVETERNAL)
-REGLA = 5  # 5: consultas en texto plano, sin «+» ni «–», como las del radar de precios (BDM Life, v0.6.2)
+REGLA = 6  # 6: si no encontró nada, otra búsqueda con la marca y el ingrediente (26 nov 2026). 5: consultas en texto plano, sin «+» ni «–», como las del radar de precios (BDM Life, v0.6.2)
 
 
 @dataclass
@@ -185,6 +185,11 @@ def _google(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas: 
                 m.notas.append("Google Shopping, lo más parecido: " + " | ".join(
                     f"«{c.titulo[:90]}» ({c.evaluacion.motivo})" for c in vistos))
             m.notas.append("Google Shopping, se buscó: " + " · ".join(f"«{t}»" for _, t in consultas))
+            # Todo lo que regresó, para saber si falló la búsqueda o la comparación (Diego, 26 nov 2026: «buscándolo
+            # por nombre sí sale»)
+            if candidatos:
+                m.notas.append(f"Google Shopping regresó {len(candidatos)}: " + " · ".join(
+                    f"«{c.titulo[:60]}»" for c in list(candidatos.values())[:12]))
         corrida.estado = "completa"
     except dfs.SinPresupuesto as e:
         m.notas.append(f"Google Shopping: no se buscó, {e}")
@@ -224,8 +229,11 @@ def _tiendas(bd: Session, m: Mercado, nombre: str, marca: str | None, consultas:
             m.notas.append(f"{tienda.nombre}: no lo tiene." if not cands else f"{tienda.nombre}: no está claro que lo tenga.")
 
 
-def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | None, referencia: str) -> Mercado:
-    """Busca el producto en Google Shopping y en las tiendas clave. Nunca lanza: lo que falle queda en las notas."""
+def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | None, referencia: str,
+           extras: list[str] | None = None) -> Mercado:
+    """Busca el producto en Google Shopping y en las tiendas clave. Nunca lanza: lo que falle queda en las notas.
+    `extras`: búsquedas de rescate, como las haría una persona (la marca y su ingrediente), si con las primeras Google
+    no regresó el producto."""
     m = Mercado(buscado_en=ahora().isoformat(), clave=clave_de(nombre, marca, codigo_barras))
     # Por código de barras primero, como el radar de precios (ajuste precios_barras_primero; 13 nov 2026)
     marcas = pc._marcas(bd)
@@ -247,7 +255,14 @@ def buscar(bd: Session, nombre: str, marca: str | None, codigo_barras: str | Non
         m.notas.append(f"Se buscó con la marca «{vende.upper()}» de su nombre (capturada: {marca}).")
         marca = vende
     _google(bd, m, nombre, marca, consultas, marcas, referencia)
-    _tiendas(bd, m, nombre, marca, consultas, marcas)
+    # Diego, 26 nov 2026 (B-Fit Femme Colágeno + Inositol): cada tienda le pone su nombre y con «B FIT COLAGENO INOSITOL
+    # 360 G» Google regresó otros inositoles. Si no se tomó nada, una vuelta más con la marca y el ingrediente; lo que
+    # regrese igual tiene que pasar marca, nombre y presentación al compararlo.
+    ya = {co.normalizar(t) for _, t in consultas}
+    rescate = [("rescate", t) for t in dict.fromkeys(co.texto_plano(x)[:200] for x in extras or [] if x and x.strip())
+               if co.normalizar(t) not in ya and len(t.split()) >= 2]
+    if rescate and not m.precios:
+        _google(bd, m, nombre, marca, rescate, marcas, referencia)
     senal_de_venta(bd, m, nombre, marca, consultas, marcas, referencia)
     return m
 
