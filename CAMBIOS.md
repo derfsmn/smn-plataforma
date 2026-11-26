@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.2 · 2026-11-26
+
+precios de afuera por lote
+
+**Cambios guardados:**
+- v0.6.2 precios de afuera: texto plano y prueba por lote
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.1 · 2026-11-25
 
 busca afuera como persona
