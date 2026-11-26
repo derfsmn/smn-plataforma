@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.11 · 2026-11-26
+
+Busqueda de rescate cuando Google no encuentra el producto; Walmart detecta bloqueo
+
+**Cambios guardados:**
+- v0.6.11 busqueda de rescate en Google y bloqueo de Walmart
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.10 · 2026-11-26
 
 Precio contra anaquel por gramo comparado con su mismo tipo de producto
