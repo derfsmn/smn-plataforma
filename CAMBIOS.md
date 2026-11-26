@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.8 · 2026-11-26
+
+Entrar con plataformaia.smn.internal sin aviso de No seguro
+
+**Cambios guardados:**
+- v0.6.8 nombre plataformaia.smn.internal y certificado por equipo
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.7 · 2026-11-26
 
 Conexiones a la base e Inventarios
