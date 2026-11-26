@@ -7,6 +7,7 @@ de cada tienda (pedido de Diego, 2026-10-28), el resumen, cada precio encontrado
 import csv
 import io
 import json
+import re
 import unicodedata
 from decimal import Decimal
 
@@ -59,7 +60,17 @@ def _renglones(nombre: str, contenido: bytes) -> list[list]:
     return [list(r) for r in hoja.iter_rows(values_only=True)]
 
 
-def leer_skus(nombre: str, contenido: bytes) -> list[str]:
+def skus_de_texto(texto: str, maximo: int = MAX_SKUS) -> list[str]:
+    """SKU pegados (de Excel, separados por renglón, coma, punto y coma, tabulador o espacio), sin repetir."""
+    skus = list(dict.fromkeys(t for t in (x.strip().strip('"') for x in re.split(r"[\s,;]+", texto or "")) if t))
+    if not skus:
+        raise ErrorArchivo("No encontré SKU en lo que pegaste.")
+    if len(skus) > maximo:
+        raise ErrorArchivo(f"Pegaste {len(skus):,} SKU; el máximo es {maximo:,}.")
+    return skus
+
+
+def leer_skus(nombre: str, contenido: bytes, maximo: int = MAX_SKUS) -> list[str]:
     """Los SKU del archivo, sin repetir y en su orden."""
     renglones = [r for r in _renglones(nombre, contenido) if any(_valor(v) for v in r)]
     if not renglones:
@@ -74,16 +85,18 @@ def leer_skus(nombre: str, contenido: bytes) -> list[str]:
     skus = list(dict.fromkeys(s for s in skus if s))
     if not skus:
         raise ErrorArchivo("No encontré SKU. Pon una columna con el encabezado «SKU».")
-    if len(skus) > MAX_SKUS:
-        raise ErrorArchivo(f"El archivo trae {len(skus)} SKU; el máximo por prueba es {MAX_SKUS}.")
+    if len(skus) > maximo:
+        raise ErrorArchivo(f"El archivo trae {len(skus):,} SKU; el máximo es {maximo:,}.")
     return skus
 
 
 def buscar(bd: Session, skus: list[str]) -> tuple[list[Producto], list[str]]:
     """Productos del catálogo por SKU (también sin ceros a la izquierda, que Excel suele quitar) o código de barras."""
     sin_ceros = {s.lstrip("0") or s: s for s in skus}
-    candidatos = list(bd.scalars(select(Producto).where(
-        (Producto.sku.in_(skus)) | (Producto.codigo_barras.in_(skus)))))
+    candidatos = []
+    for i in range(0, len(skus), 900):  # SQL Server acepta hasta 2,100 parámetros por consulta
+        parte = skus[i:i + 900]
+        candidatos += list(bd.scalars(select(Producto).where((Producto.sku.in_(parte)) | (Producto.codigo_barras.in_(parte)))))
     por_sku = {p.sku: p for p in candidatos}
     por_barras = {p.codigo_barras: p for p in candidatos if p.codigo_barras}
     faltan = [s for s in skus if s not in por_sku and s not in por_barras]

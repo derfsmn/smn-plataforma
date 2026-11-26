@@ -2,6 +2,14 @@
 
 Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arriba.
 
+## Novedades (2026-11-26)
+
+- **Nuevo (2026-11-26): adecuaciones del radar de precios para su uso diario** (cierre con Precios y Costos; Diego: «Puedes ejecutar los cambios del radar de precios?»; «no metamos costos»). Migración **0056** (cuelga de 0055): origen «pedido» y estado «en_espera» en `compras.precio_corrida`.
+  - **Reporte a Excel:** se arma por marca, clasificación (AA–E), categoría, SKU o mezcla, sin repetir. La clasificación acota marcas y categorías; sola trae toda la clase. Lista de SKU pegada o en Excel (`POST /api/compras/precios/reporte/skus`). Selector compartido `web/app/(interno)/compras/precios/selector.tsx`.
+  - **Corridas** (`/compras/precios/pedidos`, API `rutas_corridas_precios.py`): lista con fecha, quién la pidió, qué se buscó, avance y estado; «Nueva corrida» con Excel de SKU o marca, clasificación y categoría (hasta 300 productos), costo estimado de DataForSEO antes de lanzar y tope del mes. Si otra corre, se forma (en_espera) y arranca sola (`precios.arrancar_en_espera`, cada minuto). Al terminar avisa solo a quien la pidió; resumen (con precio confirmado, más caros, más baratos, sin comparar), qué conviene, producto por producto y Excel. Las corridas a pedido no cuentan como la corrida semanal (`PROGRAMA`). Cualquiera con `compras.precios.ver`.
+  - **Tablero** (`/compras/precios/tablero`, `GET /api/compras/precios/tablero/dia`): solo precios, sin costos. Comparados, más caros y más baratos, dinero en juego al mes, acciones pendientes por agente, precios del mercado que se movieron (≥5 %, 14 días) y avance de la revisión de noche.
+  - Pestaña de administración «Corridas y gasto» ahora se llama «Gasto y diagnóstico». Pruebas `tests/test_corridas_precios.py` (4).
+
 ## Novedades (2026-11-22)
 
 - **Nuevo (2026-11-22): TD005 Innovación Vidanat, Entrega 1** (Diego aprobó el plan v2: «puedes comenzar el desarrollo»). Módulo aparte `innovacion` (esquema `innovacion`, migración **0052**, cuelga de 0051), rutas `/api/innovacion` y pantallas `/innovacion`. Ficha completa en `docs/iniciativas/TD005_innovacion_vidanat.md`.

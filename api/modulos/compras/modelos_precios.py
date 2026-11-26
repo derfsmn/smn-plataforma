@@ -87,8 +87,8 @@ class PrecioCorrida(Base):
 
     corrida_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     fecha: Mapped[date] = mapped_column(Date, index=True)  # varias por día: cada «Correr ahora» es una corrida nueva
-    origen: Mapped[str] = mapped_column(Unicode(20))  # programado / tardio / manual / prueba / producto (radar de productos) / oportunidad
-    estado: Mapped[str] = mapped_column(Unicode(20), default="en_curso")  # en_curso / completa / parcial / fallida
+    origen: Mapped[str] = mapped_column(Unicode(20))  # programado / tardio / manual / prueba / producto / oportunidad / nocturna / web / pedido
+    estado: Mapped[str] = mapped_column(Unicode(20), default="en_curso")  # en_curso / completa / parcial / fallida / en_espera (a pedido, esperando turno)
     intentos: Mapped[int] = mapped_column(Integer, default=1)
     iniciado_por: Mapped[int | None] = mapped_column(ForeignKey(USUARIO))
     productos: Mapped[int] = mapped_column(Integer, default=0)

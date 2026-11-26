@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select, true
+from sqlalchemy import false, func, literal_column, or_, select, true
 from sqlalchemy.orm import Session
 
 from datos.modelos import Producto
@@ -412,18 +412,46 @@ def actualizado(bd: Session) -> datetime | None:
     return bd.scalar(select(func.max(PrecioCorrida.terminado_en)).where(precios.REGULAR, PrecioCorrida.estado != "en_curso"))
 
 
-def de_seleccion(bd: Session, producto_ids: list[int], marcas: list[str], categorias: list[str]) -> list[Producto]:
-    """Productos sueltos, marcas completas y categorías completas, sin repetir."""
+CLASES = ("AA", "A", "B", "C", "D", "E")
+SIN_CLASE = "Sin clase"
+
+
+def _clase_sql():
+    return func.upper(func.ltrim(func.rtrim(func.coalesce(Producto.clasificacion, literal_column("''")))))
+
+
+def de_clases(clasificaciones: list[str]):
+    """Condición «la clasificación del producto es una de estas» (AA–E o «Sin clase»)."""
+    conocidas = [c.strip().upper() for c in clasificaciones if c.strip().upper() in CLASES]
+    partes = [_clase_sql().in_(conocidas)] if conocidas else []
+    if SIN_CLASE in clasificaciones:
+        partes.append(_clase_sql().not_in(CLASES))
+    return or_(*partes) if partes else false()
+
+
+def de_seleccion(bd: Session, producto_ids: list[int], marcas: list[str], categorias: list[str],
+                 clasificaciones: list[str] | None = None) -> list[Producto]:
+    """Productos sueltos, marcas completas y categorías completas, sin repetir (Diego, 2026-11-26: «por marca, clasificación,
+    categoría, skus y mezclados»). La clasificación acota las marcas y categorías elegidas («Vidanat, solo AA»); sola,
+    trae todos los productos de esas clases. Los productos sueltos (o la lista de SKU) siempre entran."""
     vistos: dict[int, Producto] = {}
     if producto_ids:
         for i in range(0, len(producto_ids), 1500):
             for p in bd.scalars(select(Producto).where(Producto.producto_id.in_(producto_ids[i:i + 1500]))):
                 vistos[p.producto_id] = p
+    clases = de_clases(clasificaciones) if clasificaciones else None
+    grupos = []
     if marcas:
-        for p in bd.scalars(select(Producto).where(Producto.marca.in_(marcas), Producto.activo == true())):
-            vistos[p.producto_id] = p
+        grupos.append(Producto.marca.in_(marcas))
     if categorias:
-        for p in bd.scalars(select(Producto).where(Producto.subcategoria.in_(categorias), Producto.activo == true())):
+        grupos.append(Producto.subcategoria.in_(categorias))
+    if grupos or clases is not None:
+        condicion = [Producto.activo == true()]
+        if grupos:
+            condicion.append(or_(*grupos))
+        if clases is not None:
+            condicion.append(clases)
+        for p in bd.scalars(select(Producto).where(*condicion)):
             vistos[p.producto_id] = p
     return sorted(vistos.values(), key=lambda p: (p.marca or "", p.descripcion or p.sku))
 

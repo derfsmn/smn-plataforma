@@ -23,7 +23,7 @@ from datos import clientes, grupos_tiendas, rutas_centro, rutas_clientes, rutas_
 from modulos.compras import rutas_busquedas
 from modulos.compras import rutas_buscador
 from modulos.compras import (
-    oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos, rutas_tablero_precios,
+    oportunidades, precios, radar_productos, rutas_comite, rutas_conocimiento, rutas_oportunidades, rutas_precios, rutas_productos, rutas_tablero_precios, rutas_corridas_precios,
     rutas_propuestas, rutas_radar,
 )
 from modulos.contraloria import diot, rutas_conocimiento_fiscal, rutas_diot
@@ -233,6 +233,7 @@ app.include_router(rutas_clientes.router)
 app.include_router(rutas_radar.router)
 app.include_router(rutas_precios.router)
 app.include_router(rutas_tablero_precios.router)
+app.include_router(rutas_corridas_precios.router)
 app.include_router(rutas_conocimiento.router)
 app.include_router(rutas_propuestas.router)
 app.include_router(rutas_productos.router)

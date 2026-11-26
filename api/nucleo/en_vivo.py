@@ -130,7 +130,7 @@ def procesos(bd: Session) -> list[dict]:
         nombres = {"programado": "Radar de precios (programado)", "tardio": "Radar de precios (programado)",
                    "manual": "Radar de precios («Correr ahora»)", "prueba": "Radar de precios (prueba con Excel)",
                    "producto": "Precios de afuera de un producto nuevo", "oportunidad": "Buscar oportunidades (precios)",
-                   "nocturna": "Radar de precios (lote de noche)"}
+                   "nocturna": "Radar de precios (lote de noche)", "pedido": "Radar de precios (corrida a pedido)"}
         for c in bd.scalars(select(PrecioCorrida).where(PrecioCorrida.estado == "en_curso").order_by(PrecioCorrida.iniciado_en)):
             hechos = (c.con_coincidencia or 0) + (c.sin_coincidencia or 0) + (c.fallidos or 0)
             salida.append(_proceso("precios", nombres.get(c.origen, f"Radar de precios ({c.origen})"),

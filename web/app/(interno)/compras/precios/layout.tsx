@@ -5,11 +5,13 @@ import { useSesion } from "@/componentes/sesion";
 import { CabeceraCompras } from "@/componentes/cabecera-compras";
 
 const PESTANAS = [
-  { href: "/compras/precios", texto: "Precios contra el mercado" },
+  { href: "/compras/precios/tablero", texto: "Tablero" },
+  { href: "/compras/precios", texto: "Precios contra el mercado", exacta: true },
+  { href: "/compras/precios/pedidos", texto: "Corridas", tambien: /^\/compras\/precios\/pedidos\// },
   { href: "/compras/precios/reporte", texto: "Reporte a Excel" },
   { href: "/compras/precios/todos", texto: "Cómo va el radar", permiso: "compras.precios.administrar", ajuste: true, tambien: /^\/compras\/precios\/producto\// },
   { href: "/compras/precios/productos", texto: "Productos vigilados", permiso: "compras.precios.administrar", ajuste: true },
-  { href: "/compras/precios/corridas", texto: "Corridas y gasto", permiso: "compras.precios.administrar", ajuste: true },
+  { href: "/compras/precios/corridas", texto: "Gasto y diagnóstico", permiso: "compras.precios.administrar", ajuste: true },
 ];
 
 export default function LayoutPrecios({ children }: { children: React.ReactNode }) {

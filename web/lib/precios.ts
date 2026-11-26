@@ -2,14 +2,14 @@
 
 import { ErrorApi, urlApi } from "./api";
 
-export type EstadoCorrida = "en_curso" | "completa" | "parcial" | "fallida";
+export type EstadoCorrida = "en_curso" | "completa" | "parcial" | "fallida" | "en_espera";
 export type EstadoFila = "pendiente" | "con_precios" | "sin_coincidencia" | "sin_precios" | "fallido" | "sin_presupuesto";
 export type EstadoCoincidencia = "automatica" | "ia" | "persona" | "rechazada" | "invalidada";
 
 export type Corrida = {
   id: number;
   fecha: string;
-  origen: "programado" | "tardio" | "manual" | "prueba" | "producto" | "oportunidad" | "nocturna" | "web";
+  origen: "programado" | "tardio" | "manual" | "prueba" | "producto" | "oportunidad" | "nocturna" | "web" | "pedido";
   estado: EstadoCorrida;
   intentos: number;
   usuario: string | null;
@@ -257,7 +257,7 @@ export const TEXTO_COINCIDENCIA: Record<EstadoCoincidencia, string> = {
   invalidada: "Invalidada",
 };
 
-export const TEXTO_CORRIDA: Record<EstadoCorrida, string> = { en_curso: "En curso", completa: "Completa", parcial: "Parcial", fallida: "Falló" };
+export const TEXTO_CORRIDA: Record<EstadoCorrida, string> = { en_curso: "En curso", completa: "Completa", parcial: "Parcial", fallida: "Falló", en_espera: "En espera" };
 
 /** Estado para mostrar: una corrida que alguien detuvo dice «Detenida», no «Falló». */
 export const textoCorrida = (c: Pick<Corrida, "estado" | "error">) => (c.estado === "fallida" && c.error?.startsWith("Detenida por") ? "Detenida" : TEXTO_CORRIDA[c.estado]);
@@ -266,9 +266,10 @@ export const CLASE_CORRIDA: Record<EstadoCorrida, string> = {
   completa: "bg-smn-negro text-white dark:bg-smn-gris-700 dark:text-smn-negro",
   parcial: "bg-aviso-fondo text-aviso-texto",
   fallida: "bg-red-500/10 text-red-700 dark:text-red-400",
+  en_espera: "bg-smn-gris-100 text-smn-gris-700",
 };
 
-export const ORIGEN: Record<Corrida["origen"], string> = { programado: "programada", tardio: "programada (tardía)", manual: "a mano", prueba: "prueba con Excel", producto: "radar de productos", oportunidad: "buscar oportunidades", nocturna: "de noche", web: "buscar en internet" };
+export const ORIGEN: Record<Corrida["origen"], string> = { programado: "programada", tardio: "programada (tardía)", manual: "a mano", prueba: "prueba con Excel", producto: "radar de productos", oportunidad: "buscar oportunidades", nocturna: "de noche", web: "buscar en internet", pedido: "a pedido" };
 
 export const pct = (v: string | null, signo = true) =>
   v === null ? "—" : `${signo && Number(v) > 0 ? "+" : ""}${Number(v).toLocaleString("es-MX", { maximumFractionDigits: 1 })} %`;
@@ -488,10 +489,17 @@ export const MOTIVOS_MAL = [
   { valor: "otro", texto: "Otra cosa" },
 ] as const;
 
-export type ModoReporte = "producto" | "marca" | "categoria";
+export type ModoReporte = "producto" | "marca" | "categoria" | "clasificacion";
 export type OpcionReporte = { clave: string; nombre: string; detalle: string | null; cuenta: string };
 export type HojaReporte = "resumen" | "tiendas" | "accion" | "historial";
-export type SeleccionReporte = { producto_ids: number[]; marcas: string[]; categorias: string[]; hojas: HojaReporte[]; fecha?: string | null };
+export type SeleccionReporte = {
+  producto_ids: number[];
+  marcas: string[];
+  categorias: string[];
+  clasificaciones?: string[];
+  hojas: HojaReporte[];
+  fecha?: string | null;
+};
 export type SeleccionGuardada = { id: number; nombre: string; seleccion: SeleccionReporte; productos: number; creado_en: string; usado_en: string | null };
 
 /** Descarga un archivo que la API arma con lo que se le manda (POST). */
@@ -514,3 +522,113 @@ export async function descargarPost(ruta: string, cuerpo: unknown, nombre: strin
   a.click();
   URL.revokeObjectURL(liga);
 }
+
+// ---------------------------------------------------------------- lista de SKU, corridas a pedido y tablero al día (26 nov)
+
+export type ListaSkus = { skus: number; encontrados: OpcionReporte[]; no_encontrados: string[] };
+
+/** SKU de un Excel o pegados: cuáles están en el catálogo. */
+export async function leerSkus(archivo: File | null, texto: string): Promise<ListaSkus> {
+  const datos = new FormData();
+  if (archivo) datos.append("archivo", archivo);
+  else datos.append("texto", texto);
+  let r: Response;
+  try {
+    r = await fetch(`${urlApi()}/api/compras/precios/reporte/skus`, { method: "POST", body: datos, credentials: "include" });
+  } catch {
+    throw new ErrorApi(0, "No hay conexión con la API. Revisa que esté corriendo.");
+  }
+  const cuerpo = await r.json().catch(() => null);
+  if (!r.ok) throw new ErrorApi(r.status, typeof cuerpo?.detail === "string" ? cuerpo.detail : "No se pudo leer la lista.");
+  return cuerpo as ListaSkus;
+}
+
+export type Pedir = {
+  producto_ids: number[];
+  marcas: string[];
+  categorias: string[];
+  clasificaciones: string[];
+  archivo?: string | null;
+  no_encontrados?: string[];
+};
+
+export type EstimadoPedido = {
+  productos: number;
+  maximo: number;
+  estimado_usd: string;
+  gasto_mes_usd: string;
+  tope_mes_usd: string;
+  disponible_usd: string;
+  cabe: boolean;
+  ocupado: string | null;
+  en_espera: number;
+  falta_configurar: string[];
+  puede: boolean;
+  motivo: string | null;
+};
+
+export type Pedido = {
+  id: number;
+  nombre: string;
+  usuario: string | null;
+  usuario_id: number | null;
+  estado: EstadoCorrida;
+  productos: number;
+  con_precios: number;
+  hechos: number;
+  avance: { paso?: number; titulo?: string; texto?: string; hechos?: number; total?: number } | null;
+  fase: string | null;
+  costo_usd: string;
+  error: string | null;
+  archivo: string | null;
+  no_encontrados: string[];
+  creado_en: string;
+  iniciado_en: string;
+  terminado_en: string | null;
+  origen: string;
+};
+
+export type DetallePedido = {
+  pedido: Pedido;
+  cuadros: { con_precio: number; mas_caros: number; mas_baratos: number; sin_comparar: number };
+  acciones: Record<string, number>;
+  en_juego: string;
+  sin_comparar: Record<string, number>;
+  filas: FilaTablero[];
+};
+
+export type AgenteDia = { agente: string; productos: number; comparados: number; bajar: number; negociar: number; subir: number; en_juego: string };
+export type Movimiento = {
+  producto_id: number;
+  sku: string;
+  descripcion: string | null;
+  marca: string | null;
+  imagen: string | null;
+  antes: string;
+  ahora: string;
+  cambio_pct: string;
+  fecha: string | null;
+  nuestro: string | null;
+  color: Color | null;
+};
+
+export type TableroDia = {
+  actualizado: string | null;
+  en_curso: string | null;
+  catalogo: number;
+  comparados: number;
+  mas_caros: number;
+  un_poco_caros: number;
+  mas_baratos: number;
+  sin_comparar: number;
+  en_juego_caros: string;
+  en_juego_subir: string;
+  acciones: Record<string, number>;
+  agentes: AgenteDia[];
+  subieron: number;
+  bajaron: number;
+  movimientos: Movimiento[];
+  avance: Tablero["avance"];
+  noche: { lotes: number; productos: number; con_precios: number; costo_usd: string; desde: string | null; hasta: string | null };
+  dias: { fecha: string; productos: number }[];
+};

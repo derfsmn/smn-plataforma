@@ -28,7 +28,7 @@ from statistics import median
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select, true, update
+from sqlalchemy import and_, delete, func, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -292,7 +292,10 @@ PRODUCTO = "producto"  # búsqueda de un producto nuevo que lanzó el radar de p
 OPORTUNIDAD = "oportunidad"  # búsqueda de lo que vende la competencia («Buscar oportunidades»): solo cuenta para el gasto
 WEB = "web"  # búsqueda en internet del radar de noticias o de los más vendidos (buscar_web.py): solo cuenta para el gasto
 NOCTURNA = "nocturna"  # lote de la noche (2026-11-17): cuenta como corrida del radar, solo con los productos de su lista
-REGULAR = PrecioCorrida.origen.not_in((PRUEBA, PRODUCTO, OPORTUNIDAD, WEB))
+PEDIDO = "pedido"  # corrida a pedido (Diego, 2026-11-26): la lanza quien usa el radar con su lista; cuenta como del radar
+EN_ESPERA = "en_espera"  # corrida a pedido formada mientras otra corre; arranca sola al quedar libre
+REGULAR = and_(PrecioCorrida.origen.not_in((PRUEBA, PRODUCTO, OPORTUNIDAD, WEB)), PrecioCorrida.estado != EN_ESPERA)
+PROGRAMA = and_(REGULAR, PrecioCorrida.origen != PEDIDO)  # las del programa (las a pedido no adelantan ni frenan la semanal)
 
 
 def en_curso(bd: Session) -> PrecioCorrida | None:
@@ -334,7 +337,7 @@ def tomar_corrida(bd: Session, fecha: date, origen: str, usuario_id: int | None 
 
 
 def ultima_del_dia(bd: Session, fecha: date) -> PrecioCorrida | None:
-    return bd.scalar(select(PrecioCorrida).where(PrecioCorrida.fecha == fecha, REGULAR).order_by(PrecioCorrida.corrida_id.desc()))
+    return bd.scalar(select(PrecioCorrida).where(PrecioCorrida.fecha == fecha, PROGRAMA).order_by(PrecioCorrida.corrida_id.desc()))
 
 
 def de_lista(bd: Session, corrida: PrecioCorrida) -> list[tuple[PrecioVigilado, Producto]]:
@@ -1165,7 +1168,7 @@ class Corrida:
     def correr(self) -> PrecioCorrida:
         bd, c = self.bd, self.c
         c.tope_usd = Decimal(str(self.cfg.precios_tope_corrida_usd)) if self.cfg.precios_tope_corrida_usd else None
-        vigilados = de_lista(bd, c) if c.origen in (PRUEBA, NOCTURNA) else _vigilados(bd)
+        vigilados = de_lista(bd, c) if c.origen in (PRUEBA, NOCTURNA, PEDIDO) else _vigilados(bd)
         filas: dict[int, PrecioCorridaProducto] = {
             f.producto_id: f for f in bd.scalars(select(PrecioCorridaProducto).where(PrecioCorridaProducto.corrida_id == c.corrida_id))}
         pendientes, procesados = [], []
@@ -1221,6 +1224,14 @@ class Corrida:
         c.terminado_en = ahora()
         bd.commit()
         if c.origen == PRUEBA:  # la prueba la sigue quien la lanzó; no se avisa a todo Compras
+            return
+        if c.origen == PEDIDO:  # la corrida a pedido solo se avisa a quien la lanzó
+            if c.iniciado_por:
+                modulo = bd.scalar(select(Modulo.modulo_id).where(Modulo.codigo == "compras"))
+                notificar(bd, c.iniciado_por, "Tu corrida del radar de precios terminó",
+                          f"Se revisaron {c.productos} productos; {c.con_precios} con precios. Ya puedes ver el resumen y bajar el Excel.",
+                          liga=f"/compras/precios/pedidos/{c.corrida_id}", modulo_id=modulo, clave=f"precios-pedido:{c.corrida_id}")
+                bd.commit()
             return
         modulo = bd.scalar(select(Modulo.modulo_id).where(Modulo.codigo == "compras"))
         if caros:
@@ -1396,7 +1407,7 @@ def _dias_semana() -> set[int]:
 
 
 def _ultima(bd: Session) -> date | None:
-    return bd.scalar(select(func.max(PrecioCorrida.fecha)).where(PrecioCorrida.estado.in_(("completa", "parcial")), REGULAR))
+    return bd.scalar(select(func.max(PrecioCorrida.fecha)).where(PrecioCorrida.estado.in_(("completa", "parcial")), PROGRAMA))
 
 
 def toca(bd: Session, fecha: date, ultima: date | None = None) -> bool:
@@ -1443,9 +1454,32 @@ def proxima(bd: Session) -> datetime | None:
     return None
 
 
+def en_espera(bd: Session) -> list[PrecioCorrida]:
+    return list(bd.scalars(select(PrecioCorrida).where(PrecioCorrida.estado == EN_ESPERA).order_by(PrecioCorrida.corrida_id)))
+
+
+def arrancar_en_espera(bd: Session) -> PrecioCorrida | None:
+    """Si no corre nada, arranca la corrida a pedido más vieja que espera turno. Regresa la que arrancó."""
+    if en_curso(bd):
+        return None
+    for c in en_espera(bd):
+        cambio = bd.execute(update(PrecioCorrida).where(PrecioCorrida.corrida_id == c.corrida_id,
+                                                        PrecioCorrida.estado == EN_ESPERA)
+                            .values(estado="en_curso", iniciado_en=ahora(), fecha=hoy_local()))
+        bd.commit()
+        if cambio.rowcount == 1:
+            bd.refresh(c)
+            log.info("Radar de precios: arranca la corrida a pedido %s", c.corrida_id)
+            correr_aparte(c.corrida_id)
+            return c
+    return None
+
+
 def revisar_programa(bd: Session) -> PrecioCorrida | None:
     """Lo llama el programador cada minuto. Si la plataforma estuvo apagada a la hora, corre al volver (tardía).
     Si falla, reintenta cada 30 minutos hasta 3 veces. Sin credenciales, tope o productos vigilados no hace nada."""
+    if arrancar_en_espera(bd):  # primero las corridas a pedido que esperan turno (también de noche, entre lotes)
+        return None
     cfg = configuracion()
     if not cfg.precios_activo or dfs.configurado() or cfg.precios_nocturno_activo:  # de noche corren los lotes
         return None

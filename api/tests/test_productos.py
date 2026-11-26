@@ -1,6 +1,7 @@
 """Radar de productos, fase 1: semáforo de ideas de Compras y de propuestas listas para evaluar (datos ficticios)."""
 import json
 import random
+import re
 import string
 import uuid
 from decimal import Decimal
@@ -298,14 +299,19 @@ def test_factores_con_ventas_compras_e_inventario_de_smnbi():
     """Diego (2026-10-26): demanda, margen, inventario y proveedor salen de lo que se cargó de SMNBI (datos ficticios)."""
     from datetime import date, timedelta
 
-    from sqlalchemy import delete
+    from sqlalchemy import delete, func, select
 
     from datos.modelos import Carga, CompraOrden, Inventario, Proveedor, Tienda, VentaSemanal
     from modulos.compras import realidad_producto as rr
 
     h = uuid.uuid4().hex[:6]
     depto, sub, marca, prov = f"Depto real {h}", f"Sub real {h}", f"MARCA{h}".upper(), f"PR{h}"
-    fin = date(2027, 3, 29)  # lunes; más reciente que cualquier otra venta de las pruebas
+    # Un lunes más reciente que cualquier otra venta de la base de pruebas (26 nov 2026: las corridas anteriores dejan
+    # venta y una fecha fija ya no era la más reciente)
+    with Session(motor()) as bd0:
+        ultima = bd0.scalar(select(func.max(VentaSemanal.semana)))
+    fin = max(date(2027, 3, 29), (ultima or date(2027, 3, 29)) + timedelta(weeks=4))
+    fin -= timedelta(days=fin.weekday())
     tiendas = [f"T{h}A", f"T{h}B", f"M{h}"]
     with Session(motor()) as bd:
         carga = Carga(fuente="ETL_VENTAS", disparada_por="manual", estado="completa")
@@ -370,7 +376,8 @@ def test_factores_con_ventas_compras_e_inventario_de_smnbi():
 
             pr_ = rp.f_proveedor(bd, s, parecidos)
             # Surte 90 % (80 puntos) y tarda 9 días hábiles (14 naturales, con el 15 de marzo festivo) contra 5 (−10)
-            assert pr_.puntaje == 70 and "surtió 90 %" in pr_.detalle and "tarda 9 días hábiles" in pr_.detalle
+            # (9 o 10 según caiga un festivo en esas dos semanas: la fecha depende de la venta que ya hay en la base)
+            assert pr_.puntaje == 70 and "surtió 90 %" in pr_.detalle and re.search(r"tarda (9|10) días hábiles", pr_.detalle)
             assert "ya nos surte la marca" in pr_.detalle
             # Una propuesta se reconoce por su razón social, sin importar «S.A. de C.V.»
             s2 = rp.Sujeto(tipo="propuesta", nombre="Otro", proveedor_nombres=["PROVEEDOR REAL FICTICIO SA DE CV"])

@@ -11,7 +11,7 @@ import { ArrowLeft, Settings2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSesion } from "@/componentes/sesion";
 
-export type Pestana = { href: string; texto: string; permiso?: string; ajuste?: boolean; tambien?: RegExp };
+export type Pestana = { href: string; texto: string; permiso?: string; ajuste?: boolean; tambien?: RegExp; exacta?: boolean };
 
 export function CabeceraCompras({
   id,
@@ -32,7 +32,7 @@ export function CabeceraCompras({
   const { puede } = useSesion();
   const visibles = (pestanas ?? []).filter((p) => !p.permiso || puede(p.permiso));
   const raiz = visibles[0]?.href;
-  const activa = (p: Pestana) => (p.href === raiz ? ruta === p.href : ruta.startsWith(p.href)) || !!p.tambien?.test(ruta);
+  const activa = (p: Pestana) => (p.href === raiz || p.exacta ? ruta === p.href : ruta.startsWith(p.href)) || !!p.tambien?.test(ruta);
   const consulta = visibles.filter((p) => !p.ajuste);
   const ajustes = visibles.filter((p) => p.ajuste);
 

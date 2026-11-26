@@ -63,8 +63,8 @@ Table compras.precio_tienda_coincidencia {
 Table compras.precio_corrida {
   corrida_id int [pk, increment]
   fecha date [not null, note: 'Día de la corrida (zona de la corrida). Varias por día: cada «Correr ahora» es una corrida nueva (migración 0014); el programador hace una al día']
-  origen nvarchar(20) [not null, note: 'programado / tardio / manual']
-  estado nvarchar(20) [not null, note: 'en_curso / completa / parcial / fallida']
+  origen nvarchar(20) [not null, note: 'programado / tardio / manual / prueba / nocturna / pedido / producto / oportunidad / web']
+  estado nvarchar(20) [not null, note: 'en_espera / en_curso / completa / parcial / fallida']
   intentos int [not null, default: 1]
   iniciado_por int [ref: > nucleo.usuario.usuario_id]
   productos int [not null, default: 0]

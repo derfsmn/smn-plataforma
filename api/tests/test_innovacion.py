@@ -4,6 +4,7 @@ Todo es [EJEMPLO]. La IA local y las fuentes de internet se simulan: las pruebas
 """
 import hashlib
 import io
+import uuid
 import json
 import shutil
 from datetime import date, timedelta
@@ -339,9 +340,12 @@ def test_caso5_consulta_y_dictamen(equipo, fuente):
     r = inv.post(f"{API}/consultar", json={"pregunta": "¿El magnesio cura el insomnio crónico?"}).json()
     assert r["insuficiente"] and not r["citas"]
     # una fuente pendiente de revisión no se usa y se menciona
-    _cargar(inv, {"titulo": "EJEMPLO Glicinato y sueño profundo", "tipo": "articulo", "texto": "# Sueño\nEl glicinato de magnesio y el sueño profundo en adultos mayores."})
-    r = inv.post(f"{API}/consultar", json={"pregunta": "glicinato sueño profundo adultos mayores"}).json()
-    assert r["insuficiente"] and any("sueño" in x["titulo"].lower() for x in r["no_usadas"])
+    # (26 nov 2026: con una marca propia de esta corrida; las anteriores dejan el mismo estudio ya revisado en la base)
+    marca = uuid.uuid4().hex[:6]
+    _cargar(inv, {"titulo": f"EJEMPLO Glicinato y sueño profundo {marca}", "tipo": "articulo",
+                  "texto": f"# Sueño\nEl glicinato de magnesio y el sueño profundo en adultos mayores {marca}."})
+    r = inv.post(f"{API}/consultar", json={"pregunta": f"glicinato sueño profundo adultos mayores {marca}"}).json()
+    assert any(marca in x["titulo"] for x in r["no_usadas"]) and not any(marca in c["titulo"] for c in r["citas"])
     # dictamen con respaldo obligatorio
     folio = _expediente(inv, "[EJEMPLO] Dictamen")
     _regla(inv, lider, "R-EVI-903", None, modo="manual", rol_revisor="innovacion_lider", severidad="mayor",

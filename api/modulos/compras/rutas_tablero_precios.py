@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, true
@@ -20,6 +20,7 @@ from core.bd import obtener_bd
 from core.config import configuracion
 from core.seguridad import Contexto, ip_de, requiere
 from datos.modelos import Producto
+from modulos.compras import excel_precios as xl
 from modulos.compras import nocturno_precios as noche
 from modulos.compras import precios
 from modulos.compras import reporte_precios as rep
@@ -442,9 +443,18 @@ class Opcion(BaseModel):
 
 
 @router.get("/reporte/opciones", response_model=list[Opcion])
-def opciones(modo: Literal["producto", "marca", "categoria"] = "producto", q: str = "",
+def opciones(modo: Literal["producto", "marca", "categoria", "clasificacion"] = "producto", q: str = "",
              _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> list[Opcion]:
     texto = q.strip()
+    if modo == "clasificacion":  # AA a E (Diego, 2026-11-26), con cuántos productos activos tiene cada una
+        cuenta: dict[str, int] = {}
+        for k, n in bd.execute(select(Producto.clasificacion, func.count()).where(Producto.activo == true())
+                               .group_by(Producto.clasificacion)):
+            k = (k or "").strip().upper()
+            cuenta[k] = cuenta.get(k, 0) + n
+        sin = sum(n for k, n in cuenta.items() if k not in tb.CLASES)
+        return [Opcion(clave=k, nombre=f"Clase {k}" if k != tb.SIN_CLASE else k, detalle=None,
+                       cuenta=f"{n:,} productos") for k, n in [(k, cuenta.get(k, 0)) for k in tb.CLASES] + [(tb.SIN_CLASE, sin)] if n]
     if modo == "producto":
         consulta = select(Producto).where(Producto.activo == true())
         if texto:
@@ -490,6 +500,7 @@ class Seleccion(BaseModel):
     producto_ids: list[int] = Field(default=[], max_length=5000)
     marcas: list[str] = Field(default=[], max_length=500)
     categorias: list[str] = Field(default=[], max_length=500)
+    clasificaciones: list[str] = Field(default=[], max_length=10)  # AA, A, B, C, D, E o «Sin clase»
     hojas: list[Literal["resumen", "tiendas", "accion", "historial"]] = list(rep.POR_OMISION)
     fecha: date | None = None  # vacío = la última actualización
 
@@ -498,9 +509,49 @@ class Conteo(BaseModel):
     productos: int
 
 
+class ListaSkus(BaseModel):
+    """Lo que se encontró de una lista de SKU subida en Excel o pegada."""
+    skus: int
+    encontrados: list[Opcion]
+    no_encontrados: list[str]
+
+
+MAX_SKUS_REPORTE = 5000
+
+
+async def leer_lista(archivo: UploadFile | None, texto: str | None, maximo: int) -> list[str]:
+    try:
+        if archivo is not None and archivo.filename:
+            nombre = archivo.filename[:200]
+            if not nombre.lower().endswith((".xlsx", ".csv")):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sube un Excel (.xlsx) o un CSV.")
+            contenido = await archivo.read(5 * 1024 * 1024 + 1)
+            if len(contenido) > 5 * 1024 * 1024:
+                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El archivo pasa de 5 MB.")
+            return xl.leer_skus(nombre, contenido, maximo)
+        return xl.skus_de_texto(texto or "", maximo)
+    except xl.ErrorArchivo as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+
+def opcion_de(p: Producto) -> Opcion:
+    return Opcion(clave=str(p.producto_id), nombre=p.descripcion or p.sku,
+                  detalle=" · ".join(x for x in (f"SKU {p.sku}", p.marca, (p.clasificacion or "").strip() or None) if x),
+                  cuenta=f"${p.precio_lista_con_impuestos:,.2f}" if p.precio_lista_con_impuestos else "")
+
+
+@router.post("/reporte/skus", response_model=ListaSkus)
+async def lista_skus(archivo: UploadFile | None = File(None), texto: str | None = Form(None),
+                     _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> ListaSkus:
+    """SKU (o códigos de barras) de un Excel o pegados: cuáles están en el catálogo. La pantalla los suma como sueltos."""
+    skus = await leer_lista(archivo, texto, MAX_SKUS_REPORTE)
+    productos, faltan = xl.buscar(bd, skus)
+    return ListaSkus(skus=len(skus), encontrados=[opcion_de(p) for p in productos], no_encontrados=faltan)
+
+
 @router.post("/reporte/contar", response_model=Conteo)
 def contar(datos: Seleccion, _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Conteo:
-    return Conteo(productos=len(tb.de_seleccion(bd, datos.producto_ids, datos.marcas, datos.categorias)))
+    return Conteo(productos=len(tb.de_seleccion(bd, datos.producto_ids, datos.marcas, datos.categorias, datos.clasificaciones)))
 
 
 def _nombre(texto: str) -> str:
@@ -508,7 +559,7 @@ def _nombre(texto: str) -> str:
 
 
 def _excel(bd: Session, datos: Seleccion, titulo: str) -> Response:
-    ps = tb.de_seleccion(bd, datos.producto_ids, datos.marcas, datos.categorias)
+    ps = tb.de_seleccion(bd, datos.producto_ids, datos.marcas, datos.categorias, datos.clasificaciones)
     if not ps:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige al menos un producto, una marca o una categoría.")
     if not datos.hojas:
@@ -532,15 +583,22 @@ def _titulo(datos: Seleccion) -> str:
         partes.append("Marcas: " + ", ".join(datos.marcas[:3]) + ("…" if len(datos.marcas) > 3 else ""))
     if datos.categorias:
         partes.append("Categorías: " + ", ".join(datos.categorias[:3]) + ("…" if len(datos.categorias) > 3 else ""))
+    if datos.clasificaciones:
+        partes.append("Clase " + ", ".join(datos.clasificaciones))
     if datos.producto_ids:
         partes.append(f"{len(datos.producto_ids)} productos sueltos")
     return " · ".join(partes) or "Selección"
+
+
+def titulo_de(datos: "Seleccion") -> str:
+    return _titulo(datos)
 
 
 @router.post("/reporte/excel")
 def reporte_excel(datos: Seleccion, request: Request, ctx: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Response:
     registrar(bd, "precios_reporte", usuario_id=ctx.usuario.usuario_id, entidad="reporte",
               detalle={"productos": len(datos.producto_ids), "marcas": datos.marcas[:20], "categorias": datos.categorias[:20],
+                       "clasificaciones": datos.clasificaciones,
                        "hojas": list(datos.hojas)}, ip=ip_de(request))
     bd.commit()
     return _excel(bd, datos, _titulo(datos))
@@ -563,7 +621,7 @@ class Guardar(BaseModel):
 def _guardada(bd: Session, s: PrecioSeleccion) -> SeleccionGuardada:
     sel = Seleccion(**{k: v for k, v in tb.contenido(s.contenido).items() if k != "fecha"})
     return SeleccionGuardada(id=s.seleccion_id, nombre=s.nombre, seleccion=sel,
-                             productos=len(tb.de_seleccion(bd, sel.producto_ids, sel.marcas, sel.categorias)),
+                             productos=len(tb.de_seleccion(bd, sel.producto_ids, sel.marcas, sel.categorias, sel.clasificaciones)),
                              creado_en=s.creado_en, usado_en=s.usado_en)
 
 
