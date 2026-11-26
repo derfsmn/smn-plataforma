@@ -77,3 +77,37 @@ def test_avance_por_paso():
     assert en_vivo._paso("Paso 3 de 6: buscando") == 2.5 / 6
     p = en_vivo._proceso("evaluacion", "x", None, None, 0.4)
     assert p["progreso"] == 0.4 and not p["lento"]
+
+
+def test_monitor_salud_hoy_y_lo_que_sigue(admin):
+    d = admin.get("/api/nucleo/en-vivo/monitor").json()
+    claves = [c["clave"] for c in d["salud"]]
+    assert claves == ["api", "base", "correo", "ia", "dataforseo", "disco", "respaldo"]
+    assert all(c["estado"] in ("ok", "ocupado", "aviso", "mal", "apagado") for c in d["salud"])
+    assert next(c for c in d["salud"] if c["clave"] == "base")["estado"] == "ok"
+    assert "evaluaciones" in d["hoy"] and "busquedas" in d["hoy"]
+    assert isinstance(d["sigue"], list) and isinstance(d["grupos"], list)
+
+
+def test_avisos_que_dicen_lo_mismo_se_juntan():
+    lineas = [{"nivel": "error", "origen": "radar", "mensaje": "No se pudo enviar el correo a 3 personas — refused", "hora": "a"},
+              {"nivel": "error", "origen": "radar", "mensaje": "No se pudo enviar el correo a 5 personas", "hora": "b"},
+              {"nivel": "aviso", "origen": "mercado producto", "mensaje": "Google no aceptó «BDM Life»", "hora": "c"},
+              {"nivel": "info", "origen": "radar", "mensaje": "listo", "hora": "d"}]
+    g = en_vivo.avisos_agrupados(lineas)
+    assert [(x["nivel"], x["veces"]) for x in g] == [("error", 2), ("aviso", 1)]
+    assert g[0]["mensaje"] == "No se pudo enviar el correo a 5 personas"
+
+
+def test_grafica_en_vivo_cuenta_busquedas_e_ia(admin):
+    from nucleo import actividad
+
+    actividad.muestra()  # deja lista la lectura anterior del procesador
+    actividad.contar(3)
+    with actividad.ia_ocupada():
+        m = actividad.muestra(gpu=None)
+    assert m["busquedas"] >= 3
+    assert m["cpu"] is None or 0 <= m["cpu"] <= 100
+    assert 0 <= m["ia"] <= 100
+    s = admin.get("/api/nucleo/en-vivo/monitor/serie").json()
+    assert s["cada"] == 2.0 and s["muestras"] and "busquedas" in s["muestras"][-1]

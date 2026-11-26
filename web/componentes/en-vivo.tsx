@@ -64,7 +64,7 @@ export function EnVivo() {
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-smn-naranja" />
           <h2 className="flex-1 text-lg font-semibold">Qué está corriendo ahora</h2>
-          <Link href="/admin/monitor" className="inline-flex items-center gap-1.5 rounded-full bg-smn-naranja px-3 py-1.5 text-sm font-semibold text-smn-negro hover:opacity-90">
+          <Link href="/monitor" className="inline-flex items-center gap-1.5 rounded-full bg-smn-naranja px-3 py-1.5 text-sm font-semibold text-smn-negro hover:opacity-90">
             <MonitorPlay className="h-4 w-4" /> Abrir monitor
           </Link>
         </div>

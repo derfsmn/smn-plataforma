@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, fechaLocal, tamanoLegible, urlArchivo, type Archivo } from "@/lib/api";
 import { EnVivo } from "@/componentes/en-vivo";
 import { EstadoApi } from "@/componentes/estado-api";
+import { RevisionesLote } from "@/componentes/revisiones-lote";
 import { SubirArchivo } from "@/componentes/subir-archivo";
 import { Encabezado, Entrada } from "@/componentes/ui";
 
@@ -19,6 +20,7 @@ export default function Sistema() {
       <Encabezado titulo="Estado del sistema" descripcion="Conexión real con la API, SQL Server y el correo de salida (no es dato de ejemplo)." />
       <EstadoApi />
       <EnVivo />
+      <RevisionesLote />
 
       <Entrada retraso={0.1} className="mt-8 grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-smn-gris-100 bg-superficie p-4 sm:p-5">

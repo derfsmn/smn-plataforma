@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.config import configuracion
 from modulos.compras import coincidencia as co
+from nucleo import actividad
 
 log = logging.getLogger("smn.compras.senal_venta")
 
@@ -134,6 +135,7 @@ def _pedir_ml(url: str, token: str | None = None, datos: bytes | None = None) ->
         encabezados["Authorization"] = f"Bearer {token}"
     if datos is not None:
         encabezados["Content-Type"] = "application/x-www-form-urlencoded"
+    actividad.contar()  # gráfica en vivo del Monitor
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data=datos, headers=encabezados), timeout=TIEMPO) as r:
             return json.load(r)

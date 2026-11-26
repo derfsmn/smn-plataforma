@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from core.config import configuracion
 from ia import costos
+from nucleo import actividad
 from nucleo.modelos import IaLlamada, IaPresupuesto, IaTarea, Permiso, RolPermiso, Usuario, UsuarioRol, ahora
 from nucleo.notificaciones import notificar
 
@@ -85,7 +86,7 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
     peticion = urllib.request.Request(f"{cfg.ollama_url.rstrip('/')}/api/chat", data=cuerpo,
                                       headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(peticion, timeout=180) as r:
+        with actividad.ia_ocupada(), urllib.request.urlopen(peticion, timeout=180) as r:
             datos = json.load(r)
     except urllib.error.HTTPError as e:
         try:  # Ollama dice la causa en el cuerpo («does not support images», «model not found»...)
@@ -444,7 +445,7 @@ def vectores(bd: Session, tarea_codigo: str, textos: list[str], *, usuario_id: i
                                       data=json.dumps({"model": modelo, "input": textos}).encode(),
                                       headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(peticion, timeout=300) as r:
+        with actividad.ia_ocupada(), urllib.request.urlopen(peticion, timeout=300) as r:
             datos = json.load(r)
     except urllib.error.HTTPError as e:
         aviso = f"Ollama respondió con error {e.code}. Revisa que el modelo «{modelo}» esté descargado."

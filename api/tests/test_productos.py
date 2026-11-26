@@ -622,3 +622,65 @@ def test_revisar_parecidos_no_quita_los_del_ingrediente(monkeypatch):
     quedan, quitados = rp.revisar_parecidos(None, s, [(a, Decimal("0.5")), (b, Decimal("0.3"))], None, {1})
     assert [p.sku for p, _ in quedan] == ["A"] and [p.sku for p, _ in quitados] == ["B"]
     assert "BERBERINA" not in llamadas[0]  # al de su ingrediente ni se le pregunta a la IA
+
+
+def test_colageno_con_inositol_no_se_queda_sin_parecidos(monkeypatch):
+    """Diego, 26 nov 2026: Colágeno + Inositol B-FIT 360 g salió «sin parecidos» y Demanda 7 aunque vendemos más de 200
+    colágenos. Los colágenos están regados en varias subcategorías (no hay 60 % de acuerdo), la idea quedó en otra
+    subcategoría y los de otro tamaño se tiraban: ahora los de su ingrediente principal nunca se tiran."""
+    def prod(i, desc, sub, rama, precio="300"):
+        return Producto(producto_id=i, sku=f"C{i}", descripcion=desc, subcategoria=sub, rama=rama,
+                        precio_lista_con_impuestos=Decimal(precio), activo=True)
+    activos = [prod(1, "COLAGENO HIDROLIZADO 300 G", "BELLEZA", "PIEL"),
+               prod(2, "COLAGENO HIDROLIZADO CON BIOTINA 300 G", "BELLEZA", "PIEL"),
+               prod(3, "COLAGENO TIPO II 30 CAP", "ARTICULACIONES", "HUESOS"),
+               prod(4, "COLAGENO MARINO 60 CAP", "ARTICULACIONES", "HUESOS"),
+               prod(5, "PEPTIDOS DE COLAGENO 250 G", "PROTEINA", "DEPORTE"),
+               prod(6, "COLAGENO HIDROLIZADO 1.1 KG", "PROTEINA", "DEPORTE", "210"),
+               prod(7, "MYO INOSITOL 60 CAP", "SALUD FEMENINA", "MUJER"),
+               prod(8, "FEMME BALANCE 30 SOBRES", "SALUD FEMENINA", "MUJER"),
+               prod(9, "MAGNESIO 60 CAP", "MINERALES", "MINERALES")]
+    monkeypatch.setattr(rp, "catalogo_activo", lambda bd: activos)
+    monkeypatch.setattr(rp, "cargar_fichas", lambda bd, ps: None)
+    monkeypatch.setattr(rp, "ficha_de", lambda p: None)
+    monkeypatch.setattr(rp.fi, "cercanos_por_funcion", lambda bd, ficha: [])
+    s = rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT", contenido="360 G", forma="Polvo", precio=Decimal("749"))
+    assert rp.por_ingrediente(s, activos) is None  # regados: no decide la subcategoría
+    palabra, ids = rp.del_ingrediente(s, activos)
+    assert palabra == "colage" and ids == {1, 2, 3, 4, 5, 6}
+    antes = {p.producto_id for p, _ in rp.buscar_parecidos(None, s, "SALUD FEMENINA", "MUJER")}
+    assert not antes & ids  # así se quedaba: ni un colágeno
+    ahora = {p.producto_id for p, _ in rp.buscar_parecidos(None, s, "SALUD FEMENINA", "MUJER", ids)}
+    assert {1, 2, 5, 6} <= ahora  # los colágenos en polvo; los de cápsulas salen porque hay 3 o más de su forma
+    # Una palabra que sale en casi todo el catálogo no cuenta como ingrediente
+    muchos = ([prod(100 + i, f"HIDROLIZADO MARCA{i} 300 G", "X", "Y") for i in range(30)]
+              + [prod(200 + i, f"OTRO PRODUCTO{i}", "X", "Y") for i in range(270)])
+    assert rp.del_ingrediente(rp.Sujeto(tipo="idea", nombre="Hidrolizado"), muchos) is None
+
+
+def test_revision_parecidos_por_lote(admin):
+    """Cuenta las evaluaciones vigentes con pocos parecidos teniendo productos con su ingrediente (26 nov 2026)."""
+    from sqlalchemy import select as sel
+
+    from core.bd import _fabrica
+    from modulos.compras.modelos_productos import ProductoEvaluacion, ProductoIdea
+    from nucleo.modelos import Usuario
+
+    with _fabrica()() as bd:
+        i = ProductoIdea(nombre="COLAGENO + INOSITOL revisión", creada_por=bd.scalar(sel(Usuario.usuario_id).limit(1)))
+        bd.add(i)
+        bd.flush()
+        e = ProductoEvaluacion(idea_id=i.idea_id, estado="lista", vigente=True, puntaje=31)
+        bd.add(e)
+        bd.commit()
+        try:
+            r = admin.get("/api/compras/productos/revision-parecidos")
+            assert r.status_code == 200, r.text
+            d = r.json()
+            assert d["evaluaciones"] >= 1 and d["sin_parecidos"] >= 1 and "afectadas" in d
+            x = admin.get("/api/compras/productos/revision-parecidos/excel")
+            assert x.status_code == 200 and x.content[:2] == b"PK"
+        finally:
+            bd.delete(e)
+            bd.delete(i)
+            bd.commit()

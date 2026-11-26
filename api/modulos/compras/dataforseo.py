@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from core.config import configuracion
 from modulos.compras.modelos_precios import PrecioCorrida, PrecioEnvio
+from nucleo import actividad
 from nucleo.modelos import ahora
 
 log = logging.getLogger("smn.compras.precios")
@@ -173,6 +174,7 @@ def enviar(bd: Session, corrida: PrecioCorrida, tipo: str, tareas: list[dict]) -
             envio.estado, envio.costo_usd = "rechazado", Decimal("0")
             bd.commit()
             raise
+        actividad.contar(len(lote))  # gráfica en vivo del Monitor
         costo = Decimal("0")
         guardadas = []
         for t in respuesta.get("tasks") or []:

@@ -477,6 +477,28 @@ def ingrediente_de(bd: Session, s: Sujeto) -> PorIngrediente | None:
     return por_ingrediente(s, catalogo_activo(bd))
 
 
+MAX_PARTE_INGREDIENTE = 0.08  # una palabra que sale en más del 8 % del catálogo no es un ingrediente («hidrolizado»)
+
+
+def del_ingrediente(s: Sujeto, activos: list[Producto]) -> tuple[str, set[int]] | None:
+    """Los productos que llevan en la descripción el ingrediente principal, estén en la subcategoría que estén (Diego,
+    26 nov 2026: «tenemos muchos colágenos… por qué no sale»). A diferencia de `por_ingrediente`, no pide que la mayoría
+    esté en una sola subcategoría: eso sirve para clasificar, no para decidir quién se le parece. Los colágenos están en
+    belleza, articulaciones y proteína, y con esa regla se tiraban todos y la idea se quedaba sin parecidos.
+    La primera palabra de `_candidatas_ingrediente` con al menos 3 productos gana. (raíz, ids) o None."""
+    fuera = raices(TIPO_GENERICAS)
+    # En un catálogo chico (pruebas) no hay tope; en el de verdad (miles) se descartan las palabras de todos lados
+    tope = int(len(activos) * MAX_PARTE_INGREDIENTE) if len(activos) >= 200 else len(activos)
+    raices_de = {p.producto_id: raices(palabras(sin_sabor(p.descripcion))) for p in activos}
+    for r in _candidatas_ingrediente(s):
+        if r in fuera:
+            continue
+        ids = {p.producto_id for p in activos if r in raices_de[p.producto_id] and _con_precio(p) and not es_mismo(s, p)}
+        if MIN_POR_INGREDIENTE <= len(ids) <= tope:
+            return r, ids
+    return None
+
+
 # Examen de clasificación (plan aprobado por Diego el 24 nov 2026): para calificar un producto que ya vendemos «como si
 # fuera nuevo», el examen lo esconde del catálogo junto con sus otros sabores y presentaciones, y reusa el catálogo ya
 # leído para no consultarlo miles de veces. En la operación normal estas dos variables están vacías.
@@ -693,10 +715,13 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
             sim += Decimal("0.1")
         elif tipo is False and not su_sub:
             sim /= 2
+        del_suyo = p.producto_id in conservar
         if not mismo_grupo and medidas and (suyas := set(tamano_de(p))) and not medidas & suyas:
-            if not (su_sub or misma_marca):
+            if not (su_sub or misma_marca or del_suyo):
                 continue  # otra forma de producto: orégano de 14 g no se parece a cápsulas de orégano (11 nov 2026)
             sim /= 2
+        if del_suyo:  # lleva su ingrediente principal: entra aunque quede abajo del mínimo (26 nov 2026, colágenos)
+            sim = max(sim, MIN_SIMILITUD)
         if sim >= MIN_SIMILITUD:
             crudo[p.producto_id] = sim  # para ordenar: dos de 0.99 no empatan (18 nov 2026)
             if otra_forma:
@@ -2333,6 +2358,8 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             conservar = clasif.conservar
         elif ingrediente := ingrediente_de(bd, s):  # otro sabor: los de su ingrediente se quedan, como en la v0.5.3
             conservar = set(ingrediente.ids)
+        if suyo := del_ingrediente(s, catalogo_activo(bd)):  # 26 nov 2026: los de su ingrediente nunca se tiran
+            conservar = set(conservar) | suyo[1]
 
         paso(2, "buscando productos parecidos en el catálogo y revisándolos con la IA")
         if fijados:  # Compras los fijó: no se revisan

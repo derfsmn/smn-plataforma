@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote, quote_plus, urlencode, urljoin
 
+from nucleo import actividad
+
 NAVEGADOR = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
 ESPERA = 1.0  # segundos entre consultas a la misma tienda
 TIEMPO = 25
@@ -83,6 +85,7 @@ def _liga(v, base: str) -> str | None:
 
 def _pedir(url: str, encabezados: dict[str, str]) -> str:
     peticion = urllib.request.Request(url, headers={"User-Agent": NAVEGADOR, "Accept-Language": "es-MX,es;q=0.9", **encabezados})
+    actividad.contar()  # gráfica en vivo del Monitor
     try:
         with urllib.request.urlopen(peticion, timeout=TIEMPO) as r:
             return r.read(8 * 1024 * 1024).decode("utf-8", "replace")

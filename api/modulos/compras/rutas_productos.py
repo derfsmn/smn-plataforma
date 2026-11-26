@@ -14,7 +14,7 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session, defer, load_only
@@ -680,6 +680,25 @@ def prueba_afuera_excel(_: Contexto = Depends(requiere(AJUSTAR))) -> FileRespons
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La prueba todavía no termina. Revisa cómo va en /api/compras/productos/prueba-afuera.")
     return FileResponse(archivo, filename=archivo.name,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@router.get("/revision-parecidos")
+def revision_parecidos(_: Contexto = Depends(requiere(AJUSTAR)), bd: Session = Depends(obtener_bd)) -> dict:
+    """Cuántas evaluaciones vigentes tienen 0, 1, 2 o 3+ parecidos y cuántas se quedaron cortas teniendo productos con su
+    ingrediente principal (26 nov 2026, caso colágenos)."""
+    from modulos.compras import revision_parecidos as rv
+
+    return rv.resumen(rv.revisar(bd))
+
+
+@router.get("/revision-parecidos/excel")
+def revision_parecidos_excel(_: Contexto = Depends(requiere(AJUSTAR)), bd: Session = Depends(obtener_bd)) -> Response:
+    from modulos.compras import revision_parecidos as rv
+
+    filas = rv.revisar(bd)
+    return Response(rv.a_excel(filas, rv.resumen(filas)),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="revision_parecidos.xlsx"'})
 
 
 class Comparables(BaseModel):

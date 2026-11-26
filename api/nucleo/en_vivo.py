@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.bd import obtener_bd
 from core.seguridad import Contexto, requiere
+from nucleo import actividad
 from nucleo.modelos import ahora
 
 router = APIRouter(prefix="/api/nucleo/en-vivo", tags=["sistema"])
@@ -67,8 +68,15 @@ def _origen(nombre: str) -> str:
 MEMORIA = _Memoria()
 
 
+ARRANCO: datetime | None = None
+
+
 def instalar() -> None:
-    """Se llama al arrancar: escucha a la raíz y a uvicorn (que no se propaga), y deja pasar los INFO de «smn»."""
+    """Se llama al arrancar: escucha a la raíz y a uvicorn (que no se propaga), deja pasar los INFO de «smn» y empieza a
+    tomar las muestras de la gráfica en vivo del Monitor."""
+    global ARRANCO
+    ARRANCO = ARRANCO or ahora()
+    actividad.iniciar()
     for nombre in ("", "uvicorn.error"):
         lg = logging.getLogger(nombre)
         if MEMORIA not in lg.handlers:
@@ -236,7 +244,8 @@ def _dataforseo(bd: Session) -> dict:
         from core.config import configuracion
         from modulos.compras import dataforseo as dfs
 
-        return {"gasto_mes": float(dfs.gasto_mes(bd)), "tope_mes": float(configuracion().precios_tope_mensual_usd)}
+        return {"gasto_mes": float(dfs.gasto_mes(bd)), "tope_mes": float(configuracion().precios_tope_mensual_usd or 0),
+                "falta": dfs.configurado()}
     except Exception:  # noqa: BLE001
         bd.rollback()
         return {"gasto_mes": None, "tope_mes": None}
@@ -296,10 +305,242 @@ def linea_de_tiempo(bd: Session, horas: int = HORAS_LINEA) -> list[dict]:
     return [b for b in barras if b]
 
 
+# ---------------------------------------------------------------- Monitor v0.6.5: salud, números de hoy, lo que sigue
+
+def _cuadro(clave: str, nombre: str, estado: str, detalle: str) -> dict:
+    """Un cuadro de salud. estado: ok / ocupado / aviso / mal / apagado."""
+    return {"clave": clave, "nombre": nombre, "estado": estado, "detalle": detalle}
+
+
+def _correo_salud(errores: int) -> dict:
+    import socket
+
+    from core.config import configuracion
+
+    cfg = configuracion()
+    extra = f" · {errores} correo(s) sin enviar" if errores else ""
+    if not cfg.smtp_servidor:
+        return _cuadro("correo", "Correo de salida", "aviso", "sin configurar: los correos no salen" + extra)
+    try:
+        socket.create_connection((cfg.smtp_servidor, cfg.smtp_puerto), timeout=1).close()
+    except OSError:
+        return _cuadro("correo", "Correo de salida", "mal", "no conecta" + extra)
+    return _cuadro("correo", "Correo de salida", "aviso" if errores else "ok", ("conecta" + extra) if errores else f"conecta con {cfg.smtp_servidor}")
+
+
+def _base_salud(bd: Session) -> tuple[dict, dict]:
+    import time as _t
+
+    from sqlalchemy import text
+
+    try:
+        t0 = _t.monotonic()
+        bd.execute(text("SELECT 1"))
+        ms = round(1000 * (_t.monotonic() - t0))
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+        return (_cuadro("base", "Base de datos", "mal", "no responde"),
+                _cuadro("respaldo", "Respaldo de la base", "apagado", "no se pudo revisar"))
+    detalle = f"respondió en {ms} ms"
+    try:
+        gb = bd.execute(text("SELECT SUM(CAST(size AS bigint)) * 8 / 1024.0 / 1024 FROM sys.database_files")).scalar()
+        detalle = f"{float(gb):.1f} GB · {detalle}" if gb is not None else detalle
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    base = _cuadro("base", "Base de datos", "aviso" if ms > 1000 else "ok", detalle)
+    try:
+        ultimo = bd.execute(text("SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = DB_NAME()")).scalar()
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+        return base, _cuadro("respaldo", "Respaldo de la base", "apagado", "no se pudo revisar")
+    if not ultimo:
+        return base, _cuadro("respaldo", "Respaldo de la base", "aviso", "la base no tiene ningún respaldo")
+    dias = (datetime.now() - ultimo).days  # msdb guarda la hora local del servidor de SQL
+    texto_dias = "hoy" if dias <= 0 else "ayer" if dias == 1 else f"hace {dias} días"
+    return base, _cuadro("respaldo", "Respaldo de la base", "aviso" if dias >= 2 else "ok", f"último {texto_dias}")
+
+
+def _disco_salud() -> dict:
+    from core.config import configuracion
+
+    try:
+        u = shutil.disk_usage(configuracion().archivos_ruta)
+    except OSError:
+        return _cuadro("disco", "Disco de archivos", "apagado", "no se pudo revisar")
+    pct = round(100 * u.used / u.total)
+    return _cuadro("disco", "Disco de archivos", "mal" if pct >= 90 else "aviso" if pct >= 80 else "ok",
+                   f"{pct} % usado · {u.free / 1e9:,.0f} GB libres")
+
+
+def salud(bd: Session, ia: dict, dfs: dict, errores_correo: int) -> list[dict]:
+    hora = ARRANCO.replace(tzinfo=UTC).isoformat() if ARRANCO else None
+    base, respaldo = _base_salud(bd)
+    if ia.get("responde") is None:
+        ia_c = _cuadro("ia", "IA local", "apagado", "sin configurar")
+    elif not ia.get("responde"):
+        ia_c = _cuadro("ia", "IA local", "mal", "Ollama no contesta")
+    elif ia.get("modelos"):
+        ia_c = _cuadro("ia", "IA local", "ocupado", "trabajando · " + ", ".join(m["nombre"] or "" for m in ia["modelos"]))
+    else:
+        ia_c = _cuadro("ia", "IA local", "ok", "lista, sin trabajo ahora")
+    gasto, tope = dfs.get("gasto_mes"), dfs.get("tope_mes")
+    if dfs.get("falta"):
+        dfs_c = _cuadro("dataforseo", "DataForSEO", "apagado", "sin configurar")
+    elif gasto is None:
+        dfs_c = _cuadro("dataforseo", "DataForSEO", "apagado", "no se pudo revisar")
+    else:
+        lleno = bool(tope) and gasto >= 0.9 * tope
+        dfs_c = _cuadro("dataforseo", "DataForSEO", "aviso" if lleno else "ok",
+                        f"US${gasto:,.2f} de {tope:,.0f} este mes" if tope else f"US${gasto:,.2f} este mes")
+    return [{**_cuadro("api", "API", "ok", "responde"), "desde": hora}, base, _correo_salud(errores_correo), ia_c, dfs_c,
+            _disco_salud(), respaldo]
+
+
+def _inicio_de_hoy() -> datetime:
+    """Medianoche de hoy en México, en UTC sin zona como se guardan las fechas."""
+    from modulos.compras import precios as pc
+
+    local = datetime.now(pc.zona()).replace(hour=0, minute=0, second=0, microsecond=0)
+    return local.astimezone(UTC).replace(tzinfo=None)
+
+
+def numeros_de_hoy(bd: Session) -> dict:
+    from sqlalchemy import func
+
+    inicio = _inicio_de_hoy()
+    salida: dict = {}
+    try:
+        from modulos.compras.modelos_productos import ProductoEvaluacion
+
+        filas = bd.execute(select(ProductoEvaluacion.estado, ProductoEvaluacion.creada_en, ProductoEvaluacion.terminada_en)
+                           .where((ProductoEvaluacion.terminada_en >= inicio) | (ProductoEvaluacion.estado == "en_curso"))).all()
+        listas = [(t - c).total_seconds() / 60 for e, c, t in filas if e == "lista" and c and t]
+        salida["evaluaciones"] = {"terminadas": sum(1 for e, _, t in filas if t and e != "en_curso"),
+                                  "en_curso": sum(1 for e, _, _ in filas if e == "en_curso"),
+                                  "con_error": sum(1 for e, _, t in filas if t and e == "error"),
+                                  "minutos_promedio": round(sum(listas) / len(listas), 1) if listas else None}
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    try:
+        from core.config import configuracion
+        from modulos.compras import nocturno_precios as noc
+        from modulos.compras import precios as pc
+        from modulos.compras.modelos_precios import PrecioCorrida
+
+        noche = noc.inicio_noche(datetime.now(pc.zona()), configuracion().precios_nocturno_desde)
+        fila = bd.execute(select(func.count(), func.sum(PrecioCorrida.productos), func.sum(PrecioCorrida.con_coincidencia))
+                          .where(PrecioCorrida.origen == noc.ORIGEN, PrecioCorrida.iniciado_en >= noche)).one()
+        salida["noche"] = {"lotes": int(fila[0] or 0), "productos": int(fila[1] or 0), "con_precio": int(fila[2] or 0)}
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    try:
+        from modulos.compras.modelos_precios import PrecioEnvio
+
+        envios = bd.execute(select(PrecioEnvio.estado, PrecioEnvio.tareas, PrecioEnvio.costo_usd, PrecioEnvio.respuesta)
+                            .where(PrecioEnvio.creado_en >= inicio)).all()
+        aceptadas = rechazadas = 0
+        for estado, tareas, _, respuesta in envios:
+            if estado == "rechazado":
+                rechazadas += tareas or 0
+                continue
+            try:
+                for t in json.loads(respuesta or "[]"):
+                    if int(t.get("estado") or 0) >= 40000:
+                        rechazadas += 1
+                    else:
+                        aceptadas += 1
+            except (ValueError, TypeError, AttributeError):
+                aceptadas += tareas or 0
+        salida["busquedas"] = {"aceptadas": aceptadas, "rechazadas": rechazadas,
+                               "gasto_usd": round(float(sum((c or 0) for _, _, c, _ in envios)), 2)}
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    return salida
+
+
+def lo_que_sigue(bd: Session) -> list[dict]:
+    """Lo programado que viene, con la hora local en que empieza (o «ahora» si ya está en su ventana)."""
+    from core.config import configuracion
+    from modulos.compras import nocturno_precios as noc
+    from modulos.compras import precios as pc
+
+    cfg = configuracion()
+    local = datetime.now(pc.zona())
+    en_noche = noc.en_ventana(local.hour, cfg.precios_nocturno_desde, cfg.precios_nocturno_hasta)
+    hoy_noche = local.replace(hour=cfg.precios_nocturno_desde, minute=0, second=0, microsecond=0)
+    if not en_noche and local >= hoy_noche:
+        hoy_noche += timedelta(days=1)
+    noche = None if en_noche else hoy_noche.isoformat()
+    salida: list[dict] = []
+    try:
+        if cfg.precios_nocturno_activo:
+            av = noc.avance(bd)
+            if av.noches_faltan != 0:
+                salida.append({"cuando": noche, "que": "Lote de precios de noche",
+                               "detalle": f"{av.validados:,} de {av.total:,} productos validados"
+                               + (f" · faltan unas {av.noches_faltan} noches" if av.noches_faltan else "")})
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    try:
+        from modulos.compras import prueba_afuera as pa
+
+        if pa._publicada() and not pa.ruta().exists() and pa._intentos() < 2 and not pa._corriendo.is_set():
+            salida.append({"cuando": noche, "que": "Prueba por lote de precios de afuera",
+                           "detalle": "60 productos, cuando no haya evaluaciones corriendo"})
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from modulos.compras import examen_clasificacion as ex
+
+        v = ex.clave()
+        faltan = ex.pendientes(v) if v else []
+        if faltan and not ex._corriendo.is_set():
+            salida.append({"cuando": noche, "que": "Examen de clasificación",
+                           "detalle": f"{len(faltan)} corrida(s) pendiente(s), cuando no haya evaluaciones"})
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from modulos.compras import radar
+
+        if cfg.radar_activo:
+            salida.append({"cuando": radar.proxima_corrida(bd).isoformat(), "que": "Radar de tendencias", "detalle": None})
+    except Exception:  # noqa: BLE001
+        bd.rollback()
+    return sorted(salida, key=lambda x: x["cuando"] or "")
+
+
+def avisos_agrupados(lineas: list[dict], maximo: int = 6) -> list[dict]:
+    """Avisos y errores de la bitácora, juntando los que dicen lo mismo con distinto número o nombre."""
+    grupos: dict[tuple, dict] = {}
+    for x in lineas:
+        if x["nivel"] not in ("aviso", "error"):
+            continue
+        base = re.sub(r"«[^»]*»|\d[\d,.:]*", "…", x["mensaje"].split(" — ")[0])[:140]
+        g = grupos.setdefault((x["nivel"], x["origen"], base), {"nivel": x["nivel"], "origen": x["origen"], "veces": 0})
+        g["veces"] += 1
+        g["mensaje"], g["hora"] = x["mensaje"], x["hora"]  # el más reciente
+    # Primero los errores, y dentro de cada nivel lo más reciente
+    orden = sorted(grupos.values(), key=lambda g: g["hora"], reverse=True)
+    return sorted(orden, key=lambda g: g["nivel"] != "error")[:maximo]
+
+
+@router.get("/monitor/serie")
+def monitor_serie(_: Contexto = Depends(requiere(VER))) -> dict:
+    """Las muestras de la gráfica en vivo (cada 2 s, últimos 5 min). Ligera: no toca la base."""
+    return {"cada": actividad.CADA, "puntos": actividad.PUNTOS, "muestras": actividad.serie()}
+
+
 @router.get("/monitor")
 def monitor(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
-    """Todo lo de la pantalla Monitor en una sola consulta."""
-    avisos = [x for x in MEMORIA.desde(0) if x["nivel"] in ("aviso", "error")][-8:][::-1]
+    """Todo lo de la pantalla Monitor en una sola consulta (la gráfica en vivo va aparte, en /monitor/serie)."""
+    lineas = MEMORIA.desde(0)
+    avisos = [x for x in lineas if x["nivel"] in ("aviso", "error")][-8:][::-1]
+    errores_correo = sum(1 for x in lineas if x["nivel"] == "error" and "correo" in x["mensaje"].lower())
+    ia, dfs = _ia_local(), _dataforseo(bd)
+    from core.config import configuracion
+
     return {"ahora": ahora().replace(tzinfo=UTC).isoformat(), "horas": HORAS_LINEA, "carriles": list(CARRILES),
-            "servidor": {"sistema": _sistema(), "ia": _ia_local(), "dataforseo": _dataforseo(bd)},
-            "procesos": procesos(bd), "linea": linea_de_tiempo(bd), "avisos": avisos}
+            "version": configuracion().plataforma_version,
+            "servidor": {"sistema": _sistema(), "ia": ia, "dataforseo": dfs},
+            "salud": salud(bd, ia, dfs, errores_correo), "hoy": numeros_de_hoy(bd), "sigue": lo_que_sigue(bd),
+            "grupos": avisos_agrupados(lineas), "procesos": procesos(bd), "linea": linea_de_tiempo(bd), "avisos": avisos}
