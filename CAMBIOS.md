@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.10 · 2026-11-26
+
+Precio contra anaquel por gramo comparado con su mismo tipo de producto
+
+**Cambios guardados:**
+- v0.6.10 precio contra anaquel por gramo contra su tipo de producto
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.9 · 2026-11-26
 
 Demanda contra todo su tipo de producto
