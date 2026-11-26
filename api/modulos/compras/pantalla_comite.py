@@ -253,7 +253,12 @@ def _demanda(bd: Session, e: ProductoEvaluacion, s: rp.Sujeto, v: rr.Ventana | N
         if mas:
             en_contra.append(f"{len(mas)} de los {len(misma)} lanzamientos de {sub} en 2026 vendieron más: "
                              + "; ".join(f"{x['descripcion']} {x['por_tienda']:,.1f}" for x in mas[:3]))
-    if usados:
+    familia = pron.familia if pron else []
+    if familia and pron.base:
+        # 26 nov 2026: se mide contra todo su tipo de producto (los colágenos en polvo), no contra los de precio cercano
+        (a_favor if rango and pron.base >= rango[1] else en_contra).append(
+            f"Los {pron.base_de} venden en promedio {_n(pron.base)} piezas por tienda al mes")
+    elif usados:
         venden = " y ".join(f"{_n(p['por_tienda'])}" for p in usados[:3] if p["por_tienda"] is not None)
         if venden:
             (a_favor if rango and min(p["por_tienda"] or 0 for p in usados) >= rango[1] else en_contra).append(
@@ -261,7 +266,12 @@ def _demanda(bd: Session, e: ProductoEvaluacion, s: rp.Sujeto, v: rr.Ventana | N
     if lugar is not None and lugar >= 60:
         a_favor.append(f"Vendería más que {lugar} de cada 100 productos nuevos de 2026")
     pasos = []
-    if usados:
+    if familia:
+        pasos.append({"titulo": "Con qué se compara", "pregunta": "¿Con qué productos que ya vendemos se compara?",
+                      "cifra": pron.base_de.split(" ", 1)[0], "sub": pron.base_de.split(" ", 1)[-1],
+                      "puntos": [f"{x['descripcion']} · {_n(x['por_tienda'])} pzas/tienda" for x in familia]
+                      + ["Todos los de su mismo tipo, sin filtrar por precio: si es caro, eso lo castiga el factor Precio"]})
+    elif usados:
         pasos.append({"titulo": "Parecidos", "pregunta": "¿Con qué productos que ya vendemos se compara?",
                       "cifra": str(len(usados)), "sub": "de precio cercano" if len(usados) < len(parecidos) else "parecidos",
                       "puntos": [f"{p['descripcion']} · {_n(p['por_tienda'])} pzas/tienda" for p in usados[:3]]

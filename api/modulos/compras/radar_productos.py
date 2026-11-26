@@ -1622,6 +1622,32 @@ def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | No
     return mp.buscar(bd, nombre, s.marca, s.codigo_barras, referencia)
 
 
+MIN_FAMILIA = 3
+NOMBRE_GRUPO = {"polvo": "en polvo", "solido": "en cápsulas o tabletas", "gomita": "en gomitas", "liquido": "líquidos",
+                "topico": "en crema"}
+
+
+def familia_para_demanda(s: Sujeto, activos: list[Producto]) -> tuple[str, list[Producto]] | None:
+    """Con quién se mide la Demanda de una idea que no vendemos (Diego, 26 nov 2026, Colágeno + Inositol B-FIT $749:
+    salía «se vende poco» porque solo se comparaba con 3 o 4 parecidos de precio cercano, unas creatinas con colágeno
+    que casi no se venden, y nunca con los colágenos en polvo que sí vendemos). Son todos los productos con su
+    ingrediente principal en el nombre y de su misma forma (polvo con polvo, cápsulas con tabletas), sin filtrar por
+    precio: si es caro, eso lo castiga el factor Precio, no la Demanda. (cómo se llaman, productos) o None."""
+    suyo = del_ingrediente(s, activos)
+    if not suyo:
+        return None
+    raiz, ids = suyo
+    prods = [p for p in activos if p.producto_id in ids]
+    palabra = next((w for w in sorted(palabras(sin_sabor(s.nombre), s.ingrediente)) if w[:6] == raiz), raiz)
+    nombre = palabra
+    grupo = GRUPO_FORMATO.get(formato_sujeto(s) or "")
+    if grupo:
+        misma = [p for p in prods if GRUPO_FORMATO.get(formato(p.descripcion) or "") == grupo]
+        if len(misma) >= MIN_FAMILIA:
+            prods, nombre = misma, f"{palabra} {NOMBRE_GRUPO.get(grupo, '')}".strip()
+    return (nombre, prods) if len(prods) >= MIN_FAMILIA else None
+
+
 def skus_para_pronostico(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], mismo: Producto | None) -> list[str]:
     """Los mismos parecidos que usa Demanda: de precio cercano si los hay; si ya lo vendemos, ese mismo."""
     return [p.sku for p in parecidos_para_demanda(s, parecidos, mismo)]
@@ -2415,7 +2441,18 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         precio = f_precio(s, parecidos, internet, mismo)
         pron = None
         try:  # pronóstico por grupo de tiendas (17 nov 2026); de él sale la Demanda (19 nov). Si falla, sigue
-            pron = pn.pronosticar(bd, skus_para_pronostico(s, parecidos, mismo), e.subcategoria)
+            skus, nombre_base, fam = skus_para_pronostico(s, parecidos, mismo), None, None
+            if not mismo and v and (fam := familia_para_demanda(s, catalogo_activo(bd))):
+                con_venta = rr.venta_por_sku(bd, v, [p.sku for p in fam[1]])
+                if len(con_venta) >= MIN_FAMILIA:  # se mide contra todo su tipo de producto, no solo los de precio cercano
+                    skus, nombre_base = list(con_venta), f"productos de {fam[0]}"
+                    nombres = {p.sku: p.descripcion for p in fam[1]}
+                    mejores = sorted(con_venta.items(), key=lambda x: -x[1].por_tienda_mes)[:3]
+                    familia = [{"sku": k, "descripcion": nombres.get(k) or k, "por_tienda": round(x.por_tienda_mes, 2)}
+                               for k, x in mejores]
+            pron = pn.pronosticar(bd, skus, e.subcategoria, nombre_base)
+            if nombre_base:
+                pron.familia, pron.familia_de = familia, nombre_base
             pron.misma_sub = lanzamientos_de_su_tipo(s, pron.misma_sub)
             # se guardan los lanzamientos contra los que se califica para que la pantalla del comité no los vuelva a medir
             contra, pron.contra_depto = pn.lanzamientos_contra(bd, (mismo.departamento if mismo else None) or s.departamento)

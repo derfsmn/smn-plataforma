@@ -237,6 +237,9 @@ class Pronostico:
     misma_sub: list[dict] = field(default_factory=list)  # lanzamientos de 2026 de su subcategoría: sku, descripcion, por_tienda
     contra: list[float] = field(default_factory=list)  # lanzamientos contra los que se calificó la Demanda (piezas por tienda al mes)
     contra_depto: bool = False  # si `contra` son solo los de su departamento
+    # Si la Demanda se midió contra todo su tipo de producto (26 nov 2026): los que más venden y cómo se llaman
+    familia: list[dict] = field(default_factory=list)
+    familia_de: str = ""
 
     def a_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -269,7 +272,8 @@ def _grupos(bd: Session) -> tuple[dict[str, int], dict[int, str]]:
     return de, nombres
 
 
-def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None) -> Pronostico:
+def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None,
+                nombre_base: str | None = None) -> Pronostico:
     """Rango de piezas por tienda al mes a 4, 8 y 12 semanas, en total y por grupo de tiendas."""
     m = entrenar(bd)
     p = Pronostico(lanzamientos=len(m.lanzamientos), examen={**m.examen, **({"prueba": m.prueba} if m.prueba else {})},
@@ -291,7 +295,7 @@ def pronosticar(bd: Session, skus_parecidos: list[str], subcategoria: str | None
     venta = rr.venta_por_sku(bd, v, skus_parecidos) if skus_parecidos else {}
     if venta:
         p.base = sum(x.por_tienda_mes for x in venta.values()) / len(venta)
-        p.base_de = f"{len(venta)} parecido(s) que ya vendemos"
+        p.base_de = f"{len(venta)} {nombre_base or 'parecido(s)'} que ya vendemos"
     elif subcategoria:
         de_sub = rr.venta_por_sku(bd, v, list(bd.scalars(select(Producto.sku).where(Producto.subcategoria == subcategoria))))
         if de_sub:

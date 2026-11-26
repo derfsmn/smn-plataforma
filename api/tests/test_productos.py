@@ -705,3 +705,25 @@ def test_ingrediente_pasa_por_la_ia_y_marca_completa(monkeypatch):
     assert not rp.producto_de_la_marca("B-FIT", salud_fit)
     assert rp.producto_de_la_marca("B-FIT", Producto(descripcion="COLAGENO", marca="B-FIT"))
     assert rp.producto_de_la_marca("BDM Life", Producto(descripcion="BDM-LIFE BERBERINA", marca="BDM-LIFE"))
+
+
+def test_demanda_se_mide_contra_todo_su_tipo_de_producto():
+    """Diego, 26 nov 2026: el Colágeno + Inositol de $749 sacaba Demanda 7 porque solo se comparaba con dos creatinas
+    con colágeno de precio cercano. Ahora se mide contra todos los colágenos en polvo, sin filtrar por precio."""
+    def prod(i, desc, precio="300"):
+        return Producto(producto_id=i, sku=f"F{i}", descripcion=desc, subcategoria="X", rama="Y",
+                        precio_lista_con_impuestos=Decimal(precio), activo=True)
+    activos = [prod(1, "COLAGENO HIDROLIZADO 300 G", "450"), prod(2, "COLAGENO CON BIOTINA 300 G", "380"),
+               prod(3, "PEPTIDOS DE COLAGENO 250 G", "520"), prod(4, "CREATINA COLAGENO INOSITOL 545 G", "466"),
+               prod(5, "COLAGENO TIPO II 30 CAP"), prod(6, "COLAGENO MARINO 60 CAP"), prod(7, "MAGNESIO 60 CAP")]
+    s = rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT", contenido="360 G", forma="Polvo",
+                  precio=Decimal("749"))
+    nombre, prods = rp.familia_para_demanda(s, activos)
+    assert nombre == "colageno en polvo"
+    assert {p.producto_id for p in prods} == {1, 2, 3, 4}  # las cápsulas no: otra forma
+    # Con menos de 3 de su forma, cuenta todo el ingrediente
+    pocos = [a for a in activos if a.producto_id not in (2, 3)]
+    nombre, prods = rp.familia_para_demanda(s, pocos)
+    assert nombre == "colageno" and {p.producto_id for p in prods} == {1, 4, 5, 6}
+    # Sin ingrediente con 3 productos, se queda como estaba (parecidos de precio cercano)
+    assert rp.familia_para_demanda(rp.Sujeto(tipo="idea", nombre="ASHWAGANDHA 60 CAP"), activos) is None
