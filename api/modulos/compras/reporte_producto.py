@@ -167,13 +167,13 @@ def _sujeto(bd: Session, e: ProductoEvaluacion) -> tuple[rp.Sujeto, str | None, 
         proveedor = (s.proveedor_nombres or [None])[0] or (org.nombre if org and hasattr(org, "nombre") else None)
         from modulos.compras.rutas_comite import _fotos_propuesta
 
-        return s, proveedor, _fotos_propuesta(p)
+        return rp.poner_familia(bd, s), proveedor, _fotos_propuesta(p)
     i = bd.get(ProductoIdea, e.idea_id)
     s = rp.sujeto_de_idea(i)
     proveedor = i.proveedor_nuevo
     if i.proveedor_intelisis:
         proveedor = bd.scalar(select(Proveedor.nombre).where(Proveedor.proveedor == i.proveedor_intelisis)) or i.proveedor_intelisis
-    return s, proveedor, [f.archivo_id for f in i.fotos]
+    return rp.poner_familia(bd, s), proveedor, [f.archivo_id for f in i.fotos]
 
 
 def _fotos(bd: Session, ids: list[int]) -> list[bytes]:

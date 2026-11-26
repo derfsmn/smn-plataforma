@@ -201,6 +201,9 @@ class Sujeto:
     lista: str | None = None
     precio_membresia: Decimal | None = None
     membresia_calculada: bool = False
+    # 26 nov 2026: los productos de su mismo ingrediente y forma (los colágenos en polvo) para el precio contra anaquel;
+    # se llena con `poner_familia`
+    familia: list = field(default_factory=list)
 
     @property
     def margen_membresia(self) -> Decimal | None:
@@ -1324,6 +1327,9 @@ def precio_anaquel(s: Sujeto, parecidos: list[tuple[Producto, Decimal]],
         return Factor(None, None, "Sin datos: falta nuestro precio.")
     usados = parecidos_para_demanda(s, parecidos, None)
     mismos = mismo_activo(s, parecidos)  # 25 nov 2026: contra todos los que dan lo mismo, sin importar el tamaño
+    if len(s.familia) >= MIN_FAMILIA:  # 26 nov 2026: contra su mismo ingrediente y forma del catálogo, no solo los parecidos
+        vistos = {p.producto_id for p in mismos}
+        mismos = mismos + [p for p in s.familia if p.producto_id not in vistos]
     base = mismos or usados
     que = "Precio sugerido" if s.tipo == "propuesta" else "Nuestro precio"
     # Diego, 25 nov 2026: «debe ser cuánto alcanza cada presentación»: primero el costo por toma (una berberina se toma
@@ -1646,6 +1652,34 @@ def familia_para_demanda(s: Sujeto, activos: list[Producto]) -> tuple[str, list[
         if len(misma) >= MIN_FAMILIA:
             prods, nombre = misma, f"{palabra} {NOMBRE_GRUPO.get(grupo, '')}".strip()
     return (nombre, prods) if len(prods) >= MIN_FAMILIA else None
+
+
+MAX_FAMILIA_PRECIO = 15
+
+
+def poner_familia(bd: Session, s: Sujeto) -> Sujeto:
+    """Llena `s.familia` con los de su mismo ingrediente y forma, los más cercanos en tamaño (hasta 15), para comparar
+    el precio por gramo contra ellos aunque la IA no los haya dejado entre sus parecidos (Diego, 26 nov 2026: el
+    Colágeno + Inositol salía «Precio contra anaquel: sin datos» con más de 200 colágenos en el catálogo)."""
+    try:
+        fam = familia_para_demanda(s, catalogo_activo(bd))
+    except Exception:  # noqa: BLE001 - sin familia se compara como antes
+        fam = None
+    grupo = GRUPO_FORMATO.get(formato_sujeto(s) or "")
+    if not fam or not grupo:
+        return s
+    prods = [p for p in fam[1] if GRUPO_FORMATO.get(formato(p.descripcion) or "") == grupo]
+    if len(prods) < MIN_FAMILIA:
+        return s
+    suyo = tamano(s.contenido, s.nombre, s.descripcion)
+    dim = next((d for d in ("g", "ml", "pz") if d in suyo), None)
+    if dim:
+        def distancia(p: Producto) -> float:
+            t = tamano(p.descripcion).get(dim)
+            return abs(math.log(float(t) / float(suyo[dim]))) if t else 99.0
+        prods = sorted(prods, key=distancia)
+    s.familia = prods[:MAX_FAMILIA_PRECIO]
+    return s
 
 
 def skus_para_pronostico(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], mismo: Producto | None) -> list[str]:
@@ -2388,6 +2422,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         else:
             s = sujeto_de_idea(bd.get(ProductoIdea, e.idea_id))
         ficha_sujeto(bd, e, s)
+        poner_familia(bd, s)
         e.departamento = s.departamento
         fijados = bool(e.comparables)
         vistos: dict[str, tuple[bool, str]] = {}

@@ -734,3 +734,23 @@ def test_demanda_se_mide_contra_todo_su_tipo_de_producto():
     assert nombre == "colageno" and {p.producto_id for p in prods} == {1, 4, 5, 6}
     # Sin ingrediente con 3 productos, se queda como estaba (parecidos de precio cercano)
     assert rp.familia_para_demanda(rp.Sujeto(tipo="idea", nombre="ASHWAGANDHA 60 CAP"), activos) is None
+
+
+def test_precio_anaquel_contra_su_familia_aunque_no_sean_parecidos(monkeypatch):
+    """Diego, 26 nov 2026: el Colágeno + Inositol salía «Precio contra anaquel: sin datos». Ahora se compara por gramo
+    contra los colágenos en polvo del catálogo, aunque la IA no los haya dejado entre sus parecidos."""
+    def prod(i, desc, precio):
+        return Producto(producto_id=i, sku=f"G{i}", descripcion=desc, subcategoria="X", rama="Y",
+                        precio_lista_con_impuestos=Decimal(precio), activo=True)
+    activos = [prod(1, "COLAGENO HIDROLIZADO 300 G", "450"), prod(2, "COLAGENO CON BIOTINA 300 G", "380"),
+               prod(3, "PEPTIDOS DE COLAGENO 250 G", "520"), prod(4, "COLAGENO HIDROLIZADO 1.1 KG", "900"),
+               prod(5, "COLAGENO TIPO II 30 CAP", "300")]
+    monkeypatch.setattr(rp, "catalogo_activo", lambda bd: activos)
+    monkeypatch.setattr(rp, "ficha_de", lambda p: None)
+    s = rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT", contenido="360 G", forma="Polvo",
+                  precio=Decimal("749"))
+    assert rp.precio_anaquel(s, []).puntaje is None  # así salía: sin parecidos con qué comparar
+    rp.poner_familia(None, s)
+    assert [p.producto_id for p in s.familia][:3] == [1, 2, 3] and 5 not in {p.producto_id for p in s.familia}
+    f = rp.precio_anaquel(s, [])
+    assert f.puntaje is not None and "gramo" in (f.valor or "") + f.detalle
