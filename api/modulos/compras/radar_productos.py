@@ -111,6 +111,24 @@ def _norm(texto: str | None) -> str:
     return "".join(c for c in t if not unicodedata.combining(c))
 
 
+def _compacta(texto: str | None) -> str:
+    return re.sub(r"[^a-z0-9ñ]", "", _norm(texto))
+
+
+def producto_de_la_marca(marca: str | None, p: Producto) -> bool:
+    """Si el producto es de la marca: la marca completa, sin espacios ni guiones, igual a su marca o como palabras
+    seguidas en su descripción. Antes bastaba una palabra («B-FIT» se quedaba en «fit» y sacaba los panecillos SALUD FIT
+    como de la misma marca, 26 nov 2026)."""
+    c = _compacta(marca)
+    if len(c) < 3:
+        return False
+    if c == _compacta(p.marca):
+        return True
+    partes = re.findall(r"[a-z0-9ñ]+", _norm(marca))
+    patron = r"(?<![a-z0-9ñ])" + r"[\s\-./&]*".join(map(re.escape, partes)) + r"(?![a-z0-9ñ])"
+    return bool(re.search(patron, _norm(p.marca))) or bool(re.search(patron, _norm(p.descripcion)))
+
+
 def palabras(*textos: str | None) -> set[str]:
     """Palabras que distinguen un producto: sin acentos, sin números ni palabras vacías."""
     salida: set[str] = set()
@@ -662,7 +680,6 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
     todas = raices(s.texto())
     if not todas:
         return []
-    marca = raices(palabras(s.marca))
     depto, forma = _norm(s.departamento).strip(), _norm(s.forma)
     medidas = set(tamano(s.contenido, s.nombre) or (s.ficha.tamano() if s.ficha else {}))
     suyo_formato = formato_sujeto(s)
@@ -677,7 +694,7 @@ def buscar_parecidos(bd: Session, s: Sujeto, subcategoria: str | None, rama: str
         # La marca del catálogo cuenta como parte del nombre («Krystal Stone» viene en la marca, no en la descripción);
         # de su misma subcategoría entra aunque no comparta palabras (un desodorante en barra de otra marca)
         su_sub = bool(subcategoria) and p.subcategoria == subcategoria
-        misma_marca = bool(marca) and (marca <= raices(palabras(p.marca)) or marca <= otras)
+        misma_marca = producto_de_la_marca(s.marca, p)
         if not mismo and (not _con_precio(p) or (nombre and not su_sub and not nombre & (otras | raices(palabras(p.marca))))):
             continue
         cobertura = Decimal(len(nombre & otras)) / Decimal(len(nombre)) if nombre else Decimal(0)
@@ -2273,10 +2290,13 @@ def clasificar_sujeto(bd: Session, s: Sujeto, usar_ia: bool = True, revisar: boo
 
 
 def parecidos_sujeto(bd: Session, s: Sujeto, subcategoria: str | None, rama: str | None, conservar: set[int],
-                     vistos: dict[str, tuple[bool, str]]
+                     vistos: dict[str, tuple[bool, str]], ingrediente: set[int] | frozenset[int] = frozenset()
                      ) -> tuple[list[tuple[Producto, Decimal]], list[tuple[Producto, str]]]:
-    """Parecidos ya revisados por la IA (los quitados, con su motivo). Misma función para la evaluación y el examen."""
-    return revisar_parecidos(bd, s, buscar_parecidos(bd, s, subcategoria, rama, conservar), vistos, conservar)
+    """Parecidos ya revisados por la IA (los quitados, con su motivo). Misma función para la evaluación y el examen.
+    `ingrediente`: los que llevan su ingrediente principal (`del_ingrediente`); no se tiran por subcategoría ni tamaño,
+    pero la IA sí los revisa (26 nov 2026: entraba un jabón de colágeno como parecido de un colágeno en polvo)."""
+    juntos = set(conservar) | set(ingrediente)
+    return revisar_parecidos(bd, s, buscar_parecidos(bd, s, subcategoria, rama, juntos), vistos, conservar)
 
 
 def clasificacion_de_parecidos(parecidos: list[tuple[Producto, Decimal]], mismo: Producto | None) -> Producto | None:
@@ -2358,22 +2378,23 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             conservar = clasif.conservar
         elif ingrediente := ingrediente_de(bd, s):  # otro sabor: los de su ingrediente se quedan, como en la v0.5.3
             conservar = set(ingrediente.ids)
-        if suyo := del_ingrediente(s, catalogo_activo(bd)):  # 26 nov 2026: los de su ingrediente nunca se tiran
-            conservar = set(conservar) | suyo[1]
+        # 26 nov 2026: los de su ingrediente no se tiran por subcategoría ni tamaño (la IA sí revisa que sean de su tipo)
+        suyo = del_ingrediente(s, catalogo_activo(bd))
+        del_suyo = suyo[1] if suyo else set()
 
         paso(2, "buscando productos parecidos en el catálogo y revisándolos con la IA")
         if fijados:  # Compras los fijó: no se revisan
             parecidos = [(bd.get(Producto, c.producto_id), c.similitud) for c in e.comparables]
             cargar_fichas(bd, [p for p, _ in parecidos])
         else:
-            parecidos, quitados = parecidos_sujeto(bd, s, e.subcategoria, e.rama, conservar, vistos)
+            parecidos, quitados = parecidos_sujeto(bd, s, e.subcategoria, e.rama, conservar, vistos, del_suyo)
         mismo = mismo_de(s, parecidos)
         if not e.subcategoria and e.clasificacion_origen not in ("variante", "compras"):
             if fuente := clasificacion_de_parecidos(parecidos, mismo):
                 e.rama, e.subcategoria, e.segmento = fuente.rama, fuente.subcategoria, fuente.segmento
                 e.clasificacion_origen = "parecidos"
                 if not fijados:  # ya con subcategoría, se quitan los de otra (11 nov 2026)
-                    parecidos = _depurar(parecidos, e.subcategoria, e.rama, conservar)
+                    parecidos = _depurar(parecidos, e.subcategoria, e.rama, set(conservar) | del_suyo)
         if not fijados:
             for i, (p, sim) in enumerate(parecidos, 1):
                 e.comparables.append(EvaluacionComparable(producto_id=p.producto_id, rango=i, similitud=sim, origen="sistema"))

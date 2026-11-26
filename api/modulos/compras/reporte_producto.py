@@ -237,16 +237,10 @@ def _fila(p: Producto, venta: dict, etiqueta: str = "") -> Fila:
 
 def de_la_marca(bd: Session, marca: str | None, fuera: set[str]) -> list[Producto]:
     """Lo que ya vendemos de la misma marca, aunque sea otro tipo de producto (Wonu: su colágeno en sobre)."""
-    claves = rp.raices(rp.palabras(marca))
-    if not claves:
+    if len(rp._compacta(marca)) < 3:
         return []
-    salida = []
-    for p in bd.scalars(select(Producto).where(Producto.activo == true())):
-        if p.sku in fuera:
-            continue
-        if claves <= rp.raices(rp.palabras(p.marca)) or claves <= rp.raices(rp.palabras(p.descripcion)):
-            salida.append(p)
-    return salida
+    return [p for p in bd.scalars(select(Producto).where(Producto.activo == true()))
+            if p.sku not in fuera and rp.producto_de_la_marca(marca, p)]
 
 
 def tendencia_subcategoria(bd: Session, v: rr.Ventana, subcategoria: str) -> tuple[float, float, int] | None:

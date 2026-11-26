@@ -684,3 +684,24 @@ def test_revision_parecidos_por_lote(admin):
             bd.delete(e)
             bd.delete(i)
             bd.commit()
+
+
+def test_ingrediente_pasa_por_la_ia_y_marca_completa(monkeypatch):
+    """26 nov 2026 (Colágeno + Inositol B-FIT): un jabón de colágeno entraba como parecido porque los del ingrediente no
+    pasaban por la IA, y los panecillos SALUD FIT salían como «de la misma marca» por la palabra «fit»."""
+    class R:
+        texto = '{"revision": [{"n": 1, "mismo_tipo": false, "motivo": "jabón, no suplemento"}]}'
+    monkeypatch.setattr(rp.puerta, "ejecutar", lambda *a, **k: R())
+    monkeypatch.setattr(rp.puerta, "ventana", lambda *a, **k: None)
+    jabon = Producto(producto_id=1, sku="J", descripcion="DEL INDIO PAPAGO JABON DE COLAGENO 125 G", activo=True,
+                     precio_lista_con_impuestos=Decimal("40"))
+    polvo = Producto(producto_id=2, sku="P", descripcion="COLAGENO HIDROLIZADO 300 G", activo=True,
+                     precio_lista_con_impuestos=Decimal("310"))
+    monkeypatch.setattr(rp, "buscar_parecidos", lambda *a, **k: [(jabon, Decimal("0.3")), (polvo, Decimal("0.4"))])
+    s = rp.Sujeto(tipo="idea", nombre="COLAGENO + INOSITOL", marca="B-FIT")
+    quedan, quitados = rp.parecidos_sujeto(None, s, None, None, set(), {}, {1, 2})
+    assert [p.sku for p, _ in quitados] == ["J"] and [p.sku for p, _ in quedan] == ["P"]
+    salud_fit = Producto(descripcion="SALUD FIT PANECILLO INTEGRAL 100 G", marca="SALUD FIT")
+    assert not rp.producto_de_la_marca("B-FIT", salud_fit)
+    assert rp.producto_de_la_marca("B-FIT", Producto(descripcion="COLAGENO", marca="B-FIT"))
+    assert rp.producto_de_la_marca("BDM Life", Producto(descripcion="BDM-LIFE BERBERINA", marca="BDM-LIFE"))
