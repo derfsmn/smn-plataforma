@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowRight, ArrowUpRight, BookOpen, Construction, FlaskConical, FolderKanban, Search, Telescope, FileSpreadsheet, Gauge, MessageCircle, PackagePlus, Radar, Tags } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BookOpen, Construction, FlaskConical, FolderKanban, Search, Telescope, FileSpreadsheet, Gauge, MessageCircle, PackagePlus, Radar, Tags, Warehouse } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, estadoModulo, type Modulo } from "@/lib/api";
 import type { DatosInicio, Pendiente } from "@/lib/inicio";
@@ -43,6 +43,8 @@ const HERRAMIENTAS: Herramienta[] = [
     texto: "Un folio por producto nuevo: ficha, fórmula cifrada, evidencia citada, reglas y la decisión del Filtro." },
   { modulo: "innovacion", permiso: "innovacion.investigacion.correr", href: "/innovacion/investigar", titulo: "Investigar en internet", icono: Telescope, piloto: true,
     texto: "PubMed, Europe PMC, ClinicalTrials.gov, OpenAlex y Crossref: busca, lee lo abierto y redacta un informe con citas." },
+  { modulo: "inventarios", permiso: "inventarios.tablero.ver", href: "/inventarios", titulo: "Tablero de inventarios", icono: Warehouse, piloto: true,
+    texto: "Cuánto hay a costo y a precio, dónde está, venta contra inventario, clases, salud por tienda y lo que falta para controlar máximos." },
   { modulo: "kiosco", permiso: PERMISO_KIOSCO, href: "/kiosco", titulo: "Abrir el kiosco con Naturi", icono: MessageCircle,
     texto: "Asistente de voz y texto a pantalla completa para orientar a clientes en tienda." },
 ];

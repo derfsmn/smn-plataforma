@@ -26,6 +26,9 @@ MODULOS = [
          descripcion="Base de conocimiento científica y regulatoria, expedientes de producto con reglas, dictámenes y "
                      "decisión del Filtro; investigación en internet con IA local.",
          tiene_portal_externo=False, orden_menu=60, icono="matraz", estado="piloto"),
+    dict(codigo="inventarios", codigo_iniciativa="TD006", nombre="Inventarios", area="Compras, Planeación, Auditoría y Dirección",
+         descripcion="Cuánto inventario hay, dónde está, qué se vende y qué no. Primer tablero con datos reales de la base.",
+         tiene_portal_externo=False, orden_menu=70, icono="almacen", estado="piloto"),
 ]
 
 # (código, descripción, módulo o None si es de plataforma)
@@ -97,6 +100,7 @@ PERMISOS = [
     ("innovacion.excepcion.aprobar", "Aprobar o rechazar excepciones (nunca la propia)", "innovacion"),
     ("innovacion.decision.filtro", "Decidir el Filtro de un expediente (usuario directivo)", "innovacion"),
     ("innovacion.exportar", "Exportar el expediente a PDF según sus permisos", "innovacion"),
+    ("inventarios.tablero.ver", "Ver el tablero de inventarios", "inventarios"),
 ]
 
 # (código, nombre, descripción, para, módulo, permisos)
@@ -115,7 +119,8 @@ ROLES = [
       "compras.comite.ver", "compras.comite.subir", "compras.comite.prefiltrar", "compras.comite.decidir",
       "kiosco.naturi.usar", "contraloria.diot.ver", "contraloria.diot.operar", "contraloria.criterios.aprobar",
       "metodos.consultar", "metodos.cargar", "metodos.aprobar",
-      "innovacion.recurso.ver", "innovacion.recurso.cargar", "innovacion.recurso.revisar", "innovacion.restringido.ver", "innovacion.consulta.usar", "innovacion.investigacion.correr", "innovacion.expediente.ver", "innovacion.expediente.editar", "innovacion.formula.ver", "innovacion.formula.editar", "innovacion.evaluacion.correr", "innovacion.regla.proponer", "innovacion.regla.publicar", "innovacion.dictamen.emitir", "innovacion.excepcion.aprobar", "innovacion.decision.filtro", "innovacion.exportar"]),
+      "innovacion.recurso.ver", "innovacion.recurso.cargar", "innovacion.recurso.revisar", "innovacion.restringido.ver", "innovacion.consulta.usar", "innovacion.investigacion.correr", "innovacion.expediente.ver", "innovacion.expediente.editar", "innovacion.formula.ver", "innovacion.formula.editar", "innovacion.evaluacion.correr", "innovacion.regla.proponer", "innovacion.regla.publicar", "innovacion.dictamen.emitir", "innovacion.excepcion.aprobar", "innovacion.decision.filtro", "innovacion.exportar",
+      "inventarios.tablero.ver"]),
     ("compras_responsable", "Responsable de Compras", "Evalúa solicitudes y ajusta el semáforo.", "interno", "compras",
      ["compras.solicitud.ver", "compras.solicitud.evaluar", "compras.semaforo.ajustar",
       "compras.radar.ver", "compras.radar.decidir", "compras.precios.ver", "compras.conocimiento.ver",
@@ -153,6 +158,8 @@ ROLES = [
      ["innovacion.recurso.ver", "innovacion.consulta.usar", "innovacion.expediente.ver", "innovacion.recurso.cargar", "innovacion.investigacion.correr", "innovacion.exportar", "innovacion.restringido.ver", "innovacion.formula.ver", "innovacion.recurso.revisar", "innovacion.regla.proponer", "innovacion.regla.publicar", "innovacion.dictamen.emitir", "innovacion.excepcion.aprobar"]),
     ("innovacion_calidad", "Calidad Vidanat", "Revisa fuentes de calidad, dictamina y publica reglas de su área. Se crea sin asignar.", "interno", "innovacion",
      ["innovacion.recurso.ver", "innovacion.consulta.usar", "innovacion.expediente.ver", "innovacion.recurso.cargar", "innovacion.investigacion.correr", "innovacion.exportar", "innovacion.restringido.ver", "innovacion.formula.ver", "innovacion.recurso.revisar", "innovacion.regla.proponer", "innovacion.regla.publicar", "innovacion.dictamen.emitir", "innovacion.excepcion.aprobar"]),
+    ("inventarios_consulta", "Consulta de inventarios", "Ve el tablero de inventarios.", "interno", "inventarios",
+     ["inventarios.tablero.ver"]),
     ("innovacion_directivo", "Directivo Vidanat", "Decide el Filtro de los expedientes.", "interno", "innovacion",
      ["innovacion.recurso.ver", "innovacion.consulta.usar", "innovacion.expediente.ver", "innovacion.decision.filtro", "innovacion.exportar"]),
     ("innovacion_marketing", "Marketing Vidanat", "Consulta la base y los expedientes (lo comercial llega en la Entrega 2).", "interno", "innovacion",

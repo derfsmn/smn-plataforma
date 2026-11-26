@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.bd import obtener_bd
+from core.bd import obtener_bd_ligera
 from core.seguridad import Contexto, requiere
 from nucleo import actividad
 from nucleo.modelos import ahora
@@ -179,7 +179,7 @@ def procesos(bd: Session) -> list[dict]:
 
 
 @router.get("")
-def en_vivo(desde: int = 0, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
+def en_vivo(desde: int = 0, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd_ligera)) -> dict:
     """Procesos que están corriendo y líneas nuevas de la bitácora (después de la línea `desde`)."""
     return {"procesos": procesos(bd), "bitacora": MEMORIA.desde(desde), "ahora": ahora().replace(tzinfo=UTC).isoformat(),
             "guarda": LINEAS, "ultima": MEMORIA._n}
@@ -347,7 +347,22 @@ def _base_salud(bd: Session) -> tuple[dict, dict]:
         detalle = f"{float(gb):.1f} GB · {detalle}" if gb is not None else detalle
     except Exception:  # noqa: BLE001
         bd.rollback()
-    base = _cuadro("base", "Base de datos", "aviso" if ms > 1000 else "ok", detalle)
+    estado = "aviso" if ms > 1000 else "ok"
+    # Conexiones en uso (26 nov 2026: la plataforma se pasmó cuando se acabaron); se avisa antes de que se llenen
+    from core.bd import CONEXIONES, EXTRA, motor
+
+    tope = CONEXIONES + EXTRA
+    try:
+        uso = motor().pool.checkedout()
+    except Exception:  # noqa: BLE001
+        uso = None
+    if uso is not None:
+        detalle = f"{detalle} · {uso} de {tope} conexiones"
+        if uso >= tope * 0.9:
+            estado = "mal"
+        elif uso >= tope * 0.6:
+            estado = "aviso"
+    base = _cuadro("base", "Base de datos", estado, detalle)
     try:
         ultimo = bd.execute(text("SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = DB_NAME()")).scalar()
     except Exception:  # noqa: BLE001
@@ -531,7 +546,7 @@ def monitor_serie(_: Contexto = Depends(requiere(VER))) -> dict:
 
 
 @router.get("/monitor")
-def monitor(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> dict:
+def monitor(_: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd_ligera)) -> dict:
     """Todo lo de la pantalla Monitor en una sola consulta (la gráfica en vivo va aparte, en /monitor/serie)."""
     lineas = MEMORIA.desde(0)
     avisos = [x for x in lineas if x["nivel"] in ("aviso", "error")][-8:][::-1]

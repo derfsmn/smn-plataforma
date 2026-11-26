@@ -111,3 +111,30 @@ def test_grafica_en_vivo_cuenta_busquedas_e_ia(admin):
     assert 0 <= m["ia"] <= 100
     s = admin.get("/api/nucleo/en-vivo/monitor/serie").json()
     assert s["cada"] == 2.0 and s["muestras"] and "busquedas" in s["muestras"][-1]
+
+
+def test_sesion_ligera_devuelve_la_conexion_sin_lock_timeout():
+    """26 nov 2026: el Monitor se rinde a los 2 s ante un bloqueo, y la conexión regresa a la bolsa como estaba."""
+    from sqlalchemy import text
+
+    from core.bd import motor, obtener_bd_ligera
+
+    gen = obtener_bd_ligera()
+    bd = next(gen)
+    assert bd.execute(text("SELECT @@LOCK_TIMEOUT")).scalar() == 2000
+    gen.close()
+    assert motor().pool.size() == 10
+    with motor().connect() as c:
+        assert c.execute(text("SELECT @@LOCK_TIMEOUT")).scalar() == -1
+
+
+def test_sesion_ligera_mantiene_el_limite_despues_de_rollback():
+    from sqlalchemy import text
+
+    from core.bd import obtener_bd_ligera
+
+    gen = obtener_bd_ligera()
+    bd = next(gen)
+    bd.rollback()
+    assert bd.execute(text("SELECT @@LOCK_TIMEOUT")).scalar() == 2000
+    gen.close()

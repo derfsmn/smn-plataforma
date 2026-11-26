@@ -247,10 +247,14 @@ export default function MonitorPage() {
           setLlegó(performance.now());
         })
         .catch(() => undefined);
-    traer();
-    traerSerie();
-    const t1 = setInterval(traer, CADA_MS);
-    const t2 = setInterval(traerSerie, SERIE_MS);
+    // Cada consulta espera a que termine la anterior (26 nov 2026: con la base lenta, setInterval apilaba peticiones
+    // hasta agotar las conexiones de la API)
+    let t1: ReturnType<typeof setTimeout> | undefined;
+    let t2: ReturnType<typeof setTimeout> | undefined;
+    const cicloDatos = () => traer().finally(() => { if (vivo) t1 = setTimeout(cicloDatos, CADA_MS); });
+    const cicloSerie = () => traerSerie().finally(() => { if (vivo) t2 = setTimeout(cicloSerie, SERIE_MS); });
+    cicloDatos();
+    cicloSerie();
     const t3 = setInterval(() => setReloj(new Date()), 1000);
     const fs = () => setCompleta(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", fs);
@@ -268,8 +272,8 @@ export default function MonitorPage() {
     document.addEventListener("visibilitychange", visible);
     return () => {
       vivo = false;
-      clearInterval(t1);
-      clearInterval(t2);
+      clearTimeout(t1);
+      clearTimeout(t2);
       clearInterval(t3);
       document.removeEventListener("fullscreenchange", fs);
       document.removeEventListener("visibilitychange", visible);

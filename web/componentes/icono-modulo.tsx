@@ -1,7 +1,7 @@
-import { BookOpen, FlaskConical, ShoppingCart, Users, Radar, Plus, Store, Landmark } from "lucide-react";
+import { BookOpen, FlaskConical, ShoppingCart, Users, Radar, Plus, Store, Landmark, Warehouse } from "lucide-react";
 import type { Icono } from "@/lib/api";
 
-const iconos = { carrito: ShoppingCart, personas: Users, radar: Radar, tienda: Store, fiscal: Landmark, libro: BookOpen, matraz: FlaskConical, mas: Plus };
+const iconos = { carrito: ShoppingCart, personas: Users, radar: Radar, tienda: Store, fiscal: Landmark, libro: BookOpen, matraz: FlaskConical, almacen: Warehouse, mas: Plus };
 
 export function IconoModulo({ icono, className = "h-6 w-6" }: { icono: Icono; className?: string }) {
   const Componente = iconos[icono] ?? Plus;

@@ -48,11 +48,13 @@ export function EnVivo() {
           }
         })
         .catch((e: Error) => vivo && setError(e.message));
-    traer();
-    const t = setInterval(traer, CADA_MS);
+    // Espera a que termine la consulta anterior antes de pedir otra (26 nov 2026: se apilaban con la base lenta)
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const ciclo = () => traer().finally(() => { if (vivo) t = setTimeout(ciclo, CADA_MS); });
+    ciclo();
     return () => {
       vivo = false;
-      clearInterval(t);
+      clearTimeout(t);
     };
   }, [pausa]);
 
