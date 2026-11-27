@@ -12,7 +12,7 @@ import { SEMAFORO } from "@/lib/precios";
 import { Boton, Esqueleto } from "@/componentes/ui";
 import { api, haceCuanto, mensajeDe } from "@/lib/api";
 import { useSondeo } from "@/lib/sondeo";
-import { colorVigente, ESTADOS_IDEA, EVENTO_CAPTURAR, RUTA, type Color, type EvaluacionResumen } from "@/lib/productos";
+import { colorVigente, ESTADOS_IDEA, EVENTO_ALTA_FOTOS, EVENTO_CAPTURAR, RUTA, type Color, type EvaluacionResumen } from "@/lib/productos";
 
 const TIPOS = [
   { valor: "", texto: "Todos" },
@@ -46,6 +46,7 @@ export default function RadarProductos() {
   const [tipo, setTipo] = useState<"" | "propuesta" | "idea">("");
   const [color, setColor] = useState<Color | "">("");
   const [capturando, setCapturando] = useState(false);
+  const [conFotos, setConFotos] = useState(false);
   const [q, setQ] = useState("");
 
   // El color se filtra aquí para poder contar cuántos hay de cada uno
@@ -60,9 +61,14 @@ export default function RadarProductos() {
   }, [cargar]);
 
   useEffect(() => {
-    const abrir = () => setCapturando(true);
+    const abrir = () => { setConFotos(false); setCapturando(true); };
+    const abrirFotos = () => { setConFotos(true); setCapturando(true); };
     window.addEventListener(EVENTO_CAPTURAR, abrir);
-    return () => window.removeEventListener(EVENTO_CAPTURAR, abrir);
+    window.addEventListener(EVENTO_ALTA_FOTOS, abrirFotos);
+    return () => {
+      window.removeEventListener(EVENTO_CAPTURAR, abrir);
+      window.removeEventListener(EVENTO_ALTA_FOTOS, abrirFotos);
+    };
   }, []);
 
   // Mientras alguna esté en curso, se vuelve a preguntar
@@ -190,7 +196,7 @@ export default function RadarProductos() {
         </div>
       )}
 
-      <AnimatePresence>{capturando && <CapturarIdea cerrar={() => { setCapturando(false); cargar(); }} />}</AnimatePresence>
+      <AnimatePresence>{capturando && <CapturarIdea fotosPrimero={conFotos} cerrar={() => { setCapturando(false); cargar(); }} />}</AnimatePresence>
     </>
   );
 }

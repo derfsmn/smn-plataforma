@@ -4,7 +4,7 @@
 // La usan el Radar de productos y el Comité de producto nuevo.
 
 import { useRouter } from "next/navigation";
-import { Check, ImagePlus, Lightbulb, X } from "lucide-react";
+import { Camera, Check, ImagePlus, Lightbulb, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { Modal } from "@/componentes/modal";
@@ -39,9 +39,12 @@ export type IdeaDatos = Partial<Record<keyof typeof VACIO, string | number | nul
 };
 
 /** alGuardar: el Comité de producto nuevo la sube a su reunión y se queda ahí; sin él, se abre su semáforo.
- *  corregir: la idea ya capturada que se corrige (mismo formulario, sin fotos; guarda y la vuelve a evaluar). */
-export function CapturarIdea({ cerrar, alGuardar, corregir }: {
+ *  corregir: la idea ya capturada que se corrige (mismo formulario, sin fotos; guarda y la vuelve a evaluar).
+ *  fotosPrimero: «Alta con fotos» (Diego, 27 nov 2026): lo primero es subir las fotos de la etiqueta y leerlas;
+ *  el formulario queda abajo, ya lleno, para revisar y completar lo que la etiqueta no trae. */
+export function CapturarIdea({ cerrar, alGuardar, corregir, fotosPrimero }: {
   cerrar: () => void;
+  fotosPrimero?: boolean;
   alGuardar?: (e: Evaluacion) => Promise<void>;
   corregir?: { id: number; datos: IdeaDatos };
 }) {
@@ -178,17 +181,84 @@ export function CapturarIdea({ cerrar, alGuardar, corregir }: {
     </button>
   );
 
+  // Las fotos: arriba y como primer paso en «Alta con fotos»; al final del formulario en la captura de siempre
+  const bloqueFotos = corregir ? null : (
+<div className={fotosPrimero ? "rounded-2xl border border-smn-naranja/40 bg-smn-naranja/5 p-4" : undefined}>
+          {fotosPrimero ? (
+            <div className="mb-3">
+              <p className="flex items-center gap-2 text-[17px] font-semibold text-tinta"><Camera className="h-5 w-5 text-smn-naranja" /> 1. Sube las fotos de la etiqueta</p>
+              <p className="mt-1 text-sm text-smn-gris-700">Frente, tabla nutrimental y código de barras (hasta 6). Luego pica <b>«Leer las fotos»</b> y la plataforma llena los datos por ti.</p>
+            </div>
+          ) : (
+            <span className="mb-1.5 block text-sm font-semibold text-smn-gris-700">Fotos (hasta 6)</span>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {fotos.map((f) => (
+              <div key={f.clave} className="relative h-24 w-24 overflow-hidden rounded-2xl border border-smn-gris-100 bg-smn-gris-50">
+                {/* eslint-disable-next-line @next/next/no-img-element -- vista previa local antes de subir */}
+                <img src={f.vista} alt={f.nombre} className={`h-full w-full object-cover ${f.error ? "opacity-30" : ""}`} />
+                {!f.id && !f.error && (
+                  <span className="absolute inset-x-0 bottom-0 h-1 bg-smn-gris-300">
+                    <span className="block h-full bg-smn-naranja transition-all" style={{ width: `${f.avance}%` }} />
+                  </span>
+                )}
+                {f.error && <span className="absolute inset-0 grid place-items-center p-1 text-center text-[13px] font-semibold text-red-700">{f.error}</span>}
+                <button
+                  type="button"
+                  onClick={() => setFotos((fs) => fs.filter((x) => x.clave !== f.clave))}
+                  aria-label={`Quitar ${f.nombre}`}
+                  className="absolute top-1 right-1 rounded-full bg-smn-negro/70 p-0.5 text-white"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {fotos.length < 6 && (
+              <button
+                type="button"
+                onClick={() => entrada.current?.click()}
+                className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-smn-gris-300 text-[13px] font-medium text-smn-gris-500 hover:border-smn-naranja hover:text-tinta"
+              >
+                <ImagePlus className="h-6 w-6 text-smn-naranja" /> Agregar
+              </button>
+            )}
+          </div>
+          <input ref={entrada} type="file" accept=".png,.jpg,.jpeg,.webp,image/*" multiple className="hidden" onChange={(e) => agregarFotos(e.target.files)} />
+          {(conFotos || fotosPrimero) && (
+            <div className="mt-2">
+              <Boton type="button" variante={fotosPrimero ? "primario" : "secundario"} onClick={leerFotos} cargando={leyendo} disabled={leyendo || subiendo || !fotos.some((f) => f.id)}>
+                {leyendo ? "Leyendo la etiqueta…" : "Leer las fotos"}
+              </Boton>
+              {leyendo && <p className="mt-1 text-[13px] text-smn-gris-500">La IA local está leyendo la etiqueta; tarda unos segundos por foto. Puedes seguir capturando.</p>}
+              {/* El resultado va junto al botón: ahí está la persona cuando termina de leer */}
+              {lectura && (
+                <div className="mt-2 rounded-2xl bg-smn-gris-50 p-3 text-sm">
+                  {lectura.nota ? (
+                    <p className="text-smn-gris-700">{lectura.nota}</p>
+                  ) : (
+                    <p className="text-smn-gris-700">Se llenaron {leidos.size} {leidos.size === 1 ? "dato" : "datos"} con la etiqueta en {Math.round(lectura.segundos)} s; están marcados «Leído de la foto, revisa».</p>
+                  )}
+                  {faltan.length > 0 && <p className="mt-1 font-semibold text-tinta">Te falta capturar: {faltan.join(", ")}.</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+  );
+
   return (
-    <Modal titulo={corregir ? "Corregir datos" : "Captura rápida"} cerrar={cerrar} ancho="max-w-2xl">
+    <Modal titulo={corregir ? "Corregir datos" : fotosPrimero ? "Alta con fotos" : "Captura rápida"} cerrar={cerrar} ancho="max-w-2xl">
       <form onSubmit={guardar} className="space-y-4">
-        <p className="flex gap-2 rounded-2xl bg-smn-gris-50 p-3 text-sm text-smn-gris-700">
+        {fotosPrimero && bloqueFotos}
+        {fotosPrimero && <p className="text-[17px] font-semibold text-tinta">2. Revisa y completa</p>}
+        {!fotosPrimero && <p className="flex gap-2 rounded-2xl bg-smn-gris-50 p-3 text-sm text-smn-gris-700">
           <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-smn-naranja" />
           <span>
             Con nombre y tipo de producto ya se puede evaluar. Lo que más ayuda: <b>la marca del empaque, el contenido con su unidad y el código de barras</b>, porque con eso se encuentra su precio afuera; con <b>precio y costo</b> se calcula el margen.
           </span>
-        </p>
+        </p>}
 
-        {conFotos && (
+        {conFotos && !fotosPrimero && (
           <p className="rounded-2xl border border-smn-naranja/40 bg-smn-naranja/5 p-3 text-sm text-smn-gris-700">
             ¿Tienes fotos de la etiqueta? Súbelas en «Fotos» (frente, tabla nutrimental y código de barras) y pica <b>«Leer las fotos»</b>: llenamos lo que diga la etiqueta y tú revisas.
           </p>
@@ -315,60 +385,7 @@ export function CapturarIdea({ cerrar, alGuardar, corregir }: {
           />
         </label>
 
-        {!corregir && <div>
-          <span className="mb-1.5 block text-sm font-semibold text-smn-gris-700">Fotos (hasta 6)</span>
-          <div className="flex flex-wrap gap-2">
-            {fotos.map((f) => (
-              <div key={f.clave} className="relative h-24 w-24 overflow-hidden rounded-2xl border border-smn-gris-100 bg-smn-gris-50">
-                {/* eslint-disable-next-line @next/next/no-img-element -- vista previa local antes de subir */}
-                <img src={f.vista} alt={f.nombre} className={`h-full w-full object-cover ${f.error ? "opacity-30" : ""}`} />
-                {!f.id && !f.error && (
-                  <span className="absolute inset-x-0 bottom-0 h-1 bg-smn-gris-300">
-                    <span className="block h-full bg-smn-naranja transition-all" style={{ width: `${f.avance}%` }} />
-                  </span>
-                )}
-                {f.error && <span className="absolute inset-0 grid place-items-center p-1 text-center text-[13px] font-semibold text-red-700">{f.error}</span>}
-                <button
-                  type="button"
-                  onClick={() => setFotos((fs) => fs.filter((x) => x.clave !== f.clave))}
-                  aria-label={`Quitar ${f.nombre}`}
-                  className="absolute top-1 right-1 rounded-full bg-smn-negro/70 p-0.5 text-white"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-            {fotos.length < 6 && (
-              <button
-                type="button"
-                onClick={() => entrada.current?.click()}
-                className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-smn-gris-300 text-[13px] font-medium text-smn-gris-500 hover:border-smn-naranja hover:text-tinta"
-              >
-                <ImagePlus className="h-6 w-6 text-smn-naranja" /> Agregar
-              </button>
-            )}
-          </div>
-          <input ref={entrada} type="file" accept=".png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={(e) => agregarFotos(e.target.files)} />
-          {conFotos && (
-            <div className="mt-2">
-              <Boton type="button" variante="secundario" onClick={leerFotos} cargando={leyendo} disabled={leyendo || subiendo || !fotos.some((f) => f.id)}>
-                {leyendo ? "Leyendo la etiqueta…" : "Leer las fotos"}
-              </Boton>
-              {leyendo && <p className="mt-1 text-[13px] text-smn-gris-500">La IA local está leyendo la etiqueta; tarda unos segundos por foto. Puedes seguir capturando.</p>}
-              {/* El resultado va junto al botón: ahí está la persona cuando termina de leer */}
-              {lectura && (
-                <div className="mt-2 rounded-2xl bg-smn-gris-50 p-3 text-sm">
-                  {lectura.nota ? (
-                    <p className="text-smn-gris-700">{lectura.nota}</p>
-                  ) : (
-                    <p className="text-smn-gris-700">Se llenaron {leidos.size} {leidos.size === 1 ? "dato" : "datos"} con la etiqueta en {Math.round(lectura.segundos)} s; están marcados «Leído de la foto, revisa».</p>
-                  )}
-                  {faltan.length > 0 && <p className="mt-1 font-semibold text-tinta">Te falta capturar: {faltan.join(", ")}.</p>}
-                </div>
-              )}
-            </div>
-          )}
-        </div>}
+        {!fotosPrimero && bloqueFotos}
 
         {capturados.length > 0 && (
           <p className="rounded-xl bg-smn-gris-50 px-3 py-2 text-[13px] text-smn-gris-700">

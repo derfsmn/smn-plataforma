@@ -266,3 +266,5 @@ export interface EstadoOportunidades {
 
 // El botón «Capturar producto» vive en el encabezado (layout); la ventana de captura la abre la lista al oír este evento.
 export const EVENTO_CAPTURAR = "smn:capturar-producto";
+/** «Alta con fotos»: la misma captura, pero empezando por las fotos de la etiqueta. */
+export const EVENTO_ALTA_FOTOS = "smn:alta-fotos-producto";

@@ -3,15 +3,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, Camera, Plus, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Boton } from "@/componentes/ui";
-import { EVENTO_CAPTURAR } from "@/lib/productos";
+import { EVENTO_CAPTURAR, EVENTO_ALTA_FOTOS, RUTA } from "@/lib/productos";
+import { api } from "@/lib/api";
 import { useSesion } from "@/componentes/sesion";
 import { CabeceraCompras } from "@/componentes/cabecera-compras";
 
 export default function LayoutProductos({ children }: { children: React.ReactNode }) {
   const ruta = usePathname();
   const { puede } = useSesion();
+  // «Alta con fotos» se prende en Configuración → Radar de productos; prendida, tiene su propio botón aquí
+  const [altaFotos, setAltaFotos] = useState(false);
+  const evalua = puede("compras.productos.evaluar");
+  useEffect(() => {
+    if (evalua) api<{ activo: boolean }>(`${RUTA}/alta-fotos`).then((x) => setAltaFotos(x.activo)).catch(() => setAltaFotos(false));
+  }, [evalua]);
   if (!puede("compras.productos.ver")) return <p className="text-smn-gris-500">No tienes acceso al radar de productos.</p>;
   const enDetalle = /^\/compras\/productos\/(\d+|oportunidades)/.test(ruta);
 
@@ -38,8 +46,13 @@ export default function LayoutProductos({ children }: { children: React.ReactNod
             >
               <Sparkles className="h-4 w-4" /> Buscar oportunidades
             </Link>
-            {puede("compras.productos.evaluar") && (
-              <Boton onClick={() => window.dispatchEvent(new Event(EVENTO_CAPTURAR))}>
+            {evalua && altaFotos && (
+              <Boton onClick={() => window.dispatchEvent(new Event(EVENTO_ALTA_FOTOS))}>
+                <Camera className="h-4 w-4" /> Alta con fotos
+              </Boton>
+            )}
+            {evalua && (
+              <Boton variante={altaFotos ? "secundario" : "primario"} onClick={() => window.dispatchEvent(new Event(EVENTO_CAPTURAR))}>
                 <Plus className="h-4 w-4" /> Capturar producto
               </Boton>
             )}
