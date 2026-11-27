@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.13 · 2026-11-27
+
+Alta con fotos con boton propio en el radar de productos
+
+**Cambios guardados:**
+- v0.6.13 Alta con fotos con boton propio en el radar de productos
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.12 · 2026-11-27
 
 Correccion a fondo del radar de productos y del radar de precios
