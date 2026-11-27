@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.14 · 2026-11-27
+
+La corrida a pedido del radar de precios ya no se queda sin precios por el tope y se puede continuar
+
+**Cambios guardados:**
+- v0.6.14 corrida a pedido no se queda sin precios por el tope y se puede continuar
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.13 · 2026-11-27
 
 Alta con fotos con boton propio en el radar de productos
