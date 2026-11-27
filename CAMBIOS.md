@@ -1,5 +1,15 @@
 # Registro de cambios
 
+## v0.6.12 · 2026-11-27
+
+Correccion a fondo del radar de productos y del radar de precios
+
+**Cambios guardados:**
+- v0.6.12 correccion a fondo de los dos radares
+
+**Migraciones nuevas:**
+- Ninguna
+
 ## v0.6.11 · 2026-11-26
 
 Busqueda de rescate cuando Google no encuentra el producto; Walmart detecta bloqueo
