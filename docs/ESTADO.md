@@ -4,6 +4,48 @@ Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arri
 
 ## Novedades (2026-11-26)
 
+- **Corrección (2026-11-26, noche: revisión para la presentación a Dirección, sin commit):**
+  - **Radar de productos más rápido sin cambiar resultados:** priority 2 de DataForSEO en evaluaciones (`radar_productos_prioridad_alta`),
+    investigación en paralelo, tiendas directas en paralelo, farmacias de Compras vía Google mandadas al empezar, modelo del
+    pronóstico y de Ollama precargados (`pronostico.calentar`, `puerta.precargar_ollama`, `KEEP_ALIVE` 60 min).
+    Sub-paso y reloj en la pantalla mientras evalúa.
+  - **Búsqueda afuera (`REGLA` 13; 6–12 invalidadas):** tiendas de Compras sin conector vía Google (`tiendas_google_*`),
+    respaldo por Google cuando Walmart/San Pablo bloquean, Amazon México con su idioma («Spanish (Mexico)»; antes DataForSEO
+    lo rechazaba siempre), apóstrofo de la marca conservado, «polvo»/«micronizada» no se exigen, cápsulas = tabletas,
+    eBay no cuenta, una tienda cuenta una vez, «visto en Google, tamaño sin confirmar» se enseña sin contar.
+  - **Coherencia:** dictamen dice contra qué compara; «Ya lo vendemos» con iniciales y abreviaturas del catálogo; en una
+    idea el precio capturado no es precio del mercado; políticas sin falsos rechazos (cifra de la descripción de la regla,
+    citar la regla) y con temperatura 0 (3 vueltas iguales).
+  - **IA local:** ventana fija `ollama_contexto` (16384): con ventanas distintas Ollama recargaba el modelo y se atoraba.
+  - **Error 500** en el detalle de una evaluación con precios de Amazon/Mercado Libre/Google sitio: corregido.
+  - **Formulario de alta:** números estilo México (`web/lib/numeros.ts`, `api/core/numeros.py`), código de barras con
+    ceros y aviso de «E+», tips por campo; `npm test` (node --test) en la web.
+  - **Radar de precios:** prioridad alta en corridas a pedido (`precios_pedido_prioridad_alta`, estimado ×2), las 17
+    tiendas de Compras reconocidas por nombre y dominio, USD solo para quien administra, pantallas que no se traban.
+  - **Barrido de pantallas en solo lectura:** `python -m scripts.barrido_pantallas --usuario <admin>`.
+  - **Alta con fotos (apagada de fábrica, ajuste `radar_productos_alta_fotos`):** la IA local lee la etiqueta y
+    prellena la captura rápida (`alta_fotos.py`, `/api/compras/productos/alta-fotos`); solo llena lo vacío, cada dato con
+    su cita y el código de barras con dígito verificador. Medido con 11 fotos reales.
+  - **«Corregir datos»** de una idea (`GET/PUT /api/compras/productos/ideas/{id}`): corrige y vuelve a evaluar la misma idea.
+  - Detalle, hallazgos y reporte en `Documentos\SMN\_claude\revision_26nov\`.
+  - **Pendiente de Diego:** commit, cerrar versión y publicar; ensayo de 10 minutos del reporte; permisos de la app de
+    Mercado Libre (403); decidir los criterios dudosos anotados en `hallazgos.md`.
+
+- **Corrección (2026-11-26, revisión de punta a punta de los dos radares, sin commit):**
+  - **El radar de productos vuelve a buscar en las tiendas directas.** v0.6.11 borró la llamada a `_tiendas` en
+    `mercado_producto.buscar` al unir cambios. Va después del rescate de Google, con las consultas originales. `REGLA` 7.
+  - **Si una corrida a pedido truena**, ahora también le avisa a quien la lanzó (`precios.correr`).
+  - **Si el pronóstico falla**, la Demanda lo dice y ya no queda como «sin datos».
+  - **Un 403 o 429 de una tienda** se reporta como «bloqueó la consulta automática».
+  - **Las pantallas del radar de productos** ya no enciman peticiones: `web/lib/sondeo.ts` (`useSondeo`, `setTimeout`
+    encadenado).
+  - **La prueba de surtido** ya no depende del orden de las pruebas.
+  - Pruebas nuevas en `test_productos.py`, `test_corridas_precios.py` y `test_tiendas.py`. La migración 0056 se probó
+    bajando y subiendo en la base de pruebas.
+  - Hallazgos y preguntas en `Documentos\SMN\_claude\revision_26nov\`.
+  - **Pendiente de Diego:** revisar las preguntas, hacer commit y publicar. Al publicar con `REGLA` 7, la prueba nocturna
+    de precios de afuera vuelve a correr una vez y gasta DataForSEO.
+
 - **Nuevo (2026-11-26): adecuaciones del radar de precios para su uso diario** (cierre con Precios y Costos; Diego: «Puedes ejecutar los cambios del radar de precios?»; «no metamos costos»). Migración **0056** (cuelga de 0055): origen «pedido» y estado «en_espera» en `compras.precio_corrida`.
   - **Reporte a Excel:** se arma por marca, clasificación (AA–E), categoría, SKU o mezcla, sin repetir. La clasificación acota marcas y categorías; sola trae toda la clase. Lista de SKU pegada o en Excel (`POST /api/compras/precios/reporte/skus`). Selector compartido `web/app/(interno)/compras/precios/selector.tsx`.
   - **Corridas** (`/compras/precios/pedidos`, API `rutas_corridas_precios.py`): lista con fecha, quién la pidió, qué se buscó, avance y estado; «Nueva corrida» con Excel de SKU o marca, clasificación y categoría (hasta 300 productos), costo estimado de DataForSEO antes de lanzar y tope del mes. Si otra corre, se forma (en_espera) y arranca sola (`precios.arrancar_en_espera`, cada minuto). Al terminar avisa solo a quien la pidió; resumen (con precio confirmado, más caros, más baratos, sin comparar), qué conviene, producto por producto y Excel. Las corridas a pedido no cuentan como la corrida semanal (`PROGRAMA`). Cualquiera con `compras.precios.ver`.

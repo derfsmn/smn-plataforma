@@ -161,7 +161,7 @@ export type RevisionPoliticas = {
 };
 
 export type MercadoInternet = {
-  precios: { precio: string; vendedor: string; fuente: "google" | "sitio" | "web"; titulo: string; liga: string | null }[];
+  precios: { precio: string; vendedor: string; fuente: string; titulo: string; liga: string | null }[];
   mediana: string | null;
   notas: string[];
   publicacion: string | null;

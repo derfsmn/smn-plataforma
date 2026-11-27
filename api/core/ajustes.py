@@ -219,6 +219,25 @@ CATALOGO = [
            "Al evaluar, lo busca en Google Shopping y en el sitio de las tiendas clave, igual que el radar de precios. "
            "Cuesta unos centavos de dólar de DataForSEO por evaluación y cuenta para el tope del mes. La búsqueda se "
            "reusa 7 días."),
+    Ajuste("precios_pedido_prioridad_alta", "precios", "Corridas a pedido con prioridad alta en DataForSEO", "booleano",
+           "Las corridas que lanza quien usa el radar van en la cola rápida: terminan en minutos en vez de casi una hora, y "
+           "sus búsquedas cuestan el doble (encendido por decisión de Diego). La revisión de noche sigue en la cola normal."),
+    Ajuste("tiendas_google_activo", "precios", "Buscar en las tiendas de Compras vía Google", "booleano",
+           "Las tiendas sin conector se buscan en Google limitado a su sitio, varias por búsqueda. Solo en el radar de "
+           "productos y en las corridas a pedido (no en la revisión de noche). Cuesta una búsqueda normal de DataForSEO "
+           "por cada grupo de tiendas y cuenta para el tope del mes."),
+    Ajuste("tiendas_google_sitios", "precios", "Tiendas de Compras vía Google (nombre=dominio)", "texto",
+           "Separadas por punto y coma, p. ej. «HEB=heb.com.mx; GNC=gnc.com.mx». Solo dominios confirmados."),
+    Ajuste("tiendas_google_por_busqueda", "precios", "Tiendas por búsqueda de Google", "entero",
+           "Cuántas tiendas van juntas en cada búsqueda (con OR). Menos búsquedas cuestan menos, pero traen menos de cada tienda.",
+           1, 6),
+    Ajuste("radar_productos_prioridad_alta", "productos", "Evaluar con prioridad alta en DataForSEO", "booleano",
+           "Las búsquedas de un producto que se está evaluando van en la cola rápida de DataForSEO: contestan en segundos "
+           "en vez de minutos y cuestan el doble (unos centavos de dólar por producto). Las corridas del radar de precios "
+           "siguen en la cola normal."),
+    Ajuste("radar_productos_alta_fotos", "productos", "Alta con fotos", "booleano",
+           "En «Captura rápida», la opción «Leer las fotos»: la IA local lee la etiqueta y prellena nombre, marca, forma, "
+           "contenido, ingrediente, porciones y código de barras. Solo prellena; la persona revisa y guarda."),
     Ajuste("radar_productos_amazon", "productos", "Buscar también en Amazon México", "booleano",
            "Al evaluar, busca el producto en Amazon México para ver si es de los más vendidos, cuántos se compraron el mes "
            "pasado y sus reseñas. Cuesta una búsqueda de DataForSEO por evaluación (US$0.0015 en su tarifa normal) y "

@@ -90,6 +90,10 @@ def _pedir(url: str, encabezados: dict[str, str]) -> str:
         with urllib.request.urlopen(peticion, timeout=TIEMPO) as r:
             return r.read(8 * 1024 * 1024).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
+        # 403 y 429 son su bloqueo contra consultas automáticas (San Pablo contesta 403 desde el servidor): se dice así,
+        # para que nadie lo lea como «no lo vende» (revisión del 26 nov 2026)
+        if e.code in (403, 429):
+            raise ErrorTienda(f"bloqueó la consulta automática (error {e.code})") from e
         raise ErrorTienda(f"respondió con error {e.code}") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise ErrorTienda("no contestó") from e
@@ -322,3 +326,89 @@ def buscar_con_pausa(tienda: Tienda, texto: str, ultima: list[float]) -> list[Re
         return tienda.buscar(texto)
     finally:
         ultima[0] = time.monotonic()
+
+
+# ---------------------------------------------------------------- respaldo por Google cuando la tienda bloquea
+# Diego, 26 nov 2026: Walmart pide verificar identidad y San Pablo contesta 403 a la consulta automática. No se brinca
+# el bloqueo: se busca en Google (DataForSEO, búsqueda normal) limitado al dominio de la tienda y se toma lo que Google ya
+# muestra (título, liga y, si lo trae, el precio). La página de la tienda no se abre. Sondeo con 15 productos: Walmart
+# 10 de 10 con resultado y precio (9 iguales al directo), San Pablo 4 de 5.
+BLOQUEO = "bloqueó la consulta automática"
+FUENTE_GOOGLE_SITIO = "google_sitio"  # el precio de la tienda salió de Google, no de su sitio
+_PRECIO_TEXTO = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b")
+
+
+def es_bloqueo(texto: str | None) -> bool:
+    return BLOQUEO in (texto or "")
+
+
+def consulta_sitio(tienda: Tienda, texto: str) -> str:
+    return f"site:{tienda.dominio} {texto}".strip()[:200]
+
+
+def _precio_de_google(item: dict) -> Decimal | None:
+    """El precio que Google muestra en el resultado: su campo de precio y, si no, un solo precio con centavos en el
+    fragmento (si trae varios es una página con varios productos y no se adivina cuál es)."""
+    p = item.get("price")
+    if isinstance(p, dict) and p.get("current") is not None and (p.get("currency") or "MXN").upper() in ("MXN", "$"):
+        return _decimal(p.get("current"))
+    encontrados = {f"{a.replace(',', '')}.{b}" for a, b in _PRECIO_TEXTO.findall(str(item.get("description") or ""))}
+    return _decimal(next(iter(encontrados))) if len(encontrados) == 1 else None
+
+
+def de_google(tienda: Tienda, items: list[dict]) -> list[Resultado]:
+    """Los resultados de la búsqueda «site:» que son de esa tienda, como si salieran de su buscador."""
+    salida, vistos = [], set()
+    for it in items:
+        url = str(it.get("url") or "")
+        if not url or tienda.dominio not in (str(it.get("domain") or "") + url) or url in vistos:
+            continue
+        vistos.add(url)
+        titulo = re.sub(r"\s*[|\-–]\s*(Walmart.*|Farmacias? San Pablo.*)$", "", str(it.get("title") or "")).strip()
+        if titulo:
+            salida.append(Resultado(url, titulo, _precio_de_google(it), url, datos={"_fuente": FUENTE_GOOGLE_SITIO}))
+    return salida
+
+
+# ---------------------------------------------------------------- tiendas de Compras sin conector, vía Google
+# La lista de Compras (26 nov 2026) trae tiendas que no tienen buscador conectado (Farmacias del Ahorro, HEB, GNC…). Se
+# buscan en Google limitado a su dominio, varias por búsqueda («site:a OR site:b»), y cada resultado se reparte a su
+# tienda por el dominio. Su página no se abre.
+
+
+class TiendaGoogle(Tienda):
+    """Una tienda que solo se ve por Google (no tiene conector a su buscador)."""
+
+    def __init__(self, nombre: str, dominio: str):
+        self.nombre, self.dominio, self.base = nombre, dominio, f"https://{dominio}"
+
+    def buscar(self, texto: str) -> list[Resultado]:
+        raise ErrorTienda("solo se busca por Google")
+
+
+def sitios_google(texto: str | None = None) -> list[TiendaGoogle]:
+    """«Nombre=dominio; Nombre=dominio» de Configuración. Lo que no traiga dominio con punto se ignora."""
+    from core.config import configuracion
+
+    salida = []
+    for parte in (configuracion().tiendas_google_sitios if texto is None else texto or "").split(";"):
+        nombre, _, dominio = parte.partition("=")
+        dominio = re.sub(r"^(https?://)?(www\.)?", "", dominio.strip().lower()).strip("/")
+        if nombre.strip() and "." in dominio:
+            salida.append(TiendaGoogle(nombre.strip(), dominio))
+    return salida
+
+
+def grupos_google(tiendas: list[TiendaGoogle], por_busqueda: int) -> list[list[TiendaGoogle]]:
+    n = max(1, por_busqueda)
+    return [tiendas[i:i + n] for i in range(0, len(tiendas), n)]
+
+
+def consulta_grupo(grupo: list[TiendaGoogle], texto: str) -> str:
+    sitios = " OR ".join(f"site:{t.dominio}" for t in grupo)
+    return f"{sitios} {texto}".strip()[:400]
+
+
+def de_google_varias(grupo: list[Tienda], items: list[dict]) -> dict[str, list[Resultado]]:
+    """Reparte los resultados de una búsqueda agrupada a cada tienda por su dominio."""
+    return {t.nombre: suyos for t in grupo if (suyos := de_google(t, items))}

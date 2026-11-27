@@ -24,11 +24,18 @@ ABREVIATURAS = {
     "paquete": "paquetes", "pack": "paquetes", "packs": "paquetes",
     "caramelo": "piezas", "caramelos": "piezas",
 }
-PRESENTACION = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(mcg|mg|kg|g|ml|l|capsulas|tabletas|piezas|paquetes)\b")
+PRESENTACION = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(mcg|mg|kg|g|ml|l|capsulas|tabletas|piezas|paquetes|lbs?|libras?)\b")
+# Libras a gramos enteros, como se etiqueta en México (Whey Gold Standard, 26 nov 2026: «2 lb» es la de 907 g y no se
+# comprobaba el tamaño)
+GRAMOS_POR_LIBRA = 453.592
 VACIAS = {"con", "sin", "para", "por", "del", "las", "los", "una", "un", "y", "de", "el", "en", "producto"}
 MEDIDA = re.compile(
     r"\b\d+(?:[.,]\d+)?\s*(?:mcg|mg|kg|gr(?:amos?)?|g|ml|mililitros?|l|litros?|c[aá]ps?(?:ulas?)?|tabletas?|tabs?|"
     r"piezas?|pzas?|pack|paquetes?|porciones?)\b", re.IGNORECASE)
+# Palabras de la forma o del proceso que las tiendas casi nunca ponen en el título: cuentan para la calificación pero no se
+# exigen (Creatina Optimum Nutrition, 26 nov 2026: «el título no trae POLVO, MICRONIZADA»). La forma se sigue cuidando con
+# la presentación: «300 g» contra «100 cápsulas» no coincide
+NO_SE_EXIGEN = {"polvo", "micronizada", "micronizado"}
 UNIDADES = {"mcg", "mg", "kg", "g", "ml", "l", "capsulas", "tabletas", "piezas", "paquetes", "porciones", "softgels", "gomitas", "sobres"}
 # Palabras que, si no están en nuestra descripción, delatan un paquete o kit (caso Birdman: «Kit…», «+ Creatina», «Shaker»)
 PAQUETE = {"kit", "combo", "paquetes", "set", "bundle", "shaker", "regalo", "sobres", "lote", "duo", "trio", "mayoreo", "caja"}
@@ -74,8 +81,12 @@ def marca_del_nombre(descripcion: str | None, marca: str | None, marcas_conocida
 
 
 def texto_plano(texto: str) -> str:
-    """Para el buscador: sin signos como «+», «–», «&» o comillas; las medidas (1.2G) se quedan."""
-    return re.sub(r"\s+", " ", re.sub(r"[^\w.,/ ]+", " ", texto)).strip()
+    """Para el buscador: sin signos como «+», «–», «&» o comillas; las medidas (1.2G) se quedan. El apóstrofo dentro de
+    una palabra se queda, como lo escribe la marca: «Nature's Bounty» (26 nov 2026: con «Nature s Bounty» Google regresaba
+    vitaminas de otras marcas, y con «Natures Bounty» tampoco traía la marca)."""
+    marcado = re.sub(r"(?<=\w)['’´`](?=\w)", "\u0001", texto)  # se aparta antes de quitar los signos
+    limpio = re.sub(r"\s+", " ", re.sub(r"[^\w.,/ \u0001]+", " ", marcado)).strip()
+    return limpio.replace("\u0001", "'")
 
 
 def nombre_sin_medidas(texto: str | None) -> str:
@@ -96,7 +107,9 @@ def presentaciones(texto: str | None) -> set[tuple[str, str]]:
     for cantidad, unidad in PRESENTACION.findall(normalizar(texto)):
         # «1,000 mg» es mil; «2,5 g» es dos y medio
         n = float(cantidad.replace(",", "") if re.fullmatch(r"\d{1,3},\d{3}", cantidad) else cantidad.replace(",", "."))
-        if unidad == "kg":
+        if unidad in ("lb", "lbs", "libra", "libras"):
+            n, unidad = round(n * GRAMOS_POR_LIBRA) * 1000, "mg"
+        elif unidad == "kg":
             n, unidad = n * 1_000_000, "mg"
         elif unidad == "g":
             n, unidad = n * 1000, "mg"
@@ -104,6 +117,10 @@ def presentaciones(texto: str | None) -> set[tuple[str, str]]:
             n, unidad = n / 1000, "mg"
         elif unidad == "l":
             n, unidad = n * 1000, "ml"
+        elif unidad == "tabletas":
+            # Cápsulas y tabletas se cuentan igual al comparar el tamaño: cada tienda le dice distinto al mismo frasco
+            # (Magnesio Nature's Bounty, 26 nov 2026: «120 cápsulas» capturado contra «120 Tabletas» en Google)
+            unidad = "capsulas"
         salida.add((f"{n:g}", unidad))
     return salida
 
@@ -221,13 +238,18 @@ def evaluar(descripcion: str | None, marca: str | None, titulo: str, umbral: flo
             salida.append(p)  # se quedan letras y números sueltos: vitamina C, omega 3
         return salida
 
-    origen, destino = limpio(normalizar(descripcion)), limpio(candidato)
+    # «Sabor natural» o «sin sabor» dice que no tiene sabor, no es parte del nombre: no se exige en el título (Creatina
+    # Optimum Nutrition, 26 nov 2026: se rechazaban sus publicaciones por no decir «sabor natural»)
+    descripcion_nombre = re.sub(r"\s*\b(?:natural sin sabor|sabor natural|sin sabor)\b", " ", normalizar(descripcion))
+    origen, destino = limpio(descripcion_nombre), limpio(candidato)
     if not origen and de_marca:
         # El nombre es la marca misma (DEMOGRASS 30 CAP de la marca DEMOGRASS): se compara con ella
         # (corrida 2005: salía «nombre 0» y no se aceptaba ni en San Pablo ni en Soriana)
         de_marca = set()
-        origen, destino = limpio(normalizar(descripcion)), limpio(candidato)
+        origen, destino = limpio(descripcion_nombre), limpio(candidato)
     nombre = 0.0
+    # Lo que no se exige tampoco baja la calificación del nombre cuando falta en el título
+    origen = [p for p in origen if p not in NO_SE_EXIGEN or p in destino] or origen
     if origen:
         a, b = " ".join(origen), " ".join(destino)
         cobertura = 100.0 * sum(1 for p in set(origen) if p in set(destino)) / len(set(origen))
@@ -246,7 +268,7 @@ def evaluar(descripcion: str | None, marca: str | None, titulo: str, umbral: flo
     # pero no se exige (BDM Life, 25 nov 2026: Google no trae «Metabolismo» en el título)
     lema = set(limpio(normalizar(" ".join(re.split(r"\s[–—]\s|\s-\s", descripcion or "")[1:]))))
     sin_palabra = sorted(p for p in set(origen) if len(p) >= 3 and not re.search(r"\d", p) and not esta(p)
-                         and p not in lema)
+                         and p not in lema and p not in NO_SE_EXIGEN)
     mismo_producto = nombre >= 65 and not faltan and not sin_palabra
 
     esperadas, encontradas = presentaciones(descripcion), presentaciones(titulo)

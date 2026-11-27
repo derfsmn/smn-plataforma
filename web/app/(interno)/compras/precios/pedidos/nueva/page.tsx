@@ -9,12 +9,15 @@ import { useEffect, useMemo, useState } from "react";
 import { api, dolares, mensajeDe } from "@/lib/api";
 import type { EstimadoPedido, Pedido } from "@/lib/precios";
 import { useAvisos } from "@/componentes/avisos";
+import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto } from "@/componentes/ui";
 import { aSeleccion, Elegidos, Selector, type Elegido, type UltimaLista } from "../../selector";
 
 export default function NuevaCorrida() {
   const avisar = useAvisos();
   const router = useRouter();
+  const { puede } = useSesion();
+  const administra = puede("compras.precios.administrar");
   const [elegidos, setElegidos] = useState<Elegido[]>([]);
   const [lista, setLista] = useState<UltimaLista | null>(null);
   const [e, setE] = useState<EstimadoPedido | null>(null);
@@ -75,7 +78,8 @@ export default function NuevaCorrida() {
                   {e.productos > e.maximo && ` (máximo ${e.maximo})`}
                 </p>
                 <Elegidos elegidos={elegidos} setElegidos={setElegidos} />
-                <dl className="mt-4 space-y-1.5 text-[14px]">
+                {/* El gasto en dólares solo lo ve quien administra (criterio de Diego, revisión del 26 nov 2026) */}
+                {administra && <dl className="mt-4 space-y-1.5 text-[14px]">
                   <div className="flex justify-between gap-3">
                     <dt className="text-smn-gris-700">Costo de las búsquedas</dt>
                     <dd className="font-semibold tabular-nums">hasta {dolares(e.estimado_usd)}</dd>
@@ -86,7 +90,7 @@ export default function NuevaCorrida() {
                       {dolares(e.disponible_usd)} de {dolares(e.tope_mes_usd)}
                     </dd>
                   </div>
-                </dl>
+                </dl>}
                 {e.motivo ? (
                   <p className="mt-3 flex gap-2 rounded-lg bg-aviso-fondo p-3 text-[14px] text-aviso-texto">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {e.motivo}
@@ -95,14 +99,16 @@ export default function NuevaCorrida() {
                   <>
                     {!e.cabe && (
                       <p className="mt-3 rounded-lg bg-aviso-fondo p-3 text-[14px] text-aviso-texto">
-                        Puede que no alcance lo que queda del mes; los productos que falten quedan para la revisión de noche.
+                        {administra ? "Puede que no alcance lo que queda del mes; los" : "Puede que no alcance para todos este mes; los"} productos que falten quedan para la revisión de noche.
                       </p>
                     )}
                     {(e.ocupado || e.en_espera > 0) && (
                       <p className="mt-3 rounded-lg bg-smn-gris-100/60 p-3 text-[14px]">
-                        {e.ocupado ?? "Hay corridas formadas"}
-                        {e.en_espera > 0 && ` y ${e.en_espera === 1 ? "hay 1 corrida formada" : `hay ${e.en_espera} corridas formadas`}`}. La tuya arranca sola en cuanto
-                        termine.
+                        {[e.ocupado, e.en_espera > 0 && (e.en_espera === 1 ? "hay 1 corrida formada" : `hay ${e.en_espera} corridas formadas`)]
+                          .filter(Boolean)
+                          .join(" y ")
+                          .replace(/^h/, "H")}
+                        . La tuya arranca sola en cuanto le toque.
                       </p>
                     )}
                   </>

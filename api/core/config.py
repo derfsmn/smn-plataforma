@@ -47,6 +47,10 @@ class Configuracion(BaseSettings):
     # tipo de cambio y un tope mensual de plataforma capturado en /admin/ia.
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_modelo: str = ""
+    # Ventana fija de Ollama (tokens). Pedir ventanas distintas hace que Ollama recargue el modelo en cada cambio, y con
+    # varias peticiones a la vez se quedó atorado (26 nov 2026, laptop: «reloading model … runner options changed» y
+    # ninguna respuesta por horas). Solo un texto que no quepa pide más.
+    ollama_contexto: int = 16384
     # Proveedor de la API externa: anthropic u openai. Cada uno con su llave.
     ia_proveedor_externo: str = "anthropic"
     anthropic_api_key: str = ""
@@ -135,8 +139,13 @@ class Configuracion(BaseSettings):
     busqueda_web_tope_usd: float = 2.0  # buscar en internet (radar de noticias y más vendidos), aparte del tope general
     precios_tope_corrida_usd: float = 2.0
     precios_alerta_pct: float = 5.0
-    precios_dominios_propios: str = "supernaturista.com"
-    precios_tiendas_clave: str = "Walmart, Chedraui, San Pablo, Soriana"  # se muestran aparte (Diego, 2026-10-20)
+    # vidanat.mx es la tienda de la marca propia: su precio es el nuestro, no el del mercado (26 nov 2026: contaba como
+    # competencia en Spirulina, Zinc, Omega 3 6 9 y Clorofila Vidanat)
+    precios_dominios_propios: str = "supernaturista.com, vidanat.mx"
+    # Se muestran aparte (Diego, 2026-10-20); 26 nov 2026: la lista de tiendas donde Compras valida precios
+    precios_tiendas_clave: str = ("Walmart, Soriana, Chedraui, San Pablo, Farmacias Guadalajara, Farmacias Paris, "
+                                  "Farmacias del Ahorro, Mercado Libre, Amazon, GNC, DAX, Bodega Aurrera, HEB, "
+                                  "Farmacias Benavides, Farmacias Similares, La Comer, Fresko, City Market")
     precios_tiendas_directas: str = "Walmart, Chedraui, San Pablo, Soriana"  # se buscan en su propio sitio (Diego, 2026-10-20)
     # Validación automática y corrida nocturna (Diego, 2026-11-17: «a partir de las 6 de la tarde hasta las 6 de la mañana»)
     precios_validar: bool = True  # solo cuentan los precios que pasan las 6 comprobaciones; lo dudoso se reintenta
@@ -156,11 +165,24 @@ class Configuracion(BaseSettings):
     radar_productos_listas_margen: str = "A=31/28; B=45/35; C=39/31; D=36/31; E=31/26; F=41/34"
     # Buscar el producto nuevo en Google Shopping (DataForSEO, con el tope del radar de precios) y en las tiendas clave
     radar_productos_buscar_mercado: bool = True
+    # Evaluar un producto con prioridad alta en DataForSEO: contesta en segundos en vez de minutos, cuesta el doble
+    # (26 nov 2026: en la junta se evalúa en vivo)
+    radar_productos_prioridad_alta: bool = True
+    # Corridas a pedido del radar de precios con prioridad alta en DataForSEO (Diego, 26 nov 2026: «Sí»)
+    precios_pedido_prioridad_alta: bool = True
     # Señal de venta en internet (Diego, 22 nov 2026): Mercado Libre con su API oficial (aplicación registrada por SMN)
     # y Amazon México con DataForSEO (cuenta para el tope del mes)
     mercado_libre_app_id: str = ""
     mercado_libre_clave: str = ""
     radar_productos_amazon: bool = True
+    # Alta con fotos (26 nov 2026): la IA local lee la etiqueta y prellena la captura rápida. Apagado: Diego decide.
+    radar_productos_alta_fotos: bool = False
+    # Tiendas de Compras sin conector, buscadas en Google limitado a su sitio (Diego, 26 nov 2026). Varias tiendas por
+    # búsqueda («site:a OR site:b»). Solo en el radar de productos y en las corridas a pedido; la noche no las usa.
+    tiendas_google_activo: bool = True
+    tiendas_google_sitios: str = ("Farmacias Paris=farmaciaparis.com; Farmacias del Ahorro=fahorro.com; GNC=gnc.com.mx; "
+                                  "DAX=dax.com.mx; Bodega Aurrera=bodegaaurrera.com.mx; HEB=heb.com.mx")
+    tiendas_google_por_busqueda: int = 3  # tiendas en cada búsqueda de Google
     # «Buscar oportunidades»: cuántas subcategorías se buscan en Google Shopping para ver lo que vende la competencia
     oportunidades_busquedas: int = 60
     oportunidades_tendencias: int = 5  # búsquedas del agente por tendencia (2026-11-09)

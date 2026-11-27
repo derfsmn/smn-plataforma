@@ -1,4 +1,5 @@
 """Radar de productos, fase 1: semáforo de ideas de Compras y de propuestas listas para evaluar (datos ficticios)."""
+import dataclasses
 import json
 import random
 import re
@@ -162,7 +163,11 @@ def test_idea_con_foto_se_evalua_y_compras_corrige(admin: TestClient, sincrono):
     assert [h["id"] for h in e2["historial"]] == [n["id"], eid]
     assert admin.post(f"{R}/evaluaciones/{eid}/recalcular").status_code == 409  # ya no es la vigente
     cat = {x["factor"]: x for x in e2["factores"]}["categoria"]
-    assert cat["valor"] == "Surtido normal: 3 productos en su subcategoría, una normal tiene 3"
+    # La subcategoría «normal» se mide contra todo el catálogo activo, que cambia con lo que dejan otras pruebas: se
+    # compara contra el tamaño típico de ese momento, no contra un número fijo (revisión del 26 nov 2026)
+    with Session(motor()) as bd:
+        tipica = rp._tamano_tipico(bd)
+    assert re.fullmatch(rf"[^:]+: 3 productos en su subcategoría, una normal tiene {tipica:.0f}", cat["valor"]), cat["valor"]
 
     # Parecidos: un SKU que no existe se rechaza; los que fija Compras se conservan al recalcular
     assert admin.put(f"{R}/evaluaciones/{n['id']}/comparables", json={"skus": ["NO-EXISTE"]}).status_code == 400
@@ -415,7 +420,8 @@ def test_precio_descarta_internet_fuera_de_rango_y_usa_el_que_ya_vendemos():
     mismo = Producto(sku="X1", descripcion="DEMOGRASS PLUS 30 CAP", precio_lista_con_impuestos=Decimal("83"))
     f = rp.f_precio(s, [(mismo, Decimal("1"))], internet, mismo)
     assert "Ya lo vendemos (X1)" in f.detalle and "Se descartaron 1" in f.detalle
-    assert "$95" in f.detalle or "95" in f.detalle  # mediana de 95, 105 y 90
+    # mediana de 95 y 105: en una idea, el precio capturado por Compras no es mercado (Diego, 22 nov; 26 nov 2026)
+    assert "$100.00" in f.detalle
     sin_mismo = rp.f_precio(s, [(mismo, Decimal("0.8"))], internet)
     assert "Se descartaron 1" in sin_mismo.detalle and "en internet" in sin_mismo.valor
 
@@ -800,3 +806,535 @@ def test_google_hace_rescate_solo_si_no_encontro(monkeypatch):
     monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
     mp.buscar(None, "COLAGENO + INOSITOL 360 G", "B-FIT", None, "prueba", ["B-FIT Femme COLAGENO INOSITOL", "B-FIT colágeno"])
     assert len(llamadas) == 2 and len(llamadas[1]) == 2, llamadas  # primero lo normal y luego las 2 de rescate
+
+
+def test_tiendas_se_buscan_despues_del_rescate_con_las_consultas_originales(monkeypatch):
+    """Revisión del 26 nov 2026: v0.6.11 borró la llamada a las tiendas clave y la prueba de arriba no lo vio porque
+    simulaba `_tiendas`. Aquí corre el `_tiendas` de verdad con una tienda simulada: se busca en ella con las consultas
+    originales (no las de rescate), después del rescate de Google, y su precio entra al mercado."""
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import tiendas as td
+    from tests.test_precios import TiendaSimulada
+
+    orden = []
+
+    def google(bd, m, nombre, marca, consultas, marcas, referencia):
+        orden.append(("google", [t for _, t in consultas]))
+
+    class Cualquiera(TiendaSimulada):
+        def buscar(self, texto):
+            orden.append(("walmart", texto))
+            return self.resultados["*"]
+
+    walmart = Cualquiera("Walmart", "walmart.com.mx", {"*": [
+        td.Resultado("W-1", "B-FIT Femme Colageno Inositol 360 g", Decimal("399.00"), "https://www.walmart.com.mx/ip/w1")]})
+    monkeypatch.setattr(mp, "_google", google)
+    monkeypatch.setattr(mp.td, "conectores", lambda nombres: [walmart])
+    monkeypatch.setattr(mp.td, "buscar_con_pausa", lambda tienda, texto, ultima: tienda.buscar(texto))
+    monkeypatch.setattr(mp, "_elegir", lambda bd, nombre, marca, cands, marcas: (cands[0] if cands else None, None))
+    monkeypatch.setattr(mp, "senal_de_venta", lambda *a, **k: orden.append(("senal", None)))
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    m = mp.buscar(None, "COLAGENO + INOSITOL 360 G", "B-FIT", None, "prueba", ["B-FIT Femme COLAGENO INOSITOL"])
+    pasos = [p for p, _ in orden]
+    assert pasos[:2] == ["google", "google"] and pasos[-1] == "senal" and "walmart" in pasos, orden
+    assert pasos.index("walmart") > 1  # después del rescate
+    a_tienda = [t for p, t in orden if p == "walmart"]
+    assert "B-FIT Femme COLAGENO INOSITOL" not in a_tienda  # la tienda no recibe las de rescate
+    assert [(p["vendedor"], p["fuente"]) for p in m.precios] == [("Walmart", "sitio")]
+
+
+def test_demanda_sin_pronostico_por_falla_lo_dice(admin: TestClient, sincrono, monkeypatch):
+    """Revisión del 26 nov 2026: «sin datos» solo si de verdad no hay. Si el pronóstico truena, la Demanda lo dice en vez
+    de quedar como si no hubiera venta."""
+    depto, _ = catalogo_ficticio()
+
+    def truena(*a, **k):
+        raise RuntimeError("falla de prueba")
+
+    monkeypatch.setattr(rp.pn, "pronosticar", truena)
+    datos = {"nombre": "Citrato de magnesio en polvo", "marca": f"Marca Ficticia {depto[-4:]}", "departamento": depto,
+             "forma": "Polvo", "precio_visto": "150", "costo_estimado": "80"}
+    e = admin.get(f"{R}/evaluaciones/{admin.post(f'{R}/ideas', json=datos).json()['id']}").json()
+    assert e["estado"] == "lista", e["error"]
+    d = {x["factor"]: x for x in e["factores"]}["demanda"]
+    # Los SKU ficticios recién creados no tienen venta: sin pronóstico no hay con qué medir, y debe decir por qué
+    assert d["puntaje"] is None and "falla del radar" in d["detalle"] and "RuntimeError" in d["detalle"], d
+
+
+def test_busqueda_con_regla_6_se_vuelve_a_hacer_con_tiendas(monkeypatch):
+    """Decisión de Diego (26 nov 2026): lo buscado con REGLA 6 (v0.6.11, sin tiendas directas) no se reusa aunque traiga
+    precio de Google; se vuelve a buscar completo y pasa por las tiendas. Con la REGLA vigente se reusa. Sin búsquedas
+    reales."""
+    from datetime import datetime as dt
+    from modulos.compras import mercado_producto as mp
+
+    hoy = dt.now().isoformat()
+    con_precio = [{"precio": 300.0, "vendedor": "Tienda EJ", "fuente": "google", "titulo": "x", "liga": "x"}]
+    assert not mp.Mercado(precios=con_precio, buscado_en=hoy, clave="k", regla=6).vigente("k")
+    assert mp.Mercado(precios=con_precio, buscado_en=hoy, clave="k", regla=mp.REGLA).vigente("k")
+    assert mp.Mercado(precios=[], buscado_en=hoy, clave="k", regla=mp.REGLA).vigente("k")  # sin precio, misma regla: se reusa
+    assert mp.Mercado(precios=con_precio, buscado_en=hoy, clave="k", regla=5).vigente("k")  # las demás, sin cambio
+
+    # Por el flujo del radar: la de REGLA 6 no se reusa y la búsqueda nueva llama a las tiendas
+    s = rp.Sujeto(tipo="idea", nombre="Colageno EJ 300 g", marca="Marca EJ")
+    nombre = s.nombre
+    previo = mp.Mercado(precios=con_precio, buscado_en=hoy, clave=mp.clave_de(nombre, s.marca, None), regla=6)
+    llamadas = []
+    monkeypatch.setattr(rp.configuracion(), "radar_productos_buscar_mercado", True)
+    monkeypatch.setattr(mp, "_google", lambda *a, **k: llamadas.append("google"))
+    monkeypatch.setattr(mp, "_tiendas", lambda *a, **k: llamadas.append("tiendas"))
+    monkeypatch.setattr(mp, "senal_de_venta", lambda *a, **k: llamadas.append("senal"))
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+
+    class Bd:
+        def __init__(self, guardado):
+            self.guardado = guardado
+
+        def scalar(self, *_):
+            return self.guardado
+
+    e = rp.ProductoEvaluacion(evaluacion_id=1, idea_id=99)
+    m = rp.mercado_de(Bd(previo.a_json()), e, s)
+    assert m is not previo and "tiendas" in llamadas and m.regla == mp.REGLA
+    llamadas.clear()
+    vigente = mp.Mercado(precios=con_precio, buscado_en=hoy, clave=previo.clave, regla=mp.REGLA)
+    assert rp.mercado_de(Bd(vigente.a_json()), e, s).precios == con_precio and llamadas == []  # se reusa
+
+
+def test_producto_nuevo_con_tienda_bloqueada_se_busca_en_google_limitado_a_su_sitio(admin: TestClient, monkeypatch):
+    """26 nov 2026: en el radar de productos, si Walmart bloquea su sitio se busca en Google limitado a walmart.com.mx;
+    con precio visible cuenta como Walmart «visto en Google»; sin precio se dice; sin presupuesto se dice. Sin
+    búsquedas reales."""
+    from modulos.compras import dataforseo as dfs
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import tiendas as td
+    from tests.test_precios import TiendaSimulada
+
+    walmart = TiendaSimulada("Walmart", "walmart.com.mx", falla="bloqueó la consulta automática: pidió verificar identidad")
+    monkeypatch.setattr(mp.td, "conectores", lambda nombres: [walmart])
+    monkeypatch.setattr(mp.td, "buscar_con_pausa", lambda tienda, texto, ultima: tienda.buscar(texto))
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    monkeypatch.setattr(dfs, "configurado", lambda: [])
+    enviadas = []
+    respuesta = {"0": [{"url": "https://www.walmart.com.mx/ip/x/1", "domain": "www.walmart.com.mx",
+                        "title": "Marca EJ Colágeno en polvo 360 g", "price": {"current": 546.77, "currency": "MXN"}}]}
+    monkeypatch.setattr(dfs, "enviar", lambda bd, corrida, tipo, tareas: enviadas.append((tipo, tareas)) or {"0": "id"})
+    monkeypatch.setattr(dfs, "recoger", lambda tipo, ids, *a, **k: respuesta)
+    consultas = [("descripcion", "Marca EJ Colágeno en polvo 360 g")]
+    with Session(motor()) as bd:
+        m = mp.Mercado()
+        mp._tiendas(bd, m, "Colágeno en polvo 360 g", "Marca EJ", consultas, set(), "prueba")
+        assert enviadas[0][0] == "organico" and enviadas[0][1][0]["keyword"] == "site:walmart.com.mx Marca EJ Colágeno en polvo 360 g"
+        assert [(p["vendedor"], p["precio"], p["fuente"]) for p in m.precios] == [("Walmart", 546.77, td.FUENTE_GOOGLE_SITIO)]
+        # Sin precio visible: no cuenta y se dice
+        respuesta["0"][0].pop("price")
+        m = mp.Mercado()
+        mp._tiendas(bd, m, "Colágeno en polvo 360 g", "Marca EJ", consultas, set(), "prueba")
+        assert not m.precios and any("Google no muestra su precio" in n for n in m.notas)
+
+        def sin_dinero(*a, **k):
+            raise dfs.SinPresupuesto("se llegó al tope del mes")
+
+        monkeypatch.setattr(dfs, "enviar", sin_dinero)
+        m = mp.Mercado()
+        mp._tiendas(bd, m, "Colágeno en polvo 360 g", "Marca EJ", consultas, set(), "prueba")
+        assert not m.precios and any("no se buscó en Google, se llegó al tope" in n for n in m.notas)
+
+
+def test_producto_nuevo_se_busca_en_las_tiendas_de_compras_via_google(admin: TestClient, monkeypatch):
+    """Diego (26 nov 2026): en el radar de productos, las tiendas de Compras sin conector se buscan en Google limitado a
+    su sitio, varias por búsqueda; cuentan como esa tienda y una que ya tenía precio no se repite. Sin búsquedas reales."""
+    from modulos.compras import dataforseo as dfs
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import tiendas as td
+
+    cfg = rp.configuracion()
+    monkeypatch.setattr(cfg, "tiendas_google_activo", True)
+    monkeypatch.setattr(cfg, "tiendas_google_sitios", "Farmacias del Ahorro=fahorro.com; HEB=heb.com.mx; GNC=gnc.com.mx; DAX=dax.com.mx")
+    monkeypatch.setattr(cfg, "tiendas_google_por_busqueda", 3)
+    monkeypatch.setattr(cfg, "precios_tiendas_clave", "Farmacias del Ahorro, HEB, GNC, DAX")
+    monkeypatch.setattr(dfs, "configurado", lambda: [])
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    enviadas = []
+    item = lambda url, dominio, precio: {"url": url, "domain": dominio, "title": "Marca EJ Colágeno en polvo 360 g",  # noqa: E731
+                                         "price": {"current": precio, "currency": "MXN"}}
+    respuesta = {"0": [item("https://www.fahorro.com/x", "www.fahorro.com", 520.0), item("https://www.heb.com.mx/y", "www.heb.com.mx", 510.0)],
+                 "1": [item("https://www.dax.com.mx/z", "www.dax.com.mx", 530.0)]}
+    monkeypatch.setattr(dfs, "enviar", lambda bd, corrida, tipo, tareas: enviadas.append(tareas) or {t["tag"]: t["tag"] for t in tareas})
+    monkeypatch.setattr(dfs, "recoger", lambda tipo, ids, *a, **k: respuesta)
+    with Session(motor()) as bd:
+        m = mp.Mercado(precios=[{"precio": 500.0, "vendedor": "HEB", "fuente": "google", "titulo": "x", "liga": "https://www.heb.com.mx/y"}])
+        mp._tiendas_google(bd, m, "Colágeno en polvo 360 g", "Marca EJ", [("descripcion", "Marca EJ Colágeno en polvo 360 g")], set(), "prueba")
+    assert [t["keyword"] for t in enviadas[0]] == [
+        "site:fahorro.com OR site:heb.com.mx OR site:gnc.com.mx Marca EJ Colágeno en polvo 360 g", "site:dax.com.mx Marca EJ Colágeno en polvo 360 g"]
+    assert [(p["vendedor"], p["precio"], p["fuente"]) for p in m.precios] == [
+        ("HEB", 500.0, "google"), ("Farmacias del Ahorro", 520.0, td.FUENTE_GOOGLE_SITIO), ("DAX", 530.0, td.FUENTE_GOOGLE_SITIO)]
+    assert "con precio en Farmacias del Ahorro $520.00, DAX $530.00" in m.notas[-1]
+    monkeypatch.setattr(cfg, "tiendas_google_activo", False)  # se puede apagar
+    with Session(motor()) as bd:
+        m = mp.Mercado()
+        mp._tiendas_google(bd, m, "Colágeno en polvo 360 g", "Marca EJ", [("descripcion", "x y")], set(), "prueba")
+    assert not m.precios and len(enviadas) == 1
+
+
+def test_precio_de_afuera_una_tienda_cuenta_una_vez():
+    """BDM Life en la laptop (26 nov 2026): Mercado Libre salía dos veces («mercadolibre.com.mx» y «Mercado Libre»). Una
+    tienda cuenta una vez, con su precio más bajo. Datos FICTICIOS."""
+    from modulos.compras import coincidencia as co
+    from modulos.compras import mercado_producto as mp
+
+    def cand(clave, vendedor, precio, url):
+        return co.Candidato(clave, "BDM Life Berberina 120 cápsulas", {"seller": vendedor, "price": precio, "currency": "MXN", "url": url})
+
+    m = mp.Mercado()
+    mp._agregar(m, [cand("1", "mercadolibre.com.mx", 360, "https://articulo.mercadolibre.com.mx/1"),
+                    cand("2", "Amazon MX", 356, "https://www.amazon.com.mx/dp/2"),
+                    cand("3", "Mercado Libre", 356.85, "https://articulo.mercadolibre.com.mx/3"),
+                    cand("4", "Coppel", 666, "https://www.coppel.com/4")], "google")
+    assert [(p["vendedor"], p["precio"]) for p in m.precios] == [("Amazon MX", 356.0), ("Mercado Libre", 356.85), ("Coppel", 666.0)]
+
+
+def test_producto_suelto_se_evalua_con_prioridad_alta(monkeypatch):
+    """26 nov 2026 (evaluación en vivo frente a Dirección): un producto suelto manda sus búsquedas con prioridad alta
+    (cuesta el doble y se estima así); lo masivo sigue en la cola normal. Sin búsquedas reales."""
+    from modulos.compras import dataforseo as dfs
+
+    vistas = []
+    monkeypatch.setattr(rp, "_evaluar", lambda bd, i, hoy=None: vistas.append(dfs.PRIORIDAD.get()))
+    monkeypatch.setattr(rp.configuracion(), "radar_productos_prioridad_alta", True)
+    rp.evaluar(None, 1)
+    rp.evaluar(None, 1, rapido=False)
+    monkeypatch.setattr(rp.configuracion(), "radar_productos_prioridad_alta", False)
+    rp.evaluar(None, 1)
+    assert vistas == [2, 1, 1] and dfs.PRIORIDAD.get() == 1
+    assert dfs.POR_PRIORIDAD[2] == 2  # el estimado y el tope cuentan el doble
+
+
+def test_la_busqueda_de_afuera_avisa_en_que_va(monkeypatch):
+    """26 nov 2026 (evaluación en vivo): mientras busca afuera, la pantalla dice el sub-paso y cuántos precios lleva."""
+    from modulos.compras import mercado_producto as mp
+
+    vistos = []
+
+    def google(bd, m, *a, **k):
+        m.precios.append({"precio": 100.0, "vendedor": "Tienda EJ", "fuente": "google", "titulo": "x", "liga": None})
+
+    monkeypatch.setattr(mp, "_google", google)
+    monkeypatch.setattr(mp, "_tiendas", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "_tiendas_google_enviar", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "_tiendas_google_recoger", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "senal_de_venta", lambda *a, **k: None)
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    ficha = mp.AVANCE.set(vistos.append)
+    try:
+        mp.buscar(None, "Colágeno EJ 300 g", "Marca EJ", None, "prueba")
+    finally:
+        mp.AVANCE.reset(ficha)
+    assert vistos[0] == "buscando en Google Shopping"
+    assert "consultando Walmart, Chedraui, San Pablo y Soriana · llevamos 1 precio de afuera" in vistos
+    assert vistos[-1].startswith("revisando Mercado Libre y Amazon")
+
+
+def test_el_modelo_del_pronostico_se_mide_por_adelantado(monkeypatch):
+    """26 nov 2026: medir el modelo tardaba ~2 min y lo pagaba la primera evaluación del día (en vivo, justo después
+    de publicar). El programador lo mide antes en su hilo; si ya está del día, no hace nada."""
+    import threading
+
+    from modulos.compras import pronostico as pn
+
+    llamadas, listo = [], threading.Event()
+    monkeypatch.setattr(pn, "modelo_de_hoy", lambda: None)
+    monkeypatch.setattr(pn, "entrenar", lambda bd: (llamadas.append(1), listo.set()))
+    pn.calentar()
+    assert listo.wait(10) and llamadas == [1]
+    monkeypatch.setattr(pn, "modelo_de_hoy", lambda: object())
+    pn.calentar()  # ya medido hoy: no vuelve a medir
+    assert llamadas == [1]
+
+
+def test_respuesta_rara_de_google_se_repite_una_vez():
+    """26 nov 2026: para «Optimum Nutrition Creatina» DataForSEO regresó libros y cursos (y en otra, «Internal SE Server
+    Error»); la misma búsqueda minutos después sí trajo la creatina. Eso se detecta para repetirla una vez."""
+    from modulos.compras import mercado_producto as mp
+
+    basura = [{"title": t} for t in ("Todos Los Suplementos", "Curso de salud mental", "Set de pósteres de yoga",
+                                      "Guía de bienestar", "Cinturón elástico")]
+    buenos = basura[:4] + [{"title": "Creatina Optimum Nutrition Powder 300 g"}]
+    assert mp._respuesta_rara(basura, "Creatina monohidratada 300 g", "Optimum Nutrition")
+    assert not mp._respuesta_rara(buenos, "Creatina monohidratada 300 g", "Optimum Nutrition")
+    assert mp._respuesta_rara("Internal SE Server Error.", "x", None)
+    assert not mp._respuesta_rara("No hay resultados", "x", None) and not mp._respuesta_rara(basura[:2], "Creatina", None)
+
+
+def test_sabor_natural_no_se_exige_en_el_titulo():
+    """Creatina Optimum Nutrition (26 nov 2026): «sabor natural» es que no tiene sabor; sus publicaciones no lo dicen y
+    se rechazaban. Marca, ingrediente y tamaño se siguen exigiendo."""
+    from modulos.compras import coincidencia as co
+
+    nombre = "Creatina monohidratada 300 g sabor natural"
+    ev = co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Creatina Monohidratada en polvo 300 g", 85, set())
+    assert ev.mismo_nombre and ev.aceptada, ev.motivo
+    otra = co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Creatina Monohidratada 600 g", 85, set())
+    assert not otra.aceptada and otra.contradice  # otro tamaño se sigue rechazando
+
+
+def test_rechazo_no_se_prueba_con_una_cifra_del_nombre():
+    """26 nov 2026: la IA mandó a rojo un shampoo por «Sin aviso de funcionamiento» citando «Shampoo de Romero 400 ml»;
+    el «400» lo hacía pasar como prueba. Una cifra solo prueba reglas que hablan de cantidades."""
+    from modulos.compras import politicas_producto as pp
+
+    aviso = {"titulo": "Sin aviso de funcionamiento", "descripcion": "No hay aviso de funcionamiento del proveedor o producto."}
+    assert not pp.dato_de_la_regla("Shampoo de Romero 400 ml", aviso)
+    assert pp.dato_de_la_regla("No tiene aviso de funcionamiento", aviso)
+    caja = {"titulo": "Máximo 30 piezas por caja", "descripcion": "Más de 30 piezas por caja se rechaza"}
+    assert pp.dato_de_la_regla("48 piezas", caja)
+    # Aunque la descripción de la regla hable de días o cantidades, lo que falta no se prueba con el nombre (26 nov, noche)
+    aviso_con_dias = {"titulo": "Sin aviso de funcionamiento", "descripcion": "Debe entregarlo en 30 días; sin él se rechaza."}
+    assert not pp.dato_de_la_regla("Shampoo de Romero 400 ml", aviso_con_dias)
+
+
+def test_apostrofo_de_la_marca_no_parte_la_palabra():
+    """Vitamina C de Nature's Bounty (26 nov 2026): la búsqueda salía «Nature s Bounty…» y Google regresaba otras
+    vitaminas."""
+    from modulos.compras import coincidencia as co
+
+    assert co.texto_plano("Nature's Bounty Vitamina C 1000 mg") == "Nature's Bounty Vitamina C 1000 mg"
+    assert co.texto_plano("Doctor’s Best + Omega 3") == "Doctor's Best Omega 3"
+    assert co.texto_plano("'Colágeno' – 360 g") == "Colágeno 360 g"  # las comillas sueltas sí se quitan
+
+
+def test_las_tiendas_de_compras_se_mandan_al_empezar_y_se_recogen_despues(monkeypatch):
+    """26 nov 2026 (evaluación en vivo): la búsqueda de las tiendas de Compras vía Google se esperaba al final y sumaba
+    1 a 2 minutos. Ahora se manda antes de Google Shopping y se recoge después de las tiendas directas, con lo mismo."""
+    from modulos.compras import mercado_producto as mp
+
+    orden = []
+    monkeypatch.setattr(mp, "_tiendas_google_enviar", lambda bd, m, consultas, ref: orden.append(("enviar", consultas[0][1])) or {"x": 1})
+    monkeypatch.setattr(mp, "_google", lambda *a, **k: orden.append("google"))
+    monkeypatch.setattr(mp, "_tiendas", lambda *a, **k: orden.append("tiendas"))
+    monkeypatch.setattr(mp, "_tiendas_google_recoger", lambda bd, m, n, marca, marcas, enviado: orden.append(("recoger", enviado)))
+    monkeypatch.setattr(mp, "senal_de_venta", lambda *a, **k: orden.append("ml"))
+    monkeypatch.setattr(mp.pc, "_marcas", lambda bd: set())
+    mp.buscar(None, "Colágeno EJ 300 g", "Marca EJ", None, "prueba")
+    assert orden[0][0] == "enviar" and orden[1:] == ["google", "tiendas", ("recoger", {"x": 1}), "ml"]
+
+
+def test_polvo_y_micronizada_no_se_exigen_en_el_titulo():
+    """Creatina Optimum Nutrition (26 nov 2026): las tiendas no escriben «en polvo» ni «micronizada»; la marca, el
+    producto y el tamaño sí se exigen."""
+    from modulos.compras import coincidencia as co
+
+    nombre = "Creatina Micronizada en Polvo 300 g"
+    assert co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Creatina 300 g", 85, {"optimum nutrition"}, 1).aceptada
+    # Otro producto o tamaño siguen fuera
+    assert not co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Glutamina 300 g", 85, {"optimum nutrition"}, 1).aceptada
+    assert not co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Creatina 600 g", 85, {"optimum nutrition"}, 1).aceptada
+    assert not co.evaluar(nombre, "Optimum Nutrition", "Optimum Nutrition Creatina 100 cápsulas", 85, {"optimum nutrition"}, 1).aceptada
+
+
+def test_numeros_del_formulario_como_los_escribe_una_persona():
+    """Revisión de formularios (26 nov 2026): «1234,50» se guardaba como 123450 y «1.234,50» como 1.2345. Mismas reglas
+    que web/lib/numeros.ts."""
+    from decimal import Decimal
+
+    import pytest as pt
+    from core.numeros import leer_numero
+    from modulos.compras.rutas_productos import IdeaEntrada
+
+    casos = {"1,234.50": "1234.50", "1234,50": "1234.50", "1.234,50": "1234.50", "$459": "459", "459.": "459",
+             ".5": "0.5", " 1 234.50 ": "1234.50", "1,234": "1234", "31%": "31", "": None}
+    for texto, esperado in casos.items():
+        assert leer_numero(texto) == (Decimal(esperado) if esperado else None), texto
+    for malo in ("1,2,3", "abc", "1.5E+3"):
+        with pt.raises(ValueError):
+            leer_numero(malo)
+    idea = IdeaEntrada(nombre="Colágeno EJ", precio_nuestro="1,299.00", costo_estimado="650,5", contenido="360 g",
+                       codigo_barras=" 0750 1234 56789 ")
+    assert idea.precio_nuestro == Decimal("1299.00") and idea.costo_estimado == Decimal("650.5")
+    assert idea.codigo_barras == "0750123456789"  # conserva el cero de la izquierda
+    with pt.raises(ValueError, match="E\+"):
+        IdeaEntrada(nombre="Colágeno EJ", codigo_barras="7.50123E+12")
+    with pt.raises(ValueError):
+        IdeaEntrada(nombre="Colágeno EJ", precio_nuestro="459.505")  # más de 2 decimales no se redondea en silencio
+
+
+def test_el_vendedor_sale_sin_etiquetas_internas_de_google():
+    """Gold Standard Whey (26 nov 2026): «eBay - item_title_google_cloud_translation_test_for_us_es» se veía en pantalla."""
+    from modulos.compras import mercado_producto as mp
+
+    assert mp._vendedor_limpio("eBay - item_title_google_cloud_translation_test_for_us_es") == "eBay"
+    assert mp._vendedor_limpio("Farmacias del Ahorro - Sucursal Centro") == "Farmacias del Ahorro - Sucursal Centro"
+    assert mp._vendedor_limpio("Walmart") == "Walmart"
+
+
+def test_capsulas_y_tabletas_cuentan_igual_en_el_tamano():
+    """Magnesio Nature's Bounty (26 nov 2026): «120 cápsulas» contra «120 Tabletas» se rechazaba por presentación."""
+    from modulos.compras import coincidencia as co
+
+    ev = co.evaluar("Magnesio Glicinato 120 cápsulas", "Natures Bounty", "Natures Bounty Glicinato De Magnesio 120 Tabletas",
+                    85, {"natures bounty"}, 1)
+    assert ev.presentacion is True and ev.aceptada
+    assert not co.evaluar("Magnesio Glicinato 120 cápsulas", "Natures Bounty", "Natures Bounty Glicinato De Magnesio 60 Tabletas",
+                          85, {"natures bounty"}, 1).aceptada
+
+
+def test_dictamen_dice_contra_que_compara():
+    """Revisión de coherencia (26 nov 2026): sin precios de afuera el dictamen decía «nuestro anaquel y el mercado»; y con
+    la cifra para competir arriba de lo de afuera, no decía a cuánto se vende afuera (colágeno B-Fit: $494 contra $429)."""
+    s = rp.Sujeto(tipo="idea", nombre="Producto ficticio", precio=Decimal("549"), costo=Decimal("330"), margen=Decimal("30.3"))
+    precio = rp.Factor(45, "Caro", "x", competir=Decimal("494.19"))
+    sin_afuera = {"precio": precio, "demanda": rp.Factor(90, "", ""), "precio_afuera": rp.Factor(None, "No cuenta", "")}
+    d = rp.dictamen(s, "amarillo", sin_afuera, [], Decimal("31"))
+    assert "contra nuestro anaquel tendría" in d and "el mercado" not in d
+    con_afuera = {**sin_afuera, "precio_afuera": rp.Factor(50, "Caro", "", meta=Decimal("429"))}
+    d = rp.dictamen(s, "amarillo", con_afuera, [], Decimal("31"))
+    assert "contra nuestro anaquel y el mercado" in d and "afuera se vende en $429.00" in d
+
+
+def test_ebay_no_cuenta_como_precio_de_afuera():
+    """Revisión de coherencia (26 nov 2026): eBay en Google Shopping es importación y movía la calificación."""
+    from modulos.compras import coincidencia as co
+    from modulos.compras import mercado_producto as mp
+
+    m = mp.Mercado()
+    c = co.Candidato(clave="1", titulo="Gold Standard Whey 907 g", datos={"price": 2948.7, "seller": "eBay - to_worldwide"})
+    d = co.Candidato(clave="2", titulo="Gold Standard Whey 907 g", datos={"price": 1199.0, "seller": "Amazon.com.mx"})
+    mp._agregar(m, [c, d], "google")
+    assert [p["vendedor"] for p in m.precios] == ["Amazon.com.mx"] and any(n.startswith("eBay") for n in m.notas)
+
+
+def test_ya_lo_vendemos_con_iniciales_y_abreviaturas_del_catalogo():
+    """Whey Gold Standard (26 nov 2026): el catálogo dice «OPTIMUM NUTRITION ON 100% WHEY GOLD STD CHOCOLATE 907 G» y no
+    avisó que ya lo vendemos."""
+    cat = Producto(sku="1", descripcion="OPTIMUM NUTRITION ON 100% WHEY GOLD STD CHOCOLATE 907 G", marca="OPTIMUM NUTRITION")
+    s = rp.Sujeto(tipo="idea", nombre="Proteína Gold Standard 100% Whey Chocolate 907 g", marca="Optimum Nutrition",
+                  contenido="907 g", ingrediente="Proteína de suero", forma="Polvo")
+    assert rp.es_mismo(s, cat)
+    # Otro sabor, otro tamaño u otra marca siguen siendo otro producto
+    assert not rp.es_mismo(dataclasses.replace(s, nombre="Proteína Gold Standard 100% Whey Vainilla 907 g"), cat)
+    assert not rp.es_mismo(dataclasses.replace(s, nombre="Proteína Gold Standard 100% Whey Chocolate 2270 g", contenido="2270 g"), cat)
+    assert not rp.es_mismo(dataclasses.replace(s, marca="Birdman"), cat)
+    assert rp._abrevia("std", "standard") and not rp._abrevia("cal", "colageno") and not rp._abrevia("100", "1000")
+
+
+def test_una_sola_tienda_afuera_no_se_llama_precio_de_en_medio():
+    """Colágeno B-Fit (26 nov 2026): con solo Coppel decía «el precio de en medio de la competencia»."""
+    from modulos.compras import mercado_producto as mp
+
+    m = mp.Mercado()
+    m.precios = [{"precio": 429.0, "vendedor": "coppel.com", "fuente": "google", "titulo": "B-fit colágeno 360 g", "liga": None}]
+    s = rp.Sujeto(tipo="idea", nombre="Colágeno B-Fit 360 g", precio=Decimal("549"))
+    f = rp.precio_afuera(s, [], m, None)
+    assert "única tienda" in f.detalle and "de en medio" not in f.detalle.split("Como referencia")[0]
+
+
+def test_ya_lo_vendemos_no_toma_el_precio_capturado_como_mercado():
+    """Whey Gold Standard (26 nov 2026): en una idea, el precio que capturó Compras no es precio del mercado."""
+    cat = Producto(sku="1", descripcion="OPTIMUM NUTRITION ON 100% WHEY GOLD STD CHOCOLATE 907 G", marca="OPTIMUM NUTRITION",
+                   precio_lista_con_impuestos=Decimal("1090"))
+    s = rp.Sujeto(tipo="idea", nombre="Proteína Gold Standard Whey Chocolate 907 g", precio=Decimal("1299"))
+    f = rp._precio_afuera(s, [], None, cat)
+    assert f.puntaje is None and "no hay precios del mercado" in f.detalle
+
+
+def test_detalle_acepta_precios_de_amazon_mercado_libre_y_google_sitio():
+    """26 nov 2026: con el primer precio de Amazon el detalle de la evaluación daba error 500 (fuente fuera de la lista)."""
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import rutas_productos as rp_rutas
+
+    m = mp.Mercado()
+    m.precios = [{"precio": 499.0, "vendedor": v, "fuente": f, "titulo": "Creatina 300 g", "liga": None}
+                 for v, f in (("Amazon", "amazon"), ("Mercado Libre", "mercadolibre"), ("Walmart", "google_sitio"))]
+    salida = rp_rutas._mercado(m.a_json())
+    assert [p.fuente for p in salida.precios] == ["amazon", "mercadolibre", "google_sitio"]
+
+
+def test_citar_la_regla_no_prueba_el_rechazo():
+    """Colágeno B-Fit (26 nov 2026): la IA citó como dato «Se menciona 'Sin aviso de funcionamiento' en política R2» y el
+    «2» lo hacía pasar como dato del producto; el colágeno quedaba en rojo."""
+    from modulos.compras import politicas_producto as pp
+
+    datos = {"nombre": "Colágeno + Inositol B-FIT 360 g", "piezas_por_caja": 12, "precio_venta_con_impuestos": 1500}
+    regla = {"titulo": "Sin aviso de funcionamiento", "descripcion": "Política 2 del consolidado (expresada como bloqueante)."}
+    cita = "Se menciona 'Sin aviso de funcionamiento' en política R2"
+    assert not pp.dato_comprobado(cita, datos)
+    assert not pp.dato_de_la_regla(cita, regla)
+    # Una cifra con su unidad sigue contando
+    assert pp.dato_comprobado("$1,500", datos) and pp.dato_comprobado("12 piezas", datos)
+
+
+def test_libras_se_leen_como_gramos():
+    """Whey Gold Standard (26 nov 2026): «2 lb» en el título es la presentación de 907 g."""
+    from modulos.compras import coincidencia as co
+
+    assert co.presentaciones("Gold Standard 100% Whey 2 lb Doble Chocolate") == co.presentaciones("907 g")
+    assert co.presentaciones("5 lbs") == co.presentaciones("2268 g")
+
+
+def test_corregir_datos_de_una_idea_la_vuelve_a_evaluar(admin: TestClient, sincrono):
+    """Revisión del 26 nov 2026: un dato mal capturado en vivo obligaba a capturar todo otra vez y dejaba un duplicado.
+    «Corregir datos» guarda lo corregido, conserva la misma idea y la evalúa de nuevo."""
+    depto, _ = catalogo_ficticio()
+    datos = {"nombre": "Citrato de magnesio en polvo", "marca": f"Marca Corrige {depto[-4:]}", "departamento": depto,
+             "ingrediente": "Magnesio", "contenido": "300 g", "precio_nuestro": "150", "costo_estimado": "800",
+             "lista_margen": "B"}
+    r = admin.post(f"{R}/ideas", json=datos)
+    assert r.status_code == 201, r.text
+    idea = r.json()["sujeto"]["id"]
+    leido = admin.get(f"{R}/ideas/{idea}").json()
+    assert leido["costo_estimado"] == "800.00" and leido["contenido"] == "300 g"
+    _, consulta, _ = alta_usuario(admin, rol="compras_consulta")
+    assert consulta.put(f"{R}/ideas/{idea}", json={**datos, "costo_estimado": "80"}).status_code == 403
+    r = admin.put(f"{R}/ideas/{idea}", json={**datos, "costo_estimado": "80"})
+    assert r.status_code == 200, r.text
+    nueva = admin.get(f"{R}/evaluaciones/{r.json()['id']}").json()
+    assert nueva["estado"] == "lista" and nueva["sujeto"]["id"] == idea
+    assert admin.get(f"{R}/ideas/{idea}").json()["costo_estimado"] == "80.00"
+    # Sigue siendo una sola idea en la lista (sin duplicado)
+    vigentes = [x for x in admin.get(f"{R}/evaluaciones").json() if x["sujeto"]["tipo"] == "idea" and x["sujeto"]["id"] == idea]
+    assert len(vigentes) == 1
+
+
+# ---------------------------------------------------------------- alta con fotos (26 nov 2026)
+
+def test_alta_con_fotos_solo_toma_lo_que_viene_citado():
+    """La IA solo prellena lo que copió de la etiqueta; el código de barras pasa su dígito verificador."""
+    from modulos.compras import alta_fotos as af
+
+    assert af.gtin_valido("7501060805053") and not af.gtin_valido("7501060805054") and not af.gtin_valido("12345")
+    datos = {"etiqueta": "NATURE'S BOUNTY Glicinato de Magnesio 120 cápsulas 7501060805053 Porciones por envase: 60",
+             "marca": {"valor": "Nature's Bounty", "cita": "NATURE'S BOUNTY"},
+             "nombre": {"valor": "Glicinato de Magnesio", "cita": "Glicinato de Magnesio"},
+             "forma": {"valor": "cápsulas", "cita": "120 cápsulas"},
+             "contenido_cantidad": {"valor": 120, "cita": "120 cápsulas"}, "contenido_unidad": {"valor": "cápsulas", "cita": "cápsulas"},
+             "porciones": {"valor": 60, "cita": "Porciones por envase: 60"},
+             "codigo_barras": {"valor": "7501060805053", "cita": "7501060805053"},
+             "ingrediente": {"valor": "Magnesio", "cita": "Vitamina D3"}}  # cita que no está en la etiqueta: no se toma
+    campos, _ = af.de_respuesta(datos)
+    assert campos == {"marca": "Nature's Bounty", "nombre": "Glicinato de Magnesio", "forma": "Cápsula",
+                      "contenido": "120 cápsulas", "porciones": "60", "codigo_barras": "7501060805053"}
+    # «1000 kg» por «1 kg» se corrige al leerlo
+    kilo = {"etiqueta": "Proteína vegetal 1 kg", "contenido_cantidad": {"valor": 1000, "cita": "1 kg"},
+            "contenido_unidad": {"valor": "kg", "cita": "1 kg"}}
+    assert af.de_respuesta(kilo)[0]["contenido"] == "1 kg"
+    # Un código inventado (dígito verificador mal) no se prellena
+    datos["codigo_barras"] = {"valor": "7501060805054", "cita": "7501060805053"}
+    assert "codigo_barras" not in af.de_respuesta(datos)[0]
+
+
+def test_alta_con_fotos_apagada_no_cambia_nada(admin: TestClient, monkeypatch):
+    """Apagado de fábrica: la API dice que está apagada y no lee nada."""
+    from core.config import configuracion
+
+    assert admin.get(f"{R}/alta-fotos").json() == {"activo": False}
+    foto = subir(admin, "frente.png", PNG)
+    assert admin.post(f"{R}/alta-fotos/leer", json={"fotos": [foto]}).status_code == 404
+    monkeypatch.setattr(configuracion(), "radar_productos_alta_fotos", True)
+    from modulos.compras import alta_fotos as af
+
+    monkeypatch.setattr(af, "leer", lambda bd, fotos: af.Lectura(campos={"marca": "Marca EJ"}, citas={"marca": "MARCA EJ"},
+                                                                  segundos=1.0, fotos=len(fotos)))
+    r = admin.post(f"{R}/alta-fotos/leer", json={"fotos": [foto]})
+    assert r.status_code == 200 and r.json()["campos"] == {"marca": "Marca EJ"}
+    _, consulta, _ = alta_usuario(admin, rol="compras_consulta")
+    assert consulta.post(f"{R}/alta-fotos/leer", json={"fotos": [foto]}).status_code == 403

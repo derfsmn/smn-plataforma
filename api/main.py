@@ -115,6 +115,14 @@ def _revisar_examen() -> None:
         examen_clasificacion.revisar_programa(bd)
 
 
+def _calentar_pronostico() -> None:
+    from ia import puerta
+    from modulos.compras import pronostico
+
+    pronostico.calentar()  # en su hilo; regresa al momento
+    puerta.precargar_ollama()  # el modelo de la IA local cargado antes de la primera evaluación
+
+
 def _revisar_prueba_afuera() -> None:
     from core.bd import _fabrica
     from modulos.compras import prueba_afuera
@@ -141,6 +149,7 @@ async def programador() -> None:
     while True:
         for tarea in (_revisar_radar, _revisar_catalogo, _revisar_precios, _revisar_precios_noche, _revisar_oportunidades,
                       _revisar_etl, _revisar_fichas, _revisar_seguimiento, _revisar_reclasificar, _revisar_examen, _revisar_prueba_afuera,
+                      _calentar_pronostico,
                       _revisar_costos,
                       _revisar_innovacion):
             try:

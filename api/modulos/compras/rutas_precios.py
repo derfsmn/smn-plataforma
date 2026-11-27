@@ -428,7 +428,8 @@ def producto(producto_id: int, _: Contexto = Depends(VER), bd: Session = Depends
                                    disponibilidad=o.disponibilidad, es_propia=o.es_propia,
                                    fuera=precios.fuera_de_rango(o, p.descripcion, precios.nuestro(fila)[0] if fila else None),
                                    publicacion=_publicacion(o), tienda_clave=precios.tienda_clave(o.vendedor, o.dominio),
-                                   directa=o.tienda_coincidencia_id is not None)
+                                   directa=o.tienda_coincidencia_id is not None
+                                   and not (_publicacion(o) or "").startswith("Google"))
                       for o in obs],
         tiendas=precios.tiendas_clave(), directas=_directas(ultima[0].tiendas) if ultima else [],
         serie=[Punto(fecha=f, precio_lista=r.precio_lista, precio_membresia=r.precio_membresia, minimo=r.minimo, mediana=r.mediana)

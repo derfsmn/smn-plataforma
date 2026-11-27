@@ -13,6 +13,7 @@ import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto } from "@/componentes/ui";
 import { InsigniaColor } from "@/componentes/semaforo-producto";
 import { api, fechaLocal, mensajeDe, pesos } from "@/lib/api";
+import { useSondeo } from "@/lib/sondeo";
 import {
   RUTA_OPORTUNIDADES as R,
   type CorridaOportunidadesDetalle, type EstadoOportunidades, type Oportunidad, type Prioridad,
@@ -75,13 +76,7 @@ export default function Oportunidades() {
 
   // Mientras corre, se pregunta cada 3 segundos
   const enCurso = corrida?.estado === "en_curso";
-  useEffect(() => {
-    if (!enCurso) return;
-    const t = setInterval(() => {
-      cargarCorrida();
-    }, 3000);
-    return () => clearInterval(t);
-  }, [enCurso, cargarCorrida]);
+  useSondeo(cargarCorrida, 3000, enCurso);
   useEffect(() => {
     if (corrida && !enCurso) cargarEstado();
   }, [corrida, enCurso, cargarEstado]);

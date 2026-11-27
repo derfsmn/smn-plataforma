@@ -586,10 +586,28 @@ function sinVeredicto(d: string) {
 
 // ---------------------------------------------------------------- Nivel 1
 
+/** El dictamen en 3 renglones para que el nivel 1 quepa; si no cabe, «Ver completo» lo abre ahí mismo (revisión de
+ *  usabilidad, 26 nov 2026: se cortaba justo en el costo a pedir). */
+function Dictamen({ texto }: { texto: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const largo = texto.length > 200;
+  return (
+    <p className="mt-2 text-[17px] leading-snug">
+      <span className={abierto ? "" : "line-clamp-3"}>{texto}</span>
+      {largo && (
+        <button type="button" onClick={() => setAbierto(!abierto)} className="mt-0.5 block text-[15px] font-medium text-naranja-tinta hover:underline">
+          {abierto ? "Ver menos" : "Ver completo"}
+        </button>
+      )}
+    </p>
+  );
+}
+
 function Nivel1({ p, foto, abrir }: { p: Pantalla; foto?: ReactNode; abrir: (f: FactorClave) => void }) {
   // Todo el nivel 1 cabe en una pantalla de 1920×1080 sin bajar (Diego, 22 nov 2026): foto y anillo se miden por la altura
   const c = p.cifras;
   const vc = colorVeredicto(p.veredicto);
+  const cinco = p.factores.length === 5;
   return (
     <div className="space-y-5">
       <div className="grid items-center gap-6 @4xl:grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.6fr)]">
@@ -608,7 +626,7 @@ function Nivel1({ p, foto, abrir }: { p: Pantalla; foto?: ReactNode; abrir: (f: 
           <span className={`inline-block rounded-full px-3 py-0.5 text-sm font-semibold tracking-wide uppercase ring-1 ${PILDORA[vc]}`}>{p.veredicto}</span>
           <h1 className="mt-2 line-clamp-2 text-3xl leading-tight font-semibold tracking-tight" title={p.producto.nombre}>{p.producto.nombre}</h1>
           <p className="mt-1 truncate text-lg text-smn-gris-700">{[p.producto.marca?.toUpperCase(), p.producto.presentacion, p.producto.proveedor].filter(Boolean).join(" · ")}</p>
-          {p.dictamen && <p className="mt-2 line-clamp-3 text-[17px] leading-snug" title={sinVeredicto(p.dictamen)}>{sinVeredicto(p.dictamen)}</p>}
+          {p.dictamen && <Dictamen texto={sinVeredicto(p.dictamen)} />}
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 @2xl:grid-cols-3">
             <Cifra chica titulo="Nuestro precio" valor={pesos(c.precio, c.precio != null && c.precio % 1 ? 2 : 0)} sub={c.precio_membresia != null ? `membresía ${pesos(c.precio_membresia, c.precio_membresia % 1 ? 2 : 0)}` : undefined} />
             <Cifra chica titulo="Costo sin IVA" valor={pesos(c.costo, c.costo != null && c.costo % 1 ? 2 : 0)} />
@@ -617,24 +635,27 @@ function Nivel1({ p, foto, abrir }: { p: Pantalla; foto?: ReactNode; abrir: (f: 
             <Cifra chica titulo="Venta en 3 meses" valor={c.venta_3m_texto ? `~${c.venta_3m_texto}` : "—"} sub={c.tiendas ? `sin IVA, prueba en ${c.tiendas} tiendas${c.venta_cadena_texto ? ` · ~${c.venta_cadena_texto} en ${c.tiendas_cadena}` : ""}` : undefined} />
             <Cifra chica titulo="Clase esperada" valor={c.clase_esperada || "—"} sub={c.clase_esperada ? "regla de abril 2026" : undefined} />
           </div>
-          {p.proveedor.valor && (
+          {/* Solo si hay una calificación de proveedor, en palabras de negocio (revisión del 26 nov 2026: «Proveedor (contexto,
+              no califica): Proveedor 52/100» en una idea sin proveedor; el 52 es de quien ya nos surte la marca) */}
+          {p.proveedor.puntaje != null && (
             <p className="mt-2 truncate text-sm text-smn-gris-500">
-              Proveedor (contexto, no califica): {p.proveedor.valor}
-              {p.proveedor.puntaje != null && !p.proveedor.valor.includes("/100") && ` · ${p.proveedor.puntaje} de 100`}
+              {p.proveedor.nombre ? `Proveedor ${p.proveedor.nombre}` : "Quien ya nos surte la marca"}: {p.proveedor.puntaje} de 100 · no cuenta en la calificación
             </p>
           )}
         </div>
       </div>
-      <div className={`grid gap-4 @2xl:grid-cols-2 ${COLUMNAS[p.factores.length] ?? COLUMNAS[4]}`}>
+      {/* Con 5 temas (el precio partido en anaquel y afuera, 25 nov 2026) van en una sola fila, con la dona arriba, para que
+          el nivel 1 quepa sin bajar en 1920×1080 (Diego, 22 nov 2026); en pantallas angostas siguen de 2 en 2 */}
+      <div className={`grid gap-4 @2xl:grid-cols-2 ${cinco ? "@4xl:grid-cols-5" : COLUMNAS[p.factores.length] ?? COLUMNAS[4]}`}>
         {p.factores.map((f) => (
-          <button key={f.factor} type="button" onClick={() => abrir(f.factor)} className="group flex items-center gap-4 rounded-2xl border border-smn-gris-100 bg-superficie px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-lg">
-            <div className="shrink-0">
-              <Dona f={f} tam={112} />
+          <button key={f.factor} type="button" onClick={() => abrir(f.factor)} className={`group flex items-center gap-4 rounded-2xl border border-smn-gris-100 bg-superficie px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${cinco ? "@4xl:flex-col @4xl:items-stretch @4xl:gap-2" : ""}`}>
+            <div className={`shrink-0 ${cinco ? "@4xl:self-center" : ""}`}>
+              <Dona f={f} tam={cinco ? 96 : 112} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-lg font-semibold">{f.nombre}</span>
-                <span className="text-smn-gris-500 tabular-nums">{num(f.peso)} %</span>
+                <span className={`text-lg font-semibold ${cinco ? "@4xl:text-base @4xl:leading-snug" : ""}`}>{f.nombre}</span>
+                <span className="whitespace-nowrap text-smn-gris-500 tabular-nums">{num(f.peso)} %</span>
               </div>
               <p className="text-sm text-smn-gris-700">
                 {f.aporte != null ? `aporta ${num(f.aporte)} de ${num(f.de)} puntos` : "no cuenta todavía"}
@@ -1000,6 +1021,7 @@ function CuerpoPrecio({ p, lado }: { p: Pantalla; lado?: "anaquel" | "afuera" })
                         : a.fuente === "proveedor"
                           ? " · lo dijo el proveedor"
                           : ""}
+                    {a.nota && ` · ${a.nota}`}
                   </span>
                   {a.venta && <span className={`block truncate text-sm ${a.venta_fuerte ? "font-semibold text-green-700 dark:text-green-400" : "text-smn-gris-700"}`}>{a.venta}</span>}
                 </span>

@@ -787,7 +787,7 @@ def a_idea(bd: Session, o: Oportunidad, usuario_id: int) -> ProductoIdea:
 
 def _evaluar_una(evaluacion_id: int) -> None:
     with _sesion() as bd:
-        rp.evaluar(bd, evaluacion_id)
+        rp.evaluar(bd, evaluacion_id, rapido=False)
 
 
 def evaluar_todas(bd: Session, c: OportunidadCorrida) -> int:

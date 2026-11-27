@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { api, dolares, haceCuanto, mensajeDe } from "@/lib/api";
 import { SEMAFORO, pct, type TableroDia } from "@/lib/precios";
 import { useAvisos } from "@/componentes/avisos";
+import { useSesion } from "@/componentes/sesion";
 import { Entrada, Esqueleto } from "@/componentes/ui";
 import { Miniatura, monto } from "../piezas";
 import { dinero } from "../tabla-filas";
@@ -18,10 +19,19 @@ const diaCorto = (f: string) => new Date(`${f}T12:00:00`).toLocaleDateString("es
 
 export default function TableroAlDia() {
   const avisar = useAvisos();
+  const { puede } = useSesion();
   const [t, setT] = useState<TableroDia | null>(null);
+  const [falla, setFalla] = useState<string | null>(null);
   useEffect(() => {
-    api<TableroDia>("/api/compras/precios/tablero/dia").then(setT).catch((e) => avisar(mensajeDe(e), "info"));
+    api<TableroDia>("/api/compras/precios/tablero/dia")
+      .then(setT)
+      .catch((e) => {
+        setFalla(mensajeDe(e));
+        avisar(mensajeDe(e), "info");
+      });
   }, [avisar]);
+  // Si la consulta falla no se queda el esqueleto para siempre (revisión de usabilidad, 26 nov 2026)
+  if (!t && falla) return <p className="rounded-xl border border-smn-gris-100 bg-superficie p-5 text-[15px] text-smn-gris-700">No se pudo cargar el tablero: {falla} Vuelve a abrir la página en un momento.</p>;
   if (!t) return <Esqueleto className="h-96" />;
 
   const caros = t.mas_caros + t.un_poco_caros;
@@ -193,7 +203,8 @@ export default function TableroAlDia() {
             <dl className="grid grid-cols-2 gap-3 text-[14px]">
               <Dato t="Última noche" v={t.noche.lotes ? `${n(t.noche.productos)} productos en ${t.noche.lotes} lotes` : "Sin lotes"} />
               <Dato t="Con precios" v={n(t.noche.con_precios)} />
-              <Dato t="Búsquedas de la noche" v={dolares(t.noche.costo_usd)} />
+              {/* El gasto en dólares solo lo ve quien administra (criterio de Diego) */}
+              {puede("compras.precios.administrar") && <Dato t="Búsquedas de la noche" v={dolares(t.noche.costo_usd)} />}
               <Dato t="Por revisar" v={`${n(a.sin_revisar + a.dudosos)}${a.noches_faltan ? ` · unas ${a.noches_faltan} noches` : ""}`} />
             </dl>
             <div>

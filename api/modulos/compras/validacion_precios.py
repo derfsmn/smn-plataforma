@@ -94,6 +94,20 @@ def sabores(texto: str | None) -> set[str]:
     return {s for s in SABORES if f" {s} " in t}
 
 
+_NO_INGREDIENTE = {"sabor", "envio", "garantia", "descuento", "tapa", "dosificador", "regalo", "factura"}
+
+
+def con_extra(desc: str | None, titulo: str | None) -> str | None:
+    """Un ingrediente que el título agrega con «con …» y nuestra descripción no trae («Clorofila con Spirulina» contra
+    «CLOROFILA 500 ML»). None si no hay."""
+    nuestra = co.normalizar(desc)
+    for palabra in re.findall(r"\bcon ([a-z]{4,})", co.normalizar(titulo)):
+        if palabra in _NO_INGREDIENTE or palabra[:5] in nuestra:
+            continue
+        return palabra
+    return None
+
+
 def clave_vendedor(vendedor: str | None, dominio: str | None) -> str:
     return (dominio or "").lower().removeprefix("www.") or co.normalizar(vendedor)
 
@@ -175,6 +189,9 @@ def comprobar(p: Producto, i: Identidad, marcas: set[str]) -> dict[str, dict]:
         r["variante"] = _sin(f"La tienda dice sabor {', '.join(sorted(ss))} y nuestra descripción no dice sabor")
     elif ns and not ss:
         r["variante"] = _sin("La tienda no dice el sabor")
+    elif extra := con_extra(desc, titulo):
+        # «Clorofila con Spirulina» o «con Matcha» no es la «CLOROFILA 500 ML» sola (revisión de coherencia, 26 nov 2026)
+        r["variante"] = _sin(f"La tienda dice «con {extra}» y nuestra descripción no")
     else:
         r["variante"] = _ok("Misma variante y sabor" if (nv or ns) else "Sin variante ni sabor de por medio")
 

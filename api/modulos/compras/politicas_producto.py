@@ -98,7 +98,10 @@ def dato_comprobado(dato, datos: dict) -> bool:
     if d in plano:
         return True
     numeros = re.findall(r"\d+(?:[.,]\d+)?", d)  # «$1,500» contra 1500.00
-    return bool(numeros) and all(n.replace(",", "") in plano.replace(",", "") for n in numeros)
+    # Solo una cifra con su unidad cuenta así («$1,500», «48 piezas»); una frase con un número dentro no (colágeno B-Fit,
+    # 26 nov 2026: «Se menciona 'Sin aviso de funcionamiento' en política R2» pasaba por el «2»)
+    palabras = re.findall(r"[a-z]{3,}", re.sub(r"\d+(?:[.,]\d+)?", " ", d))
+    return bool(numeros) and len(palabras) <= 2 and all(n.replace(",", "") in plano.replace(",", "") for n in numeros)
 
 
 _GENERICAS = {"producto", "productos", "suplemento", "suplementos", "nombre", "proveedor", "marca", "tiene", "cuando",
@@ -117,10 +120,20 @@ def dato_de_la_regla(dato, regla: dict) -> bool:
     una palabra de la regla o una cifra."""
     d = f" {_norm(dato)} "
     texto_regla = _norm(f"{regla.get('titulo')} {regla.get('descripcion') or ''}")
+    # Citar la regla no prueba la regla («Se menciona 'Sin aviso de funcionamiento' en política R2»)
+    titulo = _norm(regla.get("titulo") or "").strip()
+    if titulo and titulo in d:
+        return False
     if any(x in texto_regla for x in ("terapeut", "promesa", "alusion", "afirmacion", "beneficio")):
         return any(re.search(rf"\b{re.escape(p)}", d) for p in _PROMESAS)
-    if re.search(r"\d", d):
-        return True  # cifras: ya se comprobó que están en el producto (precio, piezas, contenido)
+    # Una cifra prueba la regla solo si la regla habla de cantidades (precio, piezas, contenido, margen…): el nombre
+    # «Shampoo de Romero 400 ml» no prueba «Sin aviso de funcionamiento» (26 nov 2026: lo mandaba a rojo)
+    cantidades = re.search(r"\d|precio|pieza|contenido|gramo|\bml\b|\bkg\b|peso|margen|dias|caja|costo|porcentaje|%", texto_regla)
+    # Una regla de algo que falta («Sin aviso de funcionamiento») no se prueba con los datos del producto: que no venga el
+    # documento en la captura no dice que no exista (26 nov 2026: el shampoo seguía en rojo por la cifra de su nombre)
+    falta = _norm(regla.get("titulo") or "").strip().startswith("sin ")
+    if re.search(r"\d", d) and cantidades and not falta:
+        return True
     claves = {w for w in re.findall(r"[a-z]{5,}", texto_regla) if w not in _GENERICAS}
     return not claves or any(w[:6] in d for w in claves)
 
@@ -269,9 +282,10 @@ def revisar(bd: Session, departamento: str | None, texto: set[str], datos: dict)
                           "casos_parecidos_que_ya_decidio_compras": rev.casos}, ensure_ascii=False, default=str)
     r = None
     try:
-        r = puerta.ejecutar(bd, TAREA_IA, usuario_id=None, instrucciones=INSTRUCCIONES, mensaje=mensaje,
-                            max_tokens=MAX_TOKENS, esfuerzo="medium",
-                            contexto=puerta.ventana(INSTRUCCIONES, mensaje, salida=MAX_TOKENS))
+        with puerta.temperatura(0):  # el mismo producto contra las mismas reglas da el mismo veredicto (26 nov 2026)
+            r = puerta.ejecutar(bd, TAREA_IA, usuario_id=None, instrucciones=INSTRUCCIONES, mensaje=mensaje,
+                                max_tokens=MAX_TOKENS, esfuerzo="medium",
+                                contexto=puerta.ventana(INSTRUCCIONES, mensaje, salida=MAX_TOKENS))
         respuesta = json.loads(r.texto[r.texto.find("{"):r.texto.rfind("}") + 1])
         vistas: set[str] = set()
         for h in respuesta.get("hallazgos") or []:

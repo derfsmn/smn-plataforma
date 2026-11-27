@@ -68,7 +68,7 @@ def revisar(bd: Session, aplicar: bool = True, limite: int | None = None, avance
             continue
         antes, origen_antes = e.subcategoria, e.clasificacion_origen
         nueva = rp.iniciar(bd, propuesta_id=e.propuesta_id, idea_id=e.idea_id)
-        nueva = rp.evaluar(bd, nueva.evaluacion_id)
+        nueva = rp.evaluar(bd, nueva.evaluacion_id, rapido=False)
         cuando = datetime.now(ZONA).strftime("%d/%m/%Y")
         nueva.explicacion = (f"Se reclasificó sola el {cuando}: antes «{antes or 'sin subcategoría'}» "
                              f"({origen_antes or 'sin origen'}), ahora «{nueva.subcategoria or 'sin subcategoría'}».\n\n"

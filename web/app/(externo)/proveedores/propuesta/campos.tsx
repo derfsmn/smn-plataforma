@@ -2,6 +2,8 @@
 // Campos del cuestionario de productos nuevos. Cada uno muestra su error (lo calcula el servidor en `faltantes`).
 
 import { motion } from "motion/react";
+import { useState } from "react";
+import { leerNumero, teclearNumero, verNumero } from "@/lib/numeros";
 import type { Opcion } from "@/lib/propuestas";
 
 const marco = (error?: string) =>
@@ -105,23 +107,47 @@ export function Numero({
   decimales = 2,
   sufijo,
 }: Base & { valor: string | null; cambiar: (v: string) => void; max?: number; decimales?: number; sufijo?: string }) {
-  const v = valor ?? "";
+  // Se teclea libre y se lee con lib/numeros: «1250,50» ya no se guarda como 125050 (revisión de formularios, 26 nov 2026).
+  // El formulario siempre recibe el número limpio; en pantalla se ve con coma de miles al salir del campo.
+  const v = valor === null || valor === undefined ? "" : String(valor);
+  const [texto, setTexto] = useState<string | null>(null);
+  const [propio, setPropio] = useState<string | undefined>();
+  const leer = (t: string, mostrar: boolean) => {
+    const l = leerNumero(t, decimales);
+    let motivo = l.error;
+    if (!motivo && l.valor && max !== undefined && Number(l.valor) > max) motivo = `El máximo es ${max}.`;
+    if (mostrar || !motivo) setPropio(motivo);
+    cambiar(motivo ? "" : l.valor ?? "");
+    return motivo;
+  };
+  const aviso = propio ?? error;
+  // Porcentaje escrito como fracción («0.31» por 31 %): se avisa, no se cambia
+  const fraccion = sufijo === "%" && !!v && Number(v) > 0 && Number(v) < 1;
   return (
     <label className={`block ${className}`}>
       <Etiqueta texto={etiqueta} requerido={requerido} ayuda={ayuda} />
       <span className="relative block">
         <input
-          value={v}
-          onChange={(e) => cambiar(numeroConMascara(e.target.value, decimales, max))}
-          onBlur={() => v.endsWith(".") && cambiar(v.slice(0, -1))}
+          value={texto ?? verNumero(v)}
+          onFocus={() => setTexto(verNumero(v))}
+          onChange={(e) => {
+            const t = teclearNumero(e.target.value);
+            setTexto(t);
+            leer(t, false);
+          }}
+          onBlur={() => {
+            const motivo = leer(texto ?? "", true);
+            setTexto(motivo ? texto : null);
+          }}
           type="text"
           inputMode={decimales ? "decimal" : "numeric"}
-          className={`${marco(error)} ${sufijo ? "pr-14" : ""}`}
-          aria-invalid={!!error}
+          className={`${marco(aviso)} ${sufijo ? "pr-14" : ""}`}
+          aria-invalid={!!aviso}
         />
         {sufijo && <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm text-smn-gris-500">{sufijo}</span>}
       </span>
-      <Error mensaje={error} />
+      {fraccion && !aviso && <span className="mt-1 block text-[13px] text-smn-gris-500">Va en por ciento: 31 % se escribe 31, no 0.31.</span>}
+      <Error mensaje={aviso} />
     </label>
   );
 }

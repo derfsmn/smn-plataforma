@@ -143,6 +143,8 @@ def _estimar(bd: Session, datos: Pedir) -> tuple[Estimado, list[Producto]]:
             vigilados[v.producto_id] = v
     pares = [(vigilados.get(p.producto_id) or PrecioVigilado(producto_id=p.producto_id), p) for p in ps[:MAX_PRODUCTOS]]
     costo = precios.estimado(bd, pares) if pares else Decimal(0)
+    if cfg.precios_pedido_prioridad_alta:  # la corrida a pedido va en la cola rápida: cuesta el doble (26 nov 2026)
+        costo *= dfs.POR_PRIORIDAD[2]
     gasto, tope = dfs.gasto_mes(bd), Decimal(str(cfg.precios_tope_mensual_usd or 0))
     disponible = max(Decimal(0), tope - gasto)
     falta = dfs.configurado()

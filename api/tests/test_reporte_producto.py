@@ -167,6 +167,28 @@ def test_reporte_de_creanatomy(admin: TestClient, sincrono, catalogo_creatinas):
     t = _texto(admin.get(f"{R}/evaluaciones/{e['id']}/reporte").content)
     assert "32.0 %" in t and "Precio mínimo para el 30 %" in t and f"BIRD{c['h']} CREATINA MONOHIDRATADA 450 G" in t
     assert "$1.15 por gramo" in t  # 449 / 390
+    # 26 nov 2026: la columna «Clase» sin partirse y la subcategoría con mayúscula inicial, no en minúsculas
+    assert "Clase" in t and "Clas. catálogo" not in t
+    # Lo visto sin tamaño confirmado sale en «¿A cuánto se vende afuera?» igual que en la pantalla, y no cuenta
+    from modulos.compras import mercado_producto as mp
+    with Session(motor()) as bd:
+        ev = bd.get(rp.ProductoEvaluacion, e["id"])
+        m = mp.Mercado.de_json(ev.mercado) or mp.Mercado()
+        m.vistos = [{"precio": 401.5, "titulo": "Creatina Creanatomy en polvo", "vendedor": "Walmart México", "liga": None}]
+        ev.mercado = m.a_json()
+        bd.commit()
+    t2 = _texto(admin.get(f"{R}/evaluaciones/{e['id']}/reporte").content)
+    assert "Walmart México (tamaño sin confirmar, no cuenta)" in t2 and "$401.50" in t2
+    if sub := e["subcategoria"]:
+        assert sub.lower() == sub or f"{sub.lower()} en SMN" not in t
+
+
+def test_fechas_del_reporte_en_hora_de_mexico():
+    """26 nov 2026: a las 6 pm del 26 el reporte decía «precios del 27 nov» porque la hora guardada es UTC."""
+    from modulos.compras import reporte_producto as rpt
+
+    assert rpt._fecha(rpt._local("2026-11-27T00:30:00")) == "26 nov 2026"
+    assert rpt._fecha(rpt._local("2026-11-27T07:00:00")) == "27 nov 2026"
 
 
 def test_reporte_sin_terminar_no_sale(admin: TestClient):
@@ -215,3 +237,11 @@ def test_contenido_sin_unidad_no_se_acepta(admin: TestClient):
     """Hybrix 5 (18 nov 2026): «40» sin unidad hizo que el radar tomara los 30 g del nombre."""
     r = admin.post(f"{R}/ideas", json={"nombre": "Proteína sobre", "contenido": "40"})
     assert r.status_code == 422 and "unidad" in r.text
+
+
+def test_tarjeta_de_precio_no_dice_solo_provisional():
+    """BDM Life (26 nov 2026): la tarjeta de «Precio contra anaquel» decía solo «Provisional.»."""
+    from modulos.compras import reporte_producto as rpt
+
+    f = rp.Factor(94, "Buen precio: 17 % más barato que nuestro anaquel, por cápsula", "x", provisional=True)
+    assert rpt._corto(rpt._valor_tema("precio_anaquel", f)).startswith("Buen precio")

@@ -75,6 +75,7 @@ export type Afuera = {
   por_porcion: number | null;
   venta?: string | null; // señal de venta: «Más vendido · +2,000 comprados el mes pasado» (22 nov 2026)
   venta_fuerte?: boolean;
+  nota?: string | null; // «visto en Google Shopping»: su sitio no deja consultarlo (26 nov 2026)
 };
 
 /** 22 nov 2026: el Precio también con el precio de membresía (pesa la mitad). */

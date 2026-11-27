@@ -31,7 +31,11 @@ export default function Corridas() {
           // Mientras alguna corre o espera turno, se revisa otra vez (sin encimar peticiones)
           if (l.some((p) => p.estado === "en_curso" || p.estado === "en_espera")) espera.current = setTimeout(cargar, 5000);
         })
-        .catch((e) => vivo && avisar(mensajeDe(e), "info"));
+        .catch((e) => {
+          if (!vivo) return;
+          avisar(mensajeDe(e), "info");
+          espera.current = setTimeout(cargar, 10000); // una falla no deja la lista cargando para siempre (26 nov 2026)
+        });
     setLista(null);
     cargar();
     return () => {

@@ -34,12 +34,13 @@ class DataForSEOSimulado:
     def __init__(self):
         self.resultados: dict[str, list[dict]] = {}
         self.vendedores: dict[str, list[dict]] = {}
+        self.organico: dict[str, list[dict]] = {}  # búsqueda normal de Google (respaldo de tiendas que bloquean)
         self.tareas: dict[str, tuple[str, dict]] = {}
         self.envios: list[tuple[str, int]] = []
         self.falla_post = False
 
     def __call__(self, metodo, ruta, cuerpo=None):
-        tipo = "products" if "/products/" in ruta else "sellers"
+        tipo = "products" if "/products/" in ruta else "organic" if "/organic/" in ruta else "sellers"
         if ruta.endswith("task_post"):
             self.envios.append((tipo, len(cuerpo)))
             if self.falla_post:
@@ -54,7 +55,8 @@ class DataForSEOSimulado:
             return {"status_code": 20000, "tasks": [{"result": [{"id": i} for i, (tp, _) in self.tareas.items() if tp == tipo]}]}
         id_ = ruta.rsplit("/", 1)[1]
         _, t = self.tareas[id_]
-        items = self.resultados.get(t["keyword"], []) if tipo == "products" else self.vendedores.get(t.get("product_id") or t.get("data_docid"), [])
+        items = (self.resultados.get(t["keyword"], []) if tipo == "products" else self.organico.get(t["keyword"], [])
+                 if tipo == "organic" else self.vendedores.get(t.get("product_id") or t.get("data_docid"), []))
         return {"status_code": 20000, "tasks": [{"status_code": 20000, "result": [{"items": items}]}]}
 
 
@@ -1094,7 +1096,9 @@ def test_tiendas_directas_cuentan_como_vendedores(limpio, admin, monkeypatch):
     directas = {x["tienda"]: x for x in d["directas"]}
     assert set(directas) == {"Walmart", "Chedraui", "San Pablo", "Soriana"} and directas["Walmart"]["titulo"].endswith("100 cápsulas")
     lista = admin.get("/api/compras/precios/lista").json()
-    assert {k: Decimal(v) for k, v in lista["filas"][0]["tiendas"].items()} == {"Walmart": Decimal("110.00"), "Chedraui": Decimal("130.00")}
+    # Amazon también es tienda de Compras desde el 26 nov 2026 (sigue con su regla de mercado en línea)
+    assert {k: Decimal(v) for k, v in lista["filas"][0]["tiendas"].items()} == {
+        "Walmart": Decimal("110.00"), "Chedraui": Decimal("130.00"), "Amazon": Decimal("100.00")}
     tabla = admin.get("/api/compras/precios/tabla").json()["renglones"]
     assert sorted(r["vendedor"] for r in tabla) == ["Amazon", "Chedraui", "Walmart"]
 
@@ -1400,3 +1404,71 @@ def test_consulta_en_texto_plano():
     assert co.texto_plano("BDM Life Berberina + Piperina + Omega 9 – Metabolismo 120 CAP DE 1.2G") == \
         "BDM Life Berberina Piperina Omega 9 Metabolismo 120 CAP DE 1.2G"
     assert co.texto_plano("Proteína Vegetal 510 g") == "Proteína Vegetal 510 g"
+
+
+def test_tienda_bloqueada_se_busca_en_google_limitado_a_su_sitio(limpio, admin, monkeypatch):
+    """Diego (26 nov 2026): Walmart pide verificar identidad y San Pablo contesta 403. No se brinca el bloqueo: se busca
+    en Google limitado a su dominio, sin abrir su página; lo que trae pasa por las mismas reglas y cuenta como esa tienda.
+    Al primer bloqueo ya no se le pregunta a su sitio por los demás productos. Datos FICTICIOS."""
+    a = producto("MORINGA EJ 500 MG 100 CAPSULAS", lista="116.00")
+    b = producto("ESPIRULINA EJ 200 TABLETAS", lista="199.00")
+    vigilar(a)
+    vigilar(b)
+    qa, qb = "NATUREJ MORINGA EJ 500 MG 100 CAPSULAS", "NATUREJ ESPIRULINA EJ 200 TABLETAS"
+    limpio.resultados[qa] = [item("Naturej Moringa EJ 500mg 100 cápsulas", "G-A")]
+    limpio.vendedores["G-A"] = [vendedor("Amazon MX", 100, "amazon.com.mx"), vendedor("Chedraui", 115, "chedraui.com.mx")]
+    walmart = TiendaSimulada("Walmart", "walmart.com.mx", falla="bloqueó la consulta automática: pidió verificar identidad")
+    limpio.organico[f"site:walmart.com.mx {qa}"] = [
+        {"type": "organic", "url": "https://www.walmart.com.mx/ip/moringa/w100", "domain": "www.walmart.com.mx",
+         "title": "Naturej Moringa EJ 500mg 100 cápsulas | Walmart en línea", "price": {"current": 108.0, "currency": "MXN"}},
+        {"type": "organic", "url": "https://otra.mx/x", "domain": "otra.mx", "title": "Naturej Moringa EJ 100 cápsulas",
+         "price": {"current": 50.0, "currency": "MXN"}}]  # de otro dominio: no cuenta como Walmart
+    limpio.organico[f"site:walmart.com.mx {qb}"] = [
+        {"type": "organic", "url": "https://www.walmart.com.mx/ip/espirulina/w200", "domain": "www.walmart.com.mx",
+         "title": "Naturej Espirulina EJ 200 tabletas", "description": "Compra en línea"}]  # sin precio visible
+    con_tiendas(monkeypatch, walmart)
+    c = correr()
+    assert len(walmart.consultas) == 1  # al primer bloqueo ya no se le pregunta por el segundo producto
+    fa, fb = fila(c.corrida_id, a), fila(c.corrida_id, b)
+    ea, eb = json.loads(fa.tiendas)["Walmart"], json.loads(fb.tiendas)["Walmart"]
+    assert ea["estado"] == "encontrado" and Decimal(ea["precio"]) == Decimal("108.00")
+    assert eb["estado"] == "sin_precio"  # Google dice que lo vende, pero no muestra el precio: no cuenta
+    assert fa.vendedores == 3 and fa.mediana == Decimal("108.00")  # Amazon 100, Walmart 108 (de Google), Chedraui 115
+    d = admin.get(f"/api/compras/precios/productos/{a}").json()
+    w = next(o for o in d["observaciones"] if o["vendedor"] == "Walmart")
+    assert not w["directa"] and w["publicacion"] == "Google (sitio de Walmart)"
+
+    # Sin presupuesto no se busca en Google y se dice
+    limpio.organico.clear()
+    from modulos.compras import dataforseo as dfs
+    monkeypatch.setattr(configuracion(), "precios_tope_mensual_usd", float(0.0001))
+    c2 = correr()
+    assert json.loads(fila(c2.corrida_id, a).tiendas)["Walmart"]["estado"] == "error"
+
+
+def test_tiendas_de_compras_se_reconocen_por_nombre_y_dominio():
+    """Diego (26 nov 2026): la lista de tiendas donde Compras valida precios. Cada una con su nombre, por vendedor o por
+    dominio; Bodega Aurrera es tienda propia (no Walmart); los nombres cortos no se confunden con otros vendedores."""
+    claves = [t.strip() for t in configuracion().__class__().precios_tiendas_clave.split(",")]
+    assert len(claves) == 18 and {"Bodega Aurrera", "HEB", "GNC", "DAX", "La Comer", "Fresko", "City Market"} <= set(claves)
+    t = lambda v, d=None: precios.tienda_clave(v, d, claves)  # noqa: E731
+    assert t("Farmacia París", "farmaciaparis.com") == "Farmacias Paris"
+    assert t("Farmacias del Ahorro", "fahorro.com") == "Farmacias del Ahorro" and t("Vendedor", "https://www.fahorro.com/x") == "Farmacias del Ahorro"
+    assert t("Bodega Aurrera", "bodegaaurrera.com.mx") == "Bodega Aurrera" and t("Walmart México", None) == "Walmart"
+    assert t("HEB", "heb.com.mx") == "HEB" and t("H-E-B", None) == "HEB" and t("Tienda", "https://www.heb.com.mx/p") == "HEB"
+    assert t("The Boost Co", "theboostco.com") is None and t("The Beauty Box", "thebeautyboxmexico.com") is None
+    assert t("GNC", "gnc.com.mx") == "GNC" and t("DAX", "dax.com.mx") == "DAX" and t("Mercado Libre", "mercadolibre.com.mx") == "Mercado Libre"
+    assert t("Farmacias Similares", None) == "Farmacias Similares" and t("Farmacias Benavides", None) == "Farmacias Benavides"
+    assert t("San Pablo Farmacia", None) == "San Pablo" and t("Merco Supermercado", "adomicilio.merco.mx") is None
+
+
+def test_busqueda_con_site_cuesta_cinco_veces():
+    """26 nov 2026: DataForSEO cobró US$0.003 por bloque de 10 en las búsquedas con «site:» contra US$0.0006 sin
+    operador. El estimado y el tope lo toman en cuenta (la corrida a pedido costó el doble de lo estimado)."""
+    from modulos.compras import dataforseo as dfs
+
+    assert dfs.con_operadores("site:walmart.com.mx Spirulina 200 tabletas")
+    assert dfs.con_operadores("site:fahorro.com OR site:heb.com.mx colágeno") and not dfs.con_operadores("colágeno website")
+    assert dfs.maximo_tarea("organico", 10) == Decimal("0.0006")
+    assert dfs.maximo_tarea("organico", 10, operadores=True) == Decimal("0.0030")
+    assert dfs.maximo_tarea("organico", 20, operadores=True) == Decimal("0.0060")

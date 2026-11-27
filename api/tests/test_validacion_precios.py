@@ -310,3 +310,19 @@ def test_tablero_y_reporte_a_excel(limpio, admin, tmp_path):
     with Session(motor()) as bd:
         assert bd.scalar(select(PrecioCorrida).where(PrecioCorrida.origen == "manual"))
         assert CostoArticulo  # el costo se toma de la tabla de SMNBI cuando existe
+
+
+def test_con_un_ingrediente_de_mas_no_es_el_mismo_producto():
+    """Revisión de coherencia (26 nov 2026): «Clorofila con Spirulina» y «con Matcha» contaban para «CLOROFILA 500 ML»."""
+    from modulos.compras import validacion_precios as val
+
+    assert val.con_extra("CLOROFILA 500 ML", "Clorofila con Spirulina 500 ml Vidanat") == "spirulina"
+    assert val.con_extra("CLOROFILA CON SPIRULINA 500 ML", "Clorofila con Spirulina 500 ml Vidanat") is None
+    assert val.con_extra("CLOROFILA 500 ML", "Clorofila Vidanat 500 ml con envío gratis") is None
+    assert val.con_extra("CLOROFILA 500 ML", "Clorofila Vidanat 500 ml") is None
+
+
+def test_la_tienda_de_la_marca_propia_es_nuestra():
+    from core.config import Configuracion
+
+    assert "vidanat.mx" in Configuracion().precios_dominios_propios

@@ -77,7 +77,7 @@ def simular(bd: Session, evaluacion_id: int, como_v053: bool, hoy: date | None =
     m1 = fi.COMO_V053.set(como_v053)
     m2 = rp.MERCADO_FIJO.set((original.mercado, original.investigacion))
     try:
-        b = rp.evaluar(bd, bid, hoy)
+        b = rp.evaluar(bd, bid, hoy, rapido=False)
         foto = foto_de(b)
         for c in b.comparables:
             p = bd.get(Producto, c.producto_id)

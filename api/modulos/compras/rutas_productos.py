@@ -6,6 +6,7 @@ productos parecidos (eso recalcula) y es quien pone el color final, siempre con 
 Reglas del motor en radar_productos.py.
 """
 import logging
+import re
 import threading
 from datetime import datetime
 from decimal import Decimal
@@ -20,6 +21,8 @@ from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session, defer, load_only
 
 from core.bd import obtener_bd
+from core.config import configuracion
+from core.numeros import leer_numero
 from core.seguridad import Contexto, ip_de, requiere
 from datos.fichas import tamano
 from datos.modelos import Producto, Proveedor
@@ -121,7 +124,9 @@ class HistorialSalida(BaseModel):
 class PrecioInternet(BaseModel):
     precio: Decimal
     vendedor: str
-    fuente: Literal["google", "sitio", "web"]
+    # google, sitio, web, google_sitio (tienda vista en Google), mercadolibre, amazon. Con la lista cerrada, un precio de
+    # Amazon o de una tienda vista en Google tiraba el detalle de la evaluación (26 nov 2026: error 500 en la pantalla)
+    fuente: str
     titulo: str
     liga: str | None
 
@@ -485,7 +490,7 @@ def recalcular_anteriores(request: Request, ctx: Contexto = Depends(requiere(AJU
             if e and e.vigente and e.estado == "lista":
                 nueva = rp.iniciar(bd2, propuesta_id=e.propuesta_id, idea_id=e.idea_id, usuario_id=usuario_id)
                 bd2.commit()
-                bien += rp.evaluar(bd2, nueva.evaluacion_id).estado == "lista"
+                bien += rp.evaluar(bd2, nueva.evaluacion_id, rapido=False).estado == "lista"
             _TRABAJO["hechas"] = n
         return f"Recalculadas {bien} de {len(viejas)} evaluaciones con los pesos de Dirección."
 
@@ -795,6 +800,23 @@ class IdeaEntrada(BaseModel):
     proveedor_codigo: str | None = Field(None, max_length=10)
     proveedor_nuevo: str | None = Field(None, max_length=200)
 
+    @field_validator("precio_visto", "costo_estimado", "precio_nuestro", "precio_membresia", "activo_g_porcion", mode="before")
+    @classmethod
+    def _numero(cls, v):
+        """«1,234.50», «1234,50» o «$459» como los escribe una persona o los pega de Excel (26 nov 2026)."""
+        return leer_numero(v)
+
+    @field_validator("codigo_barras", mode="before")
+    @classmethod
+    def _barras(cls, v):
+        """Con sus ceros a la izquierda; sin espacios ni guiones. Nunca se vuelve número."""
+        if v is None:
+            return None
+        t = re.sub(r"[\s-]", "", str(v))
+        if re.search(r"e[+-]?\d", t, re.IGNORECASE):
+            raise ValueError("Excel pegó el código de barras como número (con «E+») y perdió dígitos; cópialo como texto.")
+        return t or None
+
     @field_validator("contenido")
     @classmethod
     def _con_unidad(cls, v: str | None) -> str | None:
@@ -846,6 +868,152 @@ def capturar_idea(datos: IdeaEntrada, request: Request, ctx: Contexto = Depends(
     e = rp.iniciar(bd, idea_id=i.idea_id, usuario_id=ctx.usuario.usuario_id)
     rp.en_hilo(e.evaluacion_id)
     return _detalle(bd, e)
+
+
+class IdeaDatos(BaseModel):
+    """Lo capturado de una idea, para corregirlo en el mismo formulario."""
+    nombre: str
+    marca: str | None
+    descripcion: str | None
+    departamento: str | None
+    ingrediente: str | None
+    forma: str | None
+    contenido: str | None
+    precio_visto: Decimal | None
+    donde_se_vio: str | None
+    costo_estimado: Decimal | None
+    precio_nuestro: Decimal | None
+    codigo_barras: str | None
+    activo_g_porcion: Decimal | None
+    porciones: int | None
+    lista_margen: str | None
+    precio_membresia: Decimal | None
+    proveedor_codigo: str | None
+    proveedor_nuevo: str | None
+
+
+def _datos_idea(i: ProductoIdea) -> IdeaDatos:
+    return IdeaDatos(nombre=i.nombre, marca=i.marca, descripcion=i.descripcion, departamento=i.departamento,
+                     ingrediente=i.ingrediente, forma=i.forma, contenido=i.contenido, precio_visto=i.precio_visto,
+                     donde_se_vio=i.donde_se_vio, costo_estimado=i.costo_estimado, precio_nuestro=i.precio_nuestro,
+                     codigo_barras=i.codigo_barras, activo_g_porcion=i.activo_g_porcion, porciones=i.porciones,
+                     lista_margen=i.lista_margen, precio_membresia=i.precio_membresia,
+                     proveedor_codigo=i.proveedor_intelisis, proveedor_nuevo=i.proveedor_nuevo)
+
+
+@router.get("/ideas/{idea_id}", response_model=IdeaDatos)
+def datos_idea(idea_id: int, _: Contexto = Depends(requiere(VER)), bd: Session = Depends(obtener_bd)) -> IdeaDatos:
+    i = bd.get(ProductoIdea, idea_id)
+    if not i:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa idea.")
+    return _datos_idea(i)
+
+
+@router.put("/ideas/{idea_id}", response_model=EvaluacionDetalle)
+def corregir_idea(idea_id: int, datos: IdeaEntrada, request: Request, ctx: Contexto = Depends(requiere(EVALUAR)),
+                  bd: Session = Depends(obtener_bd)) -> EvaluacionDetalle:
+    """«Corregir datos» (revisión del 26 nov 2026: un dato mal capturado en vivo obligaba a capturar todo otra vez y
+    dejaba un duplicado). Guarda lo corregido y la vuelve a evaluar. Si no cambió nombre, marca, contenido ni código de
+    barras, la búsqueda afuera de la última semana se reusa y sale en segundos; si cambió, se busca de nuevo.
+    Las fotos se quedan como estaban."""
+    i = bd.get(ProductoIdea, idea_id)
+    if not i:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No existe esa idea.")
+    e = rp.vigente(bd, idea_id=idea_id)
+    if e is not None and e.estado == "en_curso":
+        raise HTTPException(status.HTTP_409_CONFLICT, "La evaluación sigue en curso; espera a que termine para corregir.")
+    codigo, nuevo = _texto(datos.proveedor_codigo), _texto(datos.proveedor_nuevo)
+    if codigo and nuevo:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Elige un proveedor de Intelisis o escribe uno nuevo, no los dos.")
+    if codigo and codigo != i.proveedor_intelisis:
+        prov = bd.get(Proveedor, codigo)
+        if not prov or not (prov.agente or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ese proveedor no está en Intelisis con agente.")
+    antes = _datos_idea(i).model_dump(mode="json")
+    i.nombre, i.marca = _texto(datos.nombre), _texto(datos.marca)
+    i.descripcion = (datos.descripcion or "").strip() or None
+    i.departamento, i.ingrediente, i.forma = _texto(datos.departamento), _texto(datos.ingrediente), _texto(datos.forma)
+    i.contenido, i.precio_visto, i.donde_se_vio = _texto(datos.contenido), datos.precio_visto, _texto(datos.donde_se_vio)
+    i.costo_estimado, i.precio_nuestro, i.codigo_barras = datos.costo_estimado, datos.precio_nuestro, _texto(datos.codigo_barras)
+    i.activo_g_porcion, i.porciones = datos.activo_g_porcion, datos.porciones
+    i.lista_margen, i.precio_membresia = datos.lista_margen, datos.precio_membresia
+    i.proveedor_intelisis, i.proveedor_nuevo, i.actualizada_en = codigo, nuevo, ahora()
+    despues = _datos_idea(i).model_dump(mode="json")
+    _bitacora(bd, "corregir_idea", ctx, request, "producto_idea", i.idea_id,
+              {k: {"antes": antes[k], "despues": despues[k]} for k in despues if antes[k] != despues[k]})
+    bd.commit()
+    nueva = rp.iniciar(bd, idea_id=i.idea_id, usuario_id=ctx.usuario.usuario_id)
+    rp.en_hilo(nueva.evaluacion_id)
+    return _detalle(bd, nueva)
+
+
+class AltaFotosEstado(BaseModel):
+    activo: bool
+
+
+class LeerFotos(BaseModel):
+    fotos: list[int] = Field(min_length=1, max_length=4)  # archivo_id subidos con /api/archivos
+
+
+class FotosLeidas(BaseModel):
+    campos: dict[str, str]  # nombre, marca, forma, contenido, ingrediente, porciones, codigo_barras (los que se leyeron)
+    citas: dict[str, str]
+    segundos: float
+    fotos: int
+    nota: str | None
+
+
+@router.get("/alta-fotos", response_model=AltaFotosEstado)
+def alta_fotos_estado(_: Contexto = Depends(requiere(EVALUAR))) -> AltaFotosEstado:
+    return AltaFotosEstado(activo=bool(configuracion().radar_productos_alta_fotos))
+
+
+def _bytes_foto(a: Archivo) -> bytes | None:
+    """La foto como JPEG o PNG de a lo más 1600 px, para el modelo con visión."""
+    ruta = (_raiz() / a.ruta_almacenamiento).resolve()
+    if not ruta.is_file():
+        return None
+    datos = ruta.read_bytes()
+    if a.tipo_contenido in ("image/jpeg", "image/png") and len(datos) <= 2_500_000:
+        return datos
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(datos)).convert("RGB")
+        im.thumbnail((1600, 1600))
+        salida = io.BytesIO()
+        im.save(salida, "JPEG", quality=88)
+        return salida.getvalue()
+    except Exception:  # noqa: BLE001 - una foto que no se puede abrir solo se salta
+        return None
+
+
+@router.post("/alta-fotos/leer", response_model=FotosLeidas)
+def leer_fotos(datos: LeerFotos, request: Request, ctx: Contexto = Depends(requiere(EVALUAR)),
+               bd: Session = Depends(obtener_bd)) -> FotosLeidas:
+    """«Leer las fotos» del alta rápida: la IA local propone los datos de la etiqueta. No guarda nada."""
+    from modulos.compras import alta_fotos as af
+
+    if not configuracion().radar_productos_alta_fotos:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El alta con fotos está apagada en Configuración.")
+    fotos = []
+    for fid in dict.fromkeys(datos.fotos):
+        a = bd.get(Archivo, fid)
+        if not a or a.subido_por != ctx.usuario.usuario_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Una de las fotos no existe o no la subiste tú.")
+        if not a.tipo_contenido.startswith("image/"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"«{a.nombre_original}» no es una imagen.")
+        if (b := _bytes_foto(a)) is not None:
+            fotos.append(b)
+    if not fotos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No se pudo abrir ninguna de las fotos.")
+    r = af.leer(bd, fotos)
+    _bitacora(bd, "leer_fotos_alta", ctx, request, "archivo", None, {"fotos": len(fotos), "leidos": sorted(r.campos),
+                                                                     "segundos": r.segundos})
+    bd.commit()
+    return FotosLeidas(campos=r.campos, citas=r.citas, segundos=r.segundos, fotos=r.fotos, nota=r.nota)
 
 
 class CambioMargenIdea(BaseModel):

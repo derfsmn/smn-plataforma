@@ -180,10 +180,23 @@ def _catalogo(bd: Session, v: rr.Ventana | None, parecidos: list[dict], skus: li
     return salida
 
 
+def _bloqueadas(m: "mp.Mercado | None") -> set[str]:
+    """Tiendas clave que no dejaron consultar su sitio en esta búsqueda (Walmart pide verificar identidad, San Pablo
+    contesta 403)."""
+    return {n.split(":", 1)[0] for n in (m.notas if m else []) if ": bloqueó la consulta automática" in n}
+
+
+def _tienda_de(p: dict) -> str | None:
+    from modulos.compras import precios as pc
+
+    return pc.tienda_clave(p.get("vendedor"), p.get("liga"))
+
+
 def _afuera(e: ProductoEvaluacion, s: rp.Sujeto, porciones: int | None) -> list[dict]:
     """Quién lo vende afuera: la búsqueda de mercado (mismo producto) y lo que vio Compras o dijo el proveedor."""
     m = mp.Mercado.de_json(e.mercado)
     por_liga = {x.liga: x for x in sv.de_lista(m.senales if m else []) if x.liga}
+    bloqueadas = _bloqueadas(m)
     salida = []
     for p in sorted(m.precios if m else [], key=lambda p: float(p["precio"])):
         precio = Decimal(str(p["precio"]))
@@ -198,7 +211,19 @@ def _afuera(e: ProductoEvaluacion, s: rp.Sujeto, porciones: int | None) -> list[
                        "cuenta": not de_marca,
                        "mercado_libre": "mercado libre" in rp._norm(vendedor) or "mercadolibre" in liga.lower(),
                        "por_porcion": _f(precio / porciones) if porciones else None,
-                       "venta": senal.texto() if senal else None, "venta_fuerte": bool(senal and senal.puntos() == sv.FUERTE)})
+                       "venta": senal.texto() if senal else None, "venta_fuerte": bool(senal and senal.puntos() == sv.FUERTE),
+                       # Su sitio no deja consultarlo, pero su precio llegó por Google Shopping (26 nov 2026)
+                       "nota": "visto en Google" if p.get("fuente") == "google_sitio"
+                       else "visto en Google Shopping" if (p.get("fuente") or "google") == "google"
+                       and _tienda_de(p) in bloqueadas else None})
+    # El mismo producto, pero su publicación no dice el tamaño: se enseña con su precio y no califica (26 nov 2026)
+    for v in (m.vistos if m else []):
+        precio = Decimal(str(v["precio"]))
+        salida.append({"titulo": v.get("titulo") or s.nombre, "vendedor": v.get("vendedor") or "—", "precio": _f(precio),
+                       "liga": v.get("liga"), "fuente": "google", "cuenta": False,
+                       "mercado_libre": "mercado libre" in rp._norm(v.get("vendedor")),
+                       "por_porcion": _f(precio / porciones) if porciones else None, "venta": None,
+                       "venta_fuerte": False, "nota": "tamaño sin confirmar, no cuenta para la calificación"})
     for precio, donde in s.mercado:
         salida.append({"titulo": s.nombre, "vendedor": donde, "precio": _f(precio), "liga": None,
                        "fuente": "compras" if s.tipo == "idea" else "proveedor", "cuenta": s.tipo != "idea",
@@ -354,18 +379,99 @@ def _nota_ml(e: ProductoEvaluacion, afuera: list[dict]) -> str | None:
     if any(a["mercado_libre"] for a in afuera):
         return None
     m = mp.Mercado.de_json(e.mercado)
-    if nota := next((x for x in (m.notas if m else []) if x.startswith("Mercado Libre")), None):
-        return nota
-    if m and any(x.get("fuente") == "Mercado Libre" for x in m.senales):
-        return None
-    return "Mercado Libre: no se buscó en esta evaluación."
+    nota = next((x for x in (m.notas if m else []) if x.startswith("Mercado Libre")), None)
+    # En pantalla solo lo que dice algo del mercado, en una línea de negocio. Las fallas de conexión o de llave se quedan
+    # en la nota guardada para quien administra (criterio de Diego: nada de método ni «no se pudo» para Compras y
+    # Dirección; revisión de usabilidad, 26 nov 2026)
+    if nota and ("no regresó resultados" in nota or "ningún resultado" in nota):
+        return "Mercado Libre: no tiene publicado este mismo producto."
+    return None
 
 
-def _notas_busqueda(e: ProductoEvaluacion) -> list[str]:
+def _relevante(titulo: str, s: "rp.Sujeto | None") -> bool:
+    """¿El resultado es de esta marca o de su ingrediente principal? Lo demás no se enseña uno por uno."""
+    if s is None:
+        return True
+    t = rp._norm(titulo)
+    compacto = re.sub(r"[^a-z0-9]", "", t)
+    marca = re.sub(r"[^a-z0-9]", "", rp._norm(s.marca))
+    if len(marca) >= 3 and marca in compacto:
+        return True
+    ingrediente = s.ingrediente or (s.ficha.ingrediente_principal if getattr(s, "ficha", None) else None)
+    raices = [w[:6] for w in rp._norm(ingrediente).split() if len(w) >= 4]
+    if not raices:
+        try:
+            raices = rp._candidatas_ingrediente(s)[:1]
+        except Exception:  # noqa: BLE001 - solo decide qué se enseña
+            raices = []
+    return any(r and r in t for r in raices)
+
+
+_POR_QUE = (("presentación distinta", "dice otra presentación"), ("marca distinta", "es otra marca"),
+            ("presentación no comprobada", "no dice el tamaño"), ("parece paquete", "parece un paquete o kit"))
+
+
+def _por_que_no(motivo: str) -> str:
+    """De «calificación 68; nombre 100; marca coincide; presentación no comprobada» a «no dice el tamaño»."""
+    razones = [texto for clave, texto in _POR_QUE if clave in motivo]
+    if (falta := re.search(r"el título no trae ((?:«[^»]+»(?:, )?)+)", motivo)):
+        razones.insert(0, "no menciona " + re.sub(r"«([^»]+)»", lambda x: x.group(1).lower(), falta.group(1)))
+    return ", ".join(razones) or "no es claramente el mismo producto"
+
+
+def _nota_de_negocio(nota: str, s: "rp.Sujeto | None") -> str | None:
+    """La nota guardada (completa, para diagnóstico y el Excel de la prueba) en palabras de negocio para la pantalla:
+    sin calificaciones internas ni la lista de resultados que no tienen que ver (Diego, 26 nov 2026)."""
+    if nota.startswith("Google Shopping, lo más parecido: "):
+        partes = []
+        for item in nota.split(": ", 1)[1].split(" | "):
+            if (x := re.match(r"«(.+?)» \((.*)\)$", item.strip())) and _relevante(x.group(1), s):
+                partes.append(f"«{x.group(1)}» ({_por_que_no(x.group(2))})")
+        return ("Lo más parecido en Google Shopping, que no se tomó: " + "; ".join(partes[:2]) + ".") if partes else None
+    if (x := re.match(r"Google Shopping regresó (\d+): (.*)$", nota)):
+        # Los títulos se guardaron recortados a 60 letras: el corte se marca para que no parezca un error
+        titulos = [(t.strip("«» ") + "…") if len(t.strip("«» ")) >= 60 else t.strip("«» ") for t in x.group(2).split(" · ")]
+        suyos = [t for t in titulos if _relevante(t, s)]
+        if not suyos:
+            return f"Google Shopping regresó {x.group(1)} resultados; ninguno era de esta marca ni de su ingrediente."
+        return f"Google Shopping regresó {x.group(1)} resultados; de esta marca o ingrediente: " + " · ".join(
+            f"«{t}»" for t in suyos[:5]) + "."
+    if nota.startswith("Google Shopping, se buscó: "):
+        return "Se buscó en Google Shopping: " + nota.split(": ", 1)[1].replace(" · ", ", ") + "."
+    if nota.startswith("Google Shopping no aceptó la búsqueda"):
+        return re.sub(r"\s*\([^)]*\)\.?$", ".", nota)
+    return nota
+
+
+def _notas_busqueda(e: ProductoEvaluacion, s: "rp.Sujeto | None" = None) -> list[str]:
     """Qué se buscó afuera y por qué no se tomó nada (Google, tiendas), para verlo en pantalla sin consultar la base
     (BDM Life, 25 nov 2026). Mercado Libre va aparte."""
     m = mp.Mercado.de_json(e.mercado)
-    return [x for x in (m.notas if m else []) if not x.startswith("Mercado Libre")][:12]
+    bloqueadas = _bloqueadas(m)
+    notas = [n for x in (m.notas if m else []) if not x.startswith("Mercado Libre")
+             and x.split(":", 1)[0] not in bloqueadas and (n := _nota_de_negocio(x, s))]
+    notas = list(dict.fromkeys(notas))[:12]
+    # El bloqueo de una tienda va al final y en palabras de negocio, no como falla (Diego, 26 nov 2026: «si Walmart no
+    # da, ¿cómo lo solucionamos?»): su precio se toma de Google Shopping cuando lo publica ahí
+    for t in sorted(bloqueadas):
+        suyos = [p for p in (m.precios if m else []) if (p.get("fuente") or "google") in ("google", "google_sitio")
+                 and _tienda_de(p) == t]
+        # Lo que dijo la búsqueda en Google limitada a su sitio (si se hizo): «sí lo vende, sin precio» o «no aparece»
+        de_google = [x.split(":", 1)[1].strip() for x in (m.notas if m else [])
+                     if x.startswith(f"{t}:") and ("Google" in x) and not x.startswith(f"{t}: bloqueó")]
+        vistos = [v for v in (m.vistos if m else []) if _tienda_de(v) == t]
+        if suyos:
+            precio = min(float(p["precio"]) for p in suyos)
+            notas.append(f"{t} no deja consultar su sitio; su precio se tomó de Google (${precio:,.2f}).")
+        elif vistos:
+            precio = min(float(v["precio"]) for v in vistos)
+            notas.append(f"{t} no deja consultar su sitio; en Google Shopping lo vimos a ${precio:,.2f}, sin el tamaño "
+                         "confirmado.")
+        elif de_google:
+            notas.append(f"{t} no deja consultar su sitio; {de_google[0][0].lower() + de_google[0][1:]}")
+        else:
+            notas.append(f"{t} no deja consultar su sitio y no publicó este producto en Google Shopping.")
+    return notas
 
 
 def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: list[dict], parecidos: list[dict],
@@ -473,7 +579,7 @@ def _precio(e: ProductoEvaluacion, s: rp.Sujeto, r: rpt.Reporte, fila, afuera: l
                                      # precio de lista con IVA, igual que el nuestro (no el precio promedio vendido)
                                      "precio": p["precio_lista"] or p["precio"]} for p in compite],
             "mercado_libre": [a for a in afuera if a["mercado_libre"]], "mercado_libre_nota": _nota_ml(e, afuera),
-            "busqueda_notas": _notas_busqueda(e),
+            "busqueda_notas": _notas_busqueda(e, s),
             "por_porcion": por_porcion, "porciones": porciones, "veces": veces, "barras": barras, "barras_nota": barras_nota,
             "se_lleva": se_lleva,
             "a_favor": a_favor, "en_contra": en_contra, "subiria": fila.mejora,

@@ -12,7 +12,10 @@
 - Al pasar el porcentaje de aviso (80 % por omisión) se avisa en la campana a quien administra la IA.
 - Toda llamada (buena, con error o rechazada) queda en nucleo.ia_llamada. La puerta hace commit de ese registro.
 """
+import contextlib
+import contextvars
 import json
+import logging
 import re
 import time
 import urllib.error
@@ -68,6 +71,52 @@ def ventana(*textos: str, salida: int, minimo: int = 8192, maximo: int = 32768) 
     return max(minimo, min(maximo, sum(len(t) for t in textos) // 3 + salida + 512))
 
 
+def ventana_fija(contexto: int | None) -> int:
+    """La ventana que se pide a Ollama: siempre la misma (Configuración, ollama_contexto) salvo que el texto no quepa."""
+    fija = int(configuracion().ollama_contexto or 16384)
+    return max(fija, contexto or 0)
+
+
+log = logging.getLogger("ia.puerta")
+KEEP_ALIVE = "60m"
+_PRECARGA = {"cuando": -1e9}
+
+
+def precargar_ollama() -> bool:
+    """Carga el modelo de Ollama en la GPU antes de que lo pida una evaluación (al arrancar la API y cada ~50 min desde
+    el programador). Sin texto que generar: solo lo carga. Regresa True si mandó la precarga."""
+    import time
+
+    cfg = configuracion()
+    if not cfg.ollama_url or not cfg.ollama_modelo or time.monotonic() - _PRECARGA["cuando"] < 50 * 60:
+        return False
+    _PRECARGA["cuando"] = time.monotonic()
+    # Con la misma ventana que usan las llamadas: así la precarga no obliga a recargar el modelo después
+    cuerpo = json.dumps({"model": cfg.ollama_modelo, "keep_alive": KEEP_ALIVE,
+                         "options": {"num_ctx": ventana_fija(None)}}).encode()
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"{cfg.ollama_url.rstrip('/')}/api/generate", data=cuerpo,
+                                                      headers={"Content-Type": "application/json"}), timeout=120).read()
+    except (urllib.error.URLError, OSError, ValueError) as e:  # sin Ollama no pasa nada: la primera llamada lo carga
+        log.info("No se pudo precargar el modelo de Ollama: %s", e)
+    return True
+
+
+# Temperatura de Ollama. Las decisiones de sí o no (¿es el mismo producto?, ¿cumple la regla?) se piden con 0 para que la
+# misma pregunta dé la misma respuesta cada vez (revisión de coherencia, 26 nov 2026: el mismo magnesio aceptó iHerb en
+# una evaluación y lo rechazó en otra)
+TEMPERATURA: "contextvars.ContextVar[float]" = contextvars.ContextVar("ia_temperatura", default=0.3)
+
+
+@contextlib.contextmanager
+def temperatura(valor: float):
+    ficha = TEMPERATURA.set(valor)
+    try:
+        yield
+    finally:
+        TEMPERATURA.reset(ficha)
+
+
 def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: int,
                    imagenes: list[str] | None = None, con_think: bool = True, contexto: int | None = None,
                    formato: str | None = None) -> dict:
@@ -76,9 +125,12 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
     cuerpo = json.dumps({
         # Sin razonamiento: en modelos que piensan (qwen3, gpt-oss) se comería los tokens antes de contestar
         "model": modelo, "stream": False, **({"think": False} if con_think else {}),
+        # El modelo se queda cargado una hora (Ollama lo soltaba a los 5 min y el siguiente producto pagaba la carga;
+        # en una T4 son decenas de segundos; 26 nov 2026). No cambia lo que contesta.
+        "keep_alive": KEEP_ALIVE,
         # Freno a las repeticiones (11 nov 2026: el asistente repetía «¿Qué es el producto parecido?» hasta el tope)
-        "options": {"num_predict": max_tokens, "temperature": 0.3, "repeat_penalty": 1.15, "repeat_last_n": 256,
-                    **({"num_ctx": contexto} if contexto else {})},
+        "options": {"num_predict": max_tokens, "temperature": TEMPERATURA.get(), "repeat_penalty": 1.15, "repeat_last_n": 256,
+                    "num_ctx": ventana_fija(contexto)},
         "messages": [{"role": "system", "content": instrucciones}, usuario],
         # 22 nov 2026: con «json» Ollama solo deja salir JSON válido (antes llegaba vacío o con prosa)
         **({"format": formato} if formato else {}),
@@ -100,6 +152,10 @@ def _llamar_ollama(modelo: str, instrucciones: str, mensaje: str, max_tokens: in
         raise ErrorIA(f"Ollama respondió con error {e.code}" + (f": {causa}" if causa else "")
                       + f". Revisa que el modelo «{modelo}» esté descargado.") from e
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # Una espera vencida no es «sin conexión» (26 nov 2026: con varias evaluaciones a la vez, Ollama estaba encendido
+        # pero ocupado y el aviso decía que no había conexión)
+        if isinstance(e, TimeoutError) or "timed out" in str(getattr(e, "reason", e)).lower():
+            raise ErrorIA("La IA local está ocupada y no contestó a tiempo.") from e
         raise ErrorIA(f"No hay conexión con Ollama en {cfg.ollama_url}.") from e
     return {
         "texto": re.sub(r"<think>.*?</think>", "", datos.get("message", {}).get("content", ""), flags=re.DOTALL).strip(),

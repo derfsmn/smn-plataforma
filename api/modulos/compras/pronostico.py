@@ -23,6 +23,7 @@ Cómo se calcula:
 """
 import json
 import logging
+import threading
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
@@ -340,6 +341,31 @@ def lugar_entre_lanzamientos(bd: Session, por_tienda_mes: float, departamento: s
         return None
     lugar = sum(1 for x in lista if x <= por_tienda_mes) / len(lista) * 100
     return lugar, len(lista), del_depto
+
+
+_CALENTANDO = threading.Event()
+
+
+def calentar() -> None:
+    """Mide el modelo del día en segundo plano si todavía no está (al arrancar la API y al cambiar el día). Medirlo
+    tarda unos 2 minutos con los datos reales y lo pagaba la primera evaluación: después de publicar, el primer
+    producto evaluado en vivo (26 nov 2026). No cambia ningún resultado: es el mismo modelo, medido antes."""
+    if modelo_de_hoy() is not None or _CALENTANDO.is_set():
+        return
+    _CALENTANDO.set()
+
+    def tarea():
+        from core.bd import _fabrica
+
+        try:
+            with _fabrica()() as bd:
+                entrenar(bd)
+        except Exception:  # noqa: BLE001 - si falla, la primera evaluación lo mide como antes
+            log.exception("No se pudo medir el modelo del pronóstico por adelantado")
+        finally:
+            _CALENTANDO.clear()
+
+    threading.Thread(target=tarea, name="pronostico-calentar", daemon=True).start()
 
 
 def modelo_de_hoy() -> "Modelo | None":

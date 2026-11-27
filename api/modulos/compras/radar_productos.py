@@ -412,15 +412,35 @@ def es_mismo(s: Sujeto, p: Producto) -> bool:
     desc = presentacion(p.descripcion)
     if marca_s and not marca_s <= (desc | marca_p):
         return False
-    quitar = marca_s | marca_p
+    # Las iniciales de la marca también son la marca («ON» de Optimum Nutrition; Whey Gold Standard, 26 nov 2026: no
+    # avisó que ya lo vendemos como «OPTIMUM NUTRITION ON 100% WHEY GOLD STD CHOCOLATE 907 G»)
+    iniciales = {"".join(w[0] for w in sorted(m, key=lambda w: (s.marca or p.marca or "").lower().find(w)))
+                 for m in (marca_s, marca_p) if len(m) >= 2}
+    quitar = marca_s | marca_p | iniciales
     suya = desc - quitar
     if len([x for x in suya if not _numero(x)]) < 2 and len(suya) < 3:
         return False
+    # Lo que Compras escribe de más puede ser genérico o su ingrediente y forma («Proteína» de «Proteína de suero»)
+    permitidas = GENERICAS | presentacion(s.ingrediente) | presentacion(s.forma)
     for clave in (presentacion(s.nombre, s.contenido) - quitar, presentacion(s.nombre) - quitar):
         numeros = {x for x in clave if _numero(x)}
-        if suya <= clave and numeros == {x for x in suya if _numero(x)} and clave - suya <= GENERICAS:
+        cubiertas = {c for w in suya for c in clave if c == w or _abrevia(w, c)}
+        if all(w in clave or any(_abrevia(w, c) for c in clave) for w in suya) \
+                and numeros == {x for x in suya if _numero(x)} and clave - cubiertas <= permitidas:
             return True
     return False
+
+
+def _abrevia(corta: str, larga: str) -> bool:
+    """«STD» es «standard»: misma primera letra y las demás en orden dentro de la palabra larga (el catálogo de SMNBI
+    abrevia las descripciones)."""
+    if _numero(corta) or len(corta) < 3 or len(larga) <= len(corta) or corta[0] != larga[0]:
+        return False
+    i = 0
+    for letra in larga:
+        if i < len(corta) and letra == corta[i]:
+            i += 1
+    return i == len(corta)
 
 
 def subcategoria_de_parecidos(parecidos: list[tuple[Producto, Decimal]]) -> Producto | None:
@@ -1180,7 +1200,11 @@ def _precio_afuera(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], interne
     if nuestro:
         internet, fuera = _en_rango(internet, nuestro)
         mercado = [Decimal(str(p["precio"])) for p in (internet.precios if internet else [])]
-        visto = s.precio if s.precio and RANGO_PRECIO[0] <= s.precio / nuestro <= RANGO_PRECIO[1] else None
+        # En una idea, s.precio es el precio al que Compras lo vendería (no un precio del mercado) y lo que vio afuera solo
+        # se enseña: no cuenta como mercado (Whey Gold Standard, 26 nov 2026: decía «16 % más barato que el mercado» contra
+        # el precio capturado por Compras). En una propuesta es el precio que reporta el proveedor.
+        visto = (s.precio if s.tipo == "propuesta" and s.precio and RANGO_PRECIO[0] <= s.precio / nuestro <= RANGO_PRECIO[1]
+                 else None)
         if visto:
             mercado.append(visto)
         if not mercado:
@@ -1220,9 +1244,11 @@ def _precio_afuera(s: Sujeto, parecidos: list[tuple[Producto, Decimal]], interne
         lista = "; ".join(f"{p['vendedor']} {_pesos(Decimal(str(p['precio'])))}"
                           for p in sorted(internet.precios, key=lambda p: float(p["precio"]))[:6])
         mas = f" y {len(internet.precios) - 6} más" if len(internet.precios) > 6 else ""
+        # Con una sola tienda no hay «precio de en medio» (colágeno B-Fit, 26 nov 2026: solo Coppel); se dice tal cual
+        contra = ("el de la única tienda que lo tiene en internet" if len(internet.precios) == 1
+                  else "el precio de en medio de la competencia en internet")
         return Factor(_por_precio(ratio), _precio_valor(ratio, "en internet"),
-                      f"{que} {_pesos(s.precio)} contra {_pesos(med)}, el precio de en medio de la competencia en "
-                      f"internet: {lista}{mas}.{extra}", False,
+                      f"{que} {_pesos(s.precio)} contra {_pesos(med)}, {contra}: {lista}{mas}.{extra}", False,
                       *_precio_explicado(ratio, med, "el precio de en medio de internet"), meta=med)
     if s.mercado and s.tipo == "propuesta":  # los que reportó el proveedor (en una idea, lo visto ya no cuenta)
         med = Decimal(str(median([p for p, _ in s.mercado])))
@@ -1623,6 +1649,8 @@ def mercado_de(bd: Session, e: ProductoEvaluacion, s: Sujeto) -> mp.Mercado | No
                                                  ProductoEvaluacion.mercado.is_not(None))
     q = q.where(ProductoEvaluacion.propuesta_id == e.propuesta_id) if e.propuesta_id else q.where(ProductoEvaluacion.idea_id == e.idea_id)
     if (previo := mp.Mercado.de_json(bd.scalar(q.order_by(ProductoEvaluacion.evaluacion_id.desc())))) and previo.vigente(clave):
+        if mp.ml_pendiente(previo):  # se buscó sin la aplicación de Mercado Libre y ya está: solo se le pregunta a ella
+            return mp.refrescar_mercado_libre(bd, previo, nombre, s.marca, s.codigo_barras)
         return previo
     referencia = f"propuesta {e.propuesta_id}" if e.propuesta_id else f"idea {e.idea_id}"
     return mp.buscar(bd, nombre, s.marca, s.codigo_barras, referencia, busquedas_de_rescate(s))
@@ -2421,7 +2449,17 @@ def iniciar(bd: Session, *, propuesta_id: int | None = None, idea_id: int | None
 PASOS = 6
 
 
-def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> ProductoEvaluacion:
+def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None, rapido: bool = True) -> ProductoEvaluacion:
+    """Un producto suelto se evalúa con prioridad alta en DataForSEO si está encendido (26 nov 2026: en la junta se
+    evalúa en vivo). Lo masivo (Recalcular todas, la noche, Buscar oportunidades) pasa rapido=False: cola normal."""
+    token = mp.dfs.PRIORIDAD.set(2 if rapido and configuracion().radar_productos_prioridad_alta else 1)
+    try:
+        return _evaluar(bd, evaluacion_id, hoy)
+    finally:
+        mp.dfs.PRIORIDAD.reset(token)
+
+
+def _evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> ProductoEvaluacion:
     e = bd.get(ProductoEvaluacion, evaluacion_id)
     hoy = hoy or date.today()
 
@@ -2484,8 +2522,22 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
                 c.similitud = Decimal(1)  # así la pantalla lo muestra como «Ya lo vendemos»
 
         paso(3, "buscando precios en internet y en las tiendas, y leyendo páginas con la IA local")
-        internet = mercado_de(bd, e, s)
-        investigacion = investigacion_de(bd, e, s)
+        # La investigación (Google normal y la IA leyendo páginas) corre al mismo tiempo que la búsqueda de precios,
+        # cada una con su sesión (26 nov 2026: en serie sumaban minutos de espera de red)
+        aparte = _investigar_aparte(e, s)
+
+        def sub_paso(texto: str) -> None:
+            e.avance = f"Paso 3 de {PASOS}: {texto}"[:200]
+            bd.commit()
+
+        ficha_avance = mp.AVANCE.set(sub_paso)
+        try:
+            internet = mercado_de(bd, e, s)
+        finally:
+            mp.AVANCE.reset(ficha_avance)
+        if not aparte.done():
+            paso(3, "leyendo páginas de internet con la IA local")
+        investigacion = aparte.result()
         if investigacion:
             e.investigacion = investigacion.a_json()
         internet = con_web(internet, investigacion)
@@ -2494,7 +2546,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
         paso(4, "calculando demanda, margen, precio, surtido y proveedor con la venta de SMNBI")
         v = rr.ventana(bd)
         precio = f_precio(s, parecidos, internet, mismo)
-        pron = None
+        pron, fallo_pron = None, None
         try:  # pronóstico por grupo de tiendas (17 nov 2026); de él sale la Demanda (19 nov). Si falla, sigue
             skus, nombre_base, fam = skus_para_pronostico(s, parecidos, mismo), None, None
             if not mismo and v and (fam := familia_para_demanda(s, catalogo_activo(bd))):
@@ -2515,6 +2567,7 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             e.pronostico = pron.a_json()
         except Exception as ex:  # noqa: BLE001
             log.warning("Radar de productos: no se pudo pronosticar la evaluación %s: %s", evaluacion_id, ex)
+            fallo_pron = f"{ex.__class__.__name__}: {ex}"[:200]
         factores = {
             "demanda": f_demanda(bd, s, parecidos, v, mismo, pron),
             "rentabilidad": f_rentabilidad(bd, s, e.subcategoria, v, mismo, precio.meta),
@@ -2523,6 +2576,12 @@ def evaluar(bd: Session, evaluacion_id: int, hoy: date | None = None) -> Product
             "categoria": f_categoria(bd, s, e.subcategoria, parecidos, v, mismo),
             "proveedor": f_proveedor(bd, s, parecidos),
         }
+        if fallo_pron and factores["demanda"].puntaje is None:
+            # «Sin datos» solo si de verdad no hay: si el pronóstico falló, se dice (revisión del 26 nov 2026)
+            d = factores["demanda"]
+            factores["demanda"] = dataclasses.replace(d, detalle=(
+                f"No se pudo calcular el pronóstico por una falla del radar ({fallo_pron}); recalcula el producto. "
+                f"Sin el pronóstico: {d.detalle}")[:1000])
         paso(5, "revisando las tendencias de internet")
         factores["tendencia"] = f_tendencia(bd, s, hoy, e.subcategoria)
         factores["demanda"] = con_tendencia(factores["demanda"], tendencia_smn(bd, v, e.subcategoria),
@@ -2627,6 +2686,18 @@ def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list
     # el Precio junto (promedio de anaquel y afuera) ya no pesa por sí solo desde el 25 nov 2026, pero manda en el dictamen
     precio = factores["precio"].puntaje if "precio" in factores else None
     bajo_margen = s.margen is not None and minimo is not None and s.margen < minimo
+    # Contra qué se compara, dicho como es (revisión de coherencia, 26 nov 2026): sin precios de afuera decía «nuestro
+    # anaquel y el mercado» y «el mercado está en…» con una cifra que salía solo de nuestro anaquel; y si la cifra para
+    # competir queda arriba del precio de afuera, se dice cuánto cuesta afuera
+    fuera = factores.get("precio_afuera")
+    hay_afuera = fuera is not None and fuera.puntaje is not None and fuera.meta is not None
+    contra = "nuestro anaquel y el mercado" if hay_afuera else "nuestro anaquel"
+    donde = "el mercado" if hay_afuera else "nuestro anaquel"
+
+    def afuera_en(ref: Decimal | None) -> str:
+        return (f"; afuera se vende en {_pesos(fuera.meta)}" if hay_afuera and ref is not None and ref > fuera.meta + 1
+                else "")
+
     partes = []
     if color == "verde":
         veredicto = "Meter"
@@ -2649,9 +2720,9 @@ def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list
         if precio is not None and precio < 60 and ref:
             # Ya está caro: el precio tiene que bajar a lo que cuestan los demás y el costo, con ese precio, dar el mínimo
             costo_ref = ref / (1 + IVA_SUPUESTO / 100) * (1 - minimo / 100)
-            partes.append(f"para competir tendría que venderse en unos {_pesos(ref)} (hoy {_pesos(s.precio)}), y con ese "
-                          f"precio el costo tendría que bajar a {_pesos(costo_ref)} sin IVA (hoy {_pesos(costo)}) para "
-                          f"dejar {_n(minimo)} %")
+            partes.append(f"para competir contra {contra} tendría que venderse en unos {_pesos(ref)} "
+                          f"(hoy {_pesos(s.precio)}{afuera_en(ref)}), y con ese precio el costo tendría que bajar a "
+                          f"{_pesos(costo_ref)} sin IVA (hoy {_pesos(costo)}) para dejar {_n(minimo)} %")
         elif precio is not None and precio < 60:
             partes.append(f"pedir costo de {_pesos(costo_meta)} sin IVA (hoy {_pesos(costo)}); subirle el precio no "
                           "conviene porque ya está caro")
@@ -2660,7 +2731,7 @@ def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list
             costo_ref = min(s.precio, ref) / (1 + IVA_SUPUESTO / 100) * (1 - minimo / 100)
             partes.append(f"la salida es el costo: pedirlo en {_pesos(costo_ref)} sin IVA (hoy {_pesos(costo)}); "
                           f"subirle el precio no funciona porque para dejar {_n(minimo)} % tendría que venderse en "
-                          f"{_pesos(precio_meta)} y el mercado está en {_pesos(ref)}")
+                          f"{_pesos(precio_meta)} y {donde} está en {_pesos(ref)}")
         else:
             partes.append(f"pedir costo de {_pesos(costo_meta)} sin IVA (hoy {_pesos(costo)}) o venderlo en "
                           f"{_pesos(precio_meta)} para dejar {_n(minimo)} %")
@@ -2668,7 +2739,8 @@ def dictamen(s: Sujeto, color: str, factores: dict[str, Factor], parecidos: list
             and s.precio and ref < s.precio - 1:
         # El precio con el que las dos mitades juntas dejan el rojo (Wonu 22 nov 2026: decía «$599 (hoy $599)»
         # porque usaba solo la referencia de afuera, igual a nuestro precio)
-        partes.append(f"para competir tendría que venderse en unos {_pesos(ref)} (hoy {_pesos(s.precio)})")
+        partes.append(f"para competir contra {contra} tendría que venderse en unos {_pesos(ref)} "
+                      f"(hoy {_pesos(s.precio)}{afuera_en(ref)})")
     # Contra los mismos parecidos que usa la Demanda (20 nov 2026: el dictamen nombraba a los más parecidos por nombre,
     # aunque la Demanda usara otros de precio cercano)
     usados = {p.producto_id for p in parecidos_para_demanda(s, parecidos, mismo_de(s, parecidos))}
@@ -2695,6 +2767,25 @@ def _sesion() -> Session:
     from core.bd import _fabrica
 
     return _fabrica()()
+
+
+def _investigar_aparte(e: ProductoEvaluacion, s: Sujeto):
+    """investigacion_de en otro hilo, con su propia sesión y la misma prioridad de DataForSEO. Regresa un Future."""
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
+    datos = SimpleNamespace(evaluacion_id=e.evaluacion_id, propuesta_id=e.propuesta_id, idea_id=e.idea_id)
+    contexto = contextvars.copy_context()
+
+    def tarea():
+        with _sesion() as bd2:
+            return investigacion_de(bd2, datos, s)
+
+    ex = ThreadPoolExecutor(max_workers=1, thread_name_prefix="investigar")
+    futuro = ex.submit(contexto.run, tarea)
+    ex.shutdown(wait=False)
+    return futuro
 
 
 def en_hilo(evaluacion_id: int, trabajo: Callable[[Session, int], object] = evaluar) -> None:

@@ -9,8 +9,10 @@ Igual que el proyecto Radar Precios:
 Usuario y contraseña se capturan en Configuración; nunca salen de la API.
 """
 import base64
+import contextvars
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
@@ -30,6 +32,11 @@ log = logging.getLogger("smn.compras.precios")
 
 POR_ENVIO = 100  # DataForSEO acepta hasta 100 tareas por POST
 ESPERA = 10  # segundos entre revisiones de tareas listas
+# Prioridad de las tareas: 1 normal (la cola barata; puede tardar minutos) o 2 alta (contesta en segundos, cuesta el
+# doble). La evaluación de un producto la sube a 2 (26 nov 2026: frente a Dirección se evalúa en vivo; en la laptop la
+# cola normal tardó 634 s en contestar una búsqueda). Las corridas del radar de precios siguen en 1.
+PRIORIDAD: contextvars.ContextVar[int] = contextvars.ContextVar("prioridad_dataforseo", default=1)
+POR_PRIORIDAD = {1: 1, 2: 2}
 LIMITE = 900  # segundos máximos esperando resultados
 RUTA = {"productos": "merchant/google/products", "vendedores": "merchant/google/sellers",
         "organico": "serp/google/organic",  # organico: búsqueda normal de Google para investigar afuera (17 nov 2026)
@@ -103,10 +110,19 @@ def _peticion(metodo: str, ruta: str, cuerpo=None) -> dict:
 
 # ---------------------------------------------------------------- gasto
 
-def maximo_tarea(tipo: str, profundidad: int) -> Decimal:
+# DataForSEO cobra 5 veces la búsqueda normal de Google si lleva operadores como «site:» (medido el 26 nov 2026:
+# US$0.003 por bloque de 10 contra US$0.0006 sin operador). Sin esto el estimado y el tope se quedaban cortos.
+POR_OPERADOR = 5
+
+
+def con_operadores(keyword: str | None) -> bool:
+    return bool(re.search(r"(^|\s)(site|intitle|inurl|allintitle|related):", keyword or ""))
+
+
+def maximo_tarea(tipo: str, profundidad: int, operadores: bool = False) -> Decimal:
     tarifa = TARIFA.get(tipo) or Decimal(str(configuracion().precios_tarifa_usd))
     bloques = (profundidad + BLOQUE[tipo] - 1) // BLOQUE[tipo]
-    return tarifa * bloques
+    return tarifa * bloques * (POR_OPERADOR if operadores and tipo in ("organico", "noticias") else 1)
 
 
 def maximo_producto(busquedas: int, publicaciones: int = 1) -> Decimal:
@@ -151,15 +167,26 @@ def _revisar_topes(bd: Session, corrida: PrecioCorrida, estimado: Decimal) -> No
 
 # ---------------------------------------------------------------- tareas
 
+# Amazon usa sus propios idiomas: «Spanish» lo rechazaba con «Invalid Field: 'language_name'» y la búsqueda en Amazon
+# México nunca corría (revisión del 26 nov 2026; catálogo gratis /v3/merchant/amazon/languages: «Spanish (Mexico)»)
+IDIOMA_AMAZON = {"Spanish": "Spanish (Mexico)", "English": "English (United States)"}
+
+
+def idioma(tipo: str, idioma_cfg: str) -> str:
+    return IDIOMA_AMAZON.get(idioma_cfg, idioma_cfg) if tipo == "amazon" else idioma_cfg
+
+
 def enviar(bd: Session, corrida: PrecioCorrida, tipo: str, tareas: list[dict]) -> dict[str, str]:
     """Envía tareas (cada una con su "tag"). Devuelve {tag: id de la tarea}. Las que DataForSEO rechazó no salen.
     Lanza SinPresupuesto antes de enviar un lote que no cabe; los lotes ya enviados se conservan."""
     cfg = configuracion()
     ids: dict[str, str] = {}
     for inicio in range(0, len(tareas), POR_ENVIO):
-        lote = [{**t, "location_name": cfg.precios_ubicacion, "language_name": cfg.precios_idioma, "priority": 1}
+        prioridad = PRIORIDAD.get()
+        lote = [{**t, "location_name": cfg.precios_ubicacion, "language_name": idioma(tipo, cfg.precios_idioma), "priority": prioridad}
                 for t in tareas[inicio:inicio + POR_ENVIO]]
-        estimado = sum((maximo_tarea(tipo, int(t.get("depth") or BLOQUE[tipo])) for t in lote), Decimal("0"))
+        estimado = sum((maximo_tarea(tipo, int(t.get("depth") or BLOQUE[tipo]), con_operadores(t.get("keyword")))
+                        for t in lote), Decimal("0")) * POR_PRIORIDAD.get(prioridad, 1)
         _revisar_topes(bd, corrida, estimado)
         envio = PrecioEnvio(corrida_id=corrida.corrida_id, tipo=tipo, tareas=len(lote), estado="reservado", estimado_usd=estimado)
         bd.add(envio)

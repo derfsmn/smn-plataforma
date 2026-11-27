@@ -84,8 +84,9 @@ def test_pantalla_de_wonu(admin: TestClient, sincrono, catalogo_creatinas):  # n
     assert m["afuera"]["puntaje"] is None and "no cuenta" in m["afuera"]["detalle"]
     assert not any("mercado" in x["nombre"] for x in p["rentabilidad"]["escenarios"])
     assert "venta_afuera" in p["demanda"]
-    # Mercado Libre no dice «no apareció» si no se buscó
-    assert p["precio"]["mercado_libre_nota"].startswith("Mercado Libre:")
+    # Mercado Libre no dice «no apareció» si no se buscó, ni enseña fallas de conexión a Compras (26 nov 2026)
+    nota_ml = p["precio"]["mercado_libre_nota"]
+    assert nota_ml is None or nota_ml == "Mercado Libre: no tiene publicado este mismo producto."
     # La venta que se presenta es la de la prueba en 10 tiendas; cada producto mencionado se puede picar
     assert p["cifras"]["tiendas"] is None or p["cifras"]["tiendas"] <= 10
     assert all(x["sku"] in p["catalogo"] for x in p["parecidos"] + p["categoria"]["mas_vendidos"])
@@ -225,3 +226,142 @@ def test_excel_para_comprobar_la_pantalla(admin: TestClient, sincrono, catalogo_
         assert {"Resumen", "Factores", "Parecidos", "Precios de afuera"} <= set(datos)
         cp.a_excel(str(tmp_path / "x.xlsx"), "Prueba", datos)
     assert (tmp_path / "x.xlsx").stat().st_size > 0
+
+
+def test_tienda_bloqueada_se_dice_en_palabras_de_negocio():
+    """26 nov 2026 (Diego: «si Walmart no da, ¿cómo lo solucionamos?»): el bloqueo de una tienda no se ve como falla. Si
+    su precio llegó por Google Shopping, en su renglón dice «visto en Google Shopping»; la nota va al final en palabras
+    de negocio. Datos FICTICIOS."""
+    from types import SimpleNamespace
+
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import pantalla_comite as pc
+    from modulos.compras import radar_productos as rp
+
+    m = mp.Mercado(buscado_en="2026-11-26T10:00:00", clave="x", notas=[
+        "Walmart: bloqueó la consulta automática: pidió verificar identidad",
+        "San Pablo: bloqueó la consulta automática (error 403)",
+        "Chedraui: no lo tiene.",
+        "Google Shopping, se buscó: «b fit colageno inositol 360 g»"],
+        precios=[{"precio": 546.77, "vendedor": "Walmart", "fuente": "google", "titulo": "B-Fit Femme 360 g",
+                  "liga": "https://www.walmart.com.mx/ip/x"},
+                 {"precio": 600.0, "vendedor": "Tienda EJ", "fuente": "google", "titulo": "B-Fit Femme 360 g", "liga": "https://ej.mx/x"}])
+    e = SimpleNamespace(mercado=m.a_json())
+    notas = pc._notas_busqueda(e)
+    assert not any("bloqueó" in n for n in notas)
+    assert notas[0] == "Chedraui: no lo tiene." and notas[-2:] == [
+        "San Pablo no deja consultar su sitio y no publicó este producto en Google Shopping.",
+        "Walmart no deja consultar su sitio; su precio se tomó de Google ($546.77)."]
+    afuera = pc._afuera(e, rp.Sujeto(tipo="idea", nombre="B-Fit Femme 360 g", marca="B-FIT"), None)
+    por_vendedor = {a["vendedor"]: a for a in afuera}
+    assert por_vendedor["Walmart"]["nota"] == "visto en Google Shopping" and por_vendedor["Tienda EJ"]["nota"] is None
+
+
+def test_sin_tamano_va_a_la_ia_y_se_muestra_sin_contar(monkeypatch):
+    """Decisión de Diego (26 nov 2026, colágeno B-Fit): «no dice el tamaño» no es «dice otro tamaño». Misma marca y mismo
+    nombre sin tamaño en el título van a la IA local; confirmado cuenta, sin dato se muestra y no califica; si el título
+    dice otro tamaño se sigue rechazando. Datos FICTICIOS, IA simulada."""
+    from types import SimpleNamespace
+
+    from modulos.compras import coincidencia as co
+    from modulos.compras import mercado_producto as mp
+
+    nombre, marca = "Colágeno + Inositol B-FIT 360 g", "B-FIT"
+    items = [{"product_id": "G1", "title": "B FIT Femme Colágeno + Myo D Chiro Inositol en Polvo", "price": 546.77,
+              "currency": "MXN", "seller": "Tienda EJ", "url": "https://ej.mx/1"},
+             {"product_id": "G2", "title": "B FIT Colágeno Inositol 120 cápsulas", "price": 300, "currency": "MXN",
+              "seller": "Otra EJ", "url": "https://ej.mx/2"}]
+    cands = [co.candidato_de(i) for i in items]
+    co.decidir(nombre, marca, cands, 85, set(), set())  # deja la evaluación en cada candidato
+    assert mp._sin_tamano(cands[0]) and not mp._sin_tamano(cands[1])  # el de 120 cápsulas contradice: no va
+
+    def ia(respuesta):
+        monkeypatch.setattr(mp.puerta, "ejecutar", lambda *a, **k: SimpleNamespace(texto=respuesta))
+
+    ia('{"mismo_producto": true, "tamano": "sin_dato", "claves": ["G1"], "confianza": 90, "motivo": "mismo producto"}')
+    assert mp._revisar_sin_tamano(None, nombre, marca, cands)[:2] == ([], [cands[0]])
+    ia('{"mismo_producto": true, "tamano": "confirmado", "claves": ["G1"], "confianza": 90, "motivo": "dice 360 g"}')
+    assert mp._revisar_sin_tamano(None, nombre, marca, cands)[:2] == ([cands[0]], [])
+    ia('{"mismo_producto": true, "tamano": "distinto", "claves": ["G1"], "confianza": 90, "motivo": "es de 180 g"}')
+    assert mp._revisar_sin_tamano(None, nombre, marca, cands)[:2] == ([], [])
+    ia('{"mismo_producto": false, "tamano": "sin_dato", "claves": [], "confianza": 90, "motivo": "otra variante"}')
+    assert mp._revisar_sin_tamano(None, nombre, marca, cands)[:2] == ([], [])
+
+    def sin_ia(*a, **k):
+        raise mp.puerta.ErrorIA("caída")
+
+    monkeypatch.setattr(mp.puerta, "ejecutar", sin_ia)
+    assert mp._revisar_sin_tamano(None, nombre, marca, cands)[:2] == ([], [cands[0]])  # sin IA: se muestra, no cuenta
+
+    # Se guarda y la pantalla lo enseña sin que cuente
+    m = mp.Mercado(buscado_en="2026-11-26T10:00:00", clave="x", vistos=[
+        {"precio": 546.77, "titulo": items[0]["title"], "vendedor": "Tienda EJ", "liga": "https://ej.mx/1", "motivo": ""}])
+    m2 = mp.Mercado.de_json(m.a_json())
+    assert m2.vistos == m.vistos and not m2.precios
+    fila = pc._afuera(SimpleNamespace(mercado=m2.a_json()), rp.Sujeto(tipo="idea", nombre=nombre, marca=marca), None)[0]
+    assert fila["cuenta"] is False and "tamaño sin confirmar" in fila["nota"] and fila["precio"] == 546.77
+
+
+def test_que_se_busco_afuera_en_palabras_de_negocio():
+    """26 nov 2026: sin calificaciones internas ni la lista de resultados que no tienen que ver; lo guardado no cambia."""
+    from types import SimpleNamespace
+
+    from modulos.compras import mercado_producto as mp
+
+    s = rp.Sujeto(tipo="idea", nombre="Colágeno + Inositol B-FIT 360 g", marca="B-FIT", ingrediente="Colágeno")
+    notas = [
+        "Google Shopping: ningún resultado es claramente el mismo producto.",
+        "Google Shopping, lo más parecido: «Biotina 5000mcg Colageno Uñas 120 Caps» (calificación 18; nombre 52; marca no "
+        "comprobada; el título no trae «INOSITOL»; presentación distinta (360 g contra 120 capsulas)) | «B Fit Colágeno + Myo "
+        "D Chiro Inositol en Polvo» (calificación 68; nombre 100; marca coincide; presentación no comprobada)",
+        "Google Shopping, se buscó: «7503050636982» · «B FIT Colágeno Inositol 360 g»",
+        "Google Shopping regresó 98: «Batidora ultra power KitchenAid» · «Refrigerador French Door Samsung»",
+        "Google Shopping regresó 40: «B fit Colágeno con Astaxantina» · «Patines Roller en Linea Niños Talla»",
+        "Google Shopping no aceptó la búsqueda «x y z» (40501 Invalid Field).",
+    ]
+    m = mp.Mercado(buscado_en="2026-11-26T10:00:00", clave="x", notas=notas)
+    vistas = pc._notas_busqueda(SimpleNamespace(mercado=m.a_json()), s)
+    texto = " ".join(vistas)
+    assert "calificación" not in texto and "nombre 100" not in texto and "Batidora" not in texto and "Patines" not in texto
+    assert "Lo más parecido en Google Shopping, que no se tomó: «Biotina 5000mcg Colageno Uñas 120 Caps» (no menciona " \
+           "inositol, dice otra presentación); «B Fit Colágeno + Myo D Chiro Inositol en Polvo» (no dice el tamaño)." in vistas
+    assert "Google Shopping regresó 98 resultados; ninguno era de esta marca ni de su ingrediente." in vistas
+    assert "Google Shopping regresó 40 resultados; de esta marca o ingrediente: «B fit Colágeno con Astaxantina»." in vistas
+    assert "Se buscó en Google Shopping: «7503050636982», «B FIT Colágeno Inositol 360 g»." in vistas
+    assert "Google Shopping no aceptó la búsqueda «x y z»." in vistas
+    assert mp.Mercado.de_json(m.a_json()).notas == notas  # lo guardado queda completo para diagnóstico
+
+
+def test_tienda_bloqueada_vista_en_google_shopping_sin_tamano_no_dice_que_no_lo_publico():
+    """Colágeno B-Fit en la laptop (26 nov 2026): la nota decía «Walmart no publicó este producto en Google Shopping»
+    mientras arriba salía Walmart México a $576.80 (tamaño sin confirmar). Datos FICTICIOS."""
+    from types import SimpleNamespace
+
+    from modulos.compras import mercado_producto as mp
+
+    m = mp.Mercado(buscado_en="2026-11-26T10:00:00", clave="x",
+                   notas=["Walmart: bloqueó la consulta automática: pidió verificar identidad",
+                          "Google Shopping regresó 40: «" + "B FIT Femme Colágeno + Myo D Chiro Inositol 40:1 en Polvo"[:60] + "»"],
+                   vistos=[{"precio": 576.8, "titulo": "B-Fit Femme", "vendedor": "Walmart México", "liga": None, "motivo": ""}])
+    notas = pc._notas_busqueda(SimpleNamespace(mercado=m.a_json()), rp.Sujeto(tipo="idea", nombre="Colágeno B-FIT", marca="B-FIT"))
+    assert notas[-1] == "Walmart no deja consultar su sitio; en Google Shopping lo vimos a $576.80, sin el tamaño confirmado."
+    assert any(n.endswith("Inositol 40:1 en Polvo».") or "…»" in n for n in notas)
+
+
+def test_mercado_libre_en_pantalla_solo_en_palabras_de_negocio():
+    """Revisión de usabilidad (26 nov 2026): «token rechazado» o «sin conectar» no se enseñan a Compras ni a Dirección."""
+    from types import SimpleNamespace
+
+    from modulos.compras import mercado_producto as mp
+    from modulos.compras import pantalla_comite as pc
+
+    def con(notas):
+        m = mp.Mercado()
+        m.notas = notas
+        return SimpleNamespace(mercado=m.a_json())
+
+    assert pc._nota_ml(con(["Mercado Libre: sin conectar (falta registrar la aplicación en Configuración)."]), []) is None
+    assert pc._nota_ml(con(["Mercado Libre: rechazó el token (error 401)."]), []) is None
+    assert pc._nota_ml(con([]), []) is None
+    assert pc._nota_ml(con(["Mercado Libre: no regresó resultados."]), []) == "Mercado Libre: no tiene publicado este mismo producto."
+    assert pc._nota_ml(con(["Mercado Libre: ningún resultado es claramente el mismo producto."]), []).startswith("Mercado Libre: no tiene")

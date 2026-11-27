@@ -9,6 +9,7 @@ import { AlertTriangle, Bot, Check, ChevronDown, CircleHelp, Gavel, History, Mor
 import { useCallback, useEffect, useState } from "react";
 import { useAvisos } from "@/componentes/avisos";
 import { BotonReporte } from "@/componentes/boton-reporte";
+import { CapturarIdea, type IdeaDatos } from "@/componentes/capturar-idea";
 import { PantallaComite } from "@/componentes/pantalla-comite";
 import { FichaTecnicaTarjeta } from "@/componentes/ficha-tecnica";
 import { Modal } from "@/componentes/modal";
@@ -19,6 +20,7 @@ import { Boton, Entrada, Esqueleto, Insignia } from "@/componentes/ui";
 import { api, fechaLocal, mensajeDe, pesos } from "@/lib/api";
 import { SEMAFORO } from "@/lib/precios";
 import { RUTA as RUTA_BUSQUEDAS, type BusquedaBreve } from "@/lib/busquedas";
+import { useSondeo } from "@/lib/sondeo";
 import { Asistente, type Turno } from "../../propuestas/comite/[id]/presentar/asistente";
 import {
   colorVigente, ESTADOS_IDEA, RUTA, urlFoto,
@@ -59,6 +61,8 @@ export default function DetalleEvaluacion() {
   const [ocupado, setOcupado] = useState(false);
   const [masAbierto, setMasAbierto] = useState(false);
   const [acciones, setAcciones] = useState(false);
+  // «Corregir datos» de una idea (revisión del 26 nov 2026): el mismo formulario con lo capturado
+  const [corrigiendo, setCorrigiendo] = useState<IdeaDatos | null>(null);
 
   const cargar = useCallback(() => api<Evaluacion>(`${RUTA}/evaluaciones/${id}`).then(setE).catch((x) => avisar(mensajeDe(x), "info")), [id, avisar]);
   useEffect(() => {
@@ -75,11 +79,9 @@ export default function DetalleEvaluacion() {
   useEffect(() => {
     cargarBusqueda();
   }, [cargarBusqueda, e?.estado, e?.color_final]);
-  useEffect(() => {
-    if (e?.estado !== "en_curso") return;
-    const t = setTimeout(cargar, 2500);
-    return () => clearTimeout(t);
-  }, [e, cargar]);
+  // Mientras evalúa se pregunta sin avisos: si una consulta falla (red o base lenta) se sigue preguntando, para que la
+  // pantalla nunca se quede en «Evaluando…» sin avanzar (revisión de usabilidad, 26 nov 2026)
+  useSondeo(() => api<Evaluacion>(`${RUTA}/evaluaciones/${id}`).then(setE), 2500, e?.estado === "en_curso");
 
   if (!e) return <Esqueleto className="h-96" />;
 
@@ -133,7 +135,7 @@ export default function DetalleEvaluacion() {
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-naranja-tinta">
             {e.sujeto.tipo === "propuesta" ? `${e.sujeto.folio} · ${e.sujeto.proveedor}` : "Idea de Compras"}
-            <span className="font-normal text-smn-gris-500"> · evaluado el {fechaLocal(e.creada_en)}</span>
+            <span className="font-normal text-smn-gris-500"> · {e.estado === "en_curso" ? "empezó" : "evaluado"} el {fechaLocal(e.creada_en)}</span>
           </p>
           {!lista && <h1 className="text-3xl leading-tight font-semibold tracking-tight sm:text-[34px]">{e.sujeto.nombre}</h1>}
         </div>
@@ -165,9 +167,20 @@ export default function DetalleEvaluacion() {
                   <Palette className="h-4 w-4" /> Cambiar el color final
                 </Boton>
               )}
+              {evalua && e.vigente && e.sujeto.tipo === "idea" && (
+                <Boton
+                  variante="secundario"
+                  onClick={() =>
+                    api<IdeaDatos>(`${RUTA}/ideas/${e.sujeto.id}`).then(setCorrigiendo).catch((x) => avisar(mensajeDe(x), "info"))
+                  }
+                >
+                  <PackageSearch className="h-4 w-4" /> Corregir datos
+                </Boton>
+              )}
               {recalcularBoton()}
             </div>
           )}
+          {corrigiendo && <CapturarIdea corregir={{ id: e.sujeto.id, datos: corrigiendo }} cerrar={() => setCorrigiendo(null)} />}
         </div>
       </Entrada>
 
@@ -236,6 +249,7 @@ export default function DetalleEvaluacion() {
             <div>
               <p className="flex items-center gap-2 text-xl font-semibold"><Loader2 className="h-5 w-5 animate-spin text-smn-naranja" /> Evaluando…</p>
               <p className="text-sm text-smn-gris-500">{e.avance ?? "Preparando la evaluación…"}</p>
+              <Transcurrido desde={e.creada_en} />
               <p className="mt-1 text-[13px] text-smn-gris-500">Los pasos que buscan en internet o usan la IA son los que más tardan. Puedes salir de esta pantalla; sigue corriendo.</p>
             </div>
           </div>
@@ -700,5 +714,21 @@ function TextoExplicado({ texto }: { texto: string }) {
         </p>
       ))}
     </div>
+  );
+}
+
+/** Cuánto lleva la evaluación, para que la pantalla no se vea quieta mientras busca afuera (26 nov 2026). */
+function Transcurrido({ desde }: { desde: string }) {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAhora(Date.now()), 1000); // solo el reloj de la pantalla; no consulta la API
+    return () => clearInterval(t);
+  }, []);
+  const inicio = new Date(desde.endsWith("Z") || desde.includes("+") ? desde : `${desde}Z`).getTime();
+  const seg = Math.max(0, Math.round((ahora - inicio) / 1000));
+  return (
+    <p className="text-sm font-semibold tabular-nums text-smn-gris-700">
+      Lleva {Math.floor(seg / 60)}:{String(seg % 60).padStart(2, "0")}
+    </p>
   );
 }

@@ -157,11 +157,40 @@ def tiendas_clave() -> list[str]:
     return [t.strip() for t in configuracion().precios_tiendas_clave.split(",") if t.strip()]
 
 
+# Otros nombres y dominios con que llegan las tiendas de Compras (Diego, 26 nov 2026: «lista de tiendas donde validan los
+# de compras»). Solo dominios vistos en las observaciones; las demás se reconocen por nombre hasta confirmar su dominio:
+# Farmacias Guadalajara, Farmacias Benavides, Farmacias Similares, La Comer, Fresko y City Market (por confirmar).
+ALIAS_TIENDAS = {
+    "walmart": ("walmart.com.mx",), "soriana": ("soriana.com",), "chedraui": ("chedraui.com.mx",),
+    "san pablo": ("farmaciasanpablo.com.mx",), "farmacia paris": ("farmacias paris", "farmaciaparis.com"),
+    "farmacias paris": ("farmacia paris", "farmaciaparis.com"),
+    "farmacias del ahorro": ("farmacia del ahorro", "fahorro.com"), "farmacia del ahorro": ("farmacias del ahorro", "fahorro.com"),
+    "mercado libre": ("mercadolibre.com.mx",), "amazon": ("amazon.com.mx",), "gnc": ("gnc.com.mx",), "dax": ("dax.com.mx",),
+    "bodega aurrera": ("bodegaaurrera.com.mx",), "heb": ("h-e-b", "heb.com.mx"), "farmacias similares": ("farmacia similares", "farmacias de similares"),
+    "farmacias benavides": ("farmacia benavides",), "farmacias guadalajara": ("farmacia guadalajara",),
+}
+
+
+def _coincide(alias: str, vendedor: str, dominio: str) -> bool:
+    """Un nombre corto (GNC, DAX, HEB) tiene que ser una palabra del vendedor o el nombre del dominio: «The Boost Co»
+    no es HEB. Un dominio cuenta si es el del vendedor o su liga."""
+    a = _clave(alias)
+    if "." in a:
+        return a in dominio or a in vendedor
+    compacto = re.sub(r"[^a-z0-9]", "", a)
+    if len(compacto) <= 4:
+        palabras = set(re.findall(r"[a-z0-9]+", vendedor.replace("-", ""))) | {dominio.split(".")[0]} if dominio else             set(re.findall(r"[a-z0-9]+", vendedor.replace("-", "")))
+        return compacto in palabras
+    return compacto in re.sub(r"[^a-z0-9]", "", f"{vendedor} {dominio}")
+
+
 def tienda_clave(vendedor: str | None, dominio: str | None, claves: list[str] | None = None) -> str | None:
     """Cuál de las tiendas clave es este vendedor («San Pablo Farmacia», farmaciasanpablo.com.mx → San Pablo); None si ninguna."""
-    texto = re.sub(r"[^a-z0-9]", "", _clave(f"{vendedor or ''} {dominio or ''}"))
+    v, d = _clave(vendedor or ""), _clave(dominio or "")
+    d = re.sub(r"^www\.", "", re.sub(r"^https?://", "", d).split("/")[0])
     for t in claves if claves is not None else tiendas_clave():
-        if (k := re.sub(r"[^a-z0-9]", "", _clave(t))) and k in texto:
+        nombre = _clave(t)
+        if any(_coincide(x, v, d) for x in (nombre, *ALIAS_TIENDAS.get(nombre, ()))):
             return t
     return None
 
@@ -267,7 +296,7 @@ def cerrar_huerfanas(bd: Session) -> int:
     """Al arrancar la API: una corrida «en curso» quedó a medias porque la plataforma se reinició."""
     abiertas = bd.scalars(select(PrecioCorrida).where(PrecioCorrida.estado == "en_curso")).all()
     for c in abiertas:
-        _cerrar(bd, c, "La plataforma se reinició a media corrida. Lo que ya se pagó a DataForSEO quedó en «Corridas y gasto».")
+        _cerrar(bd, c, "La plataforma se reinició a media corrida; vuelve a lanzarla. Lo que ya encontró se conserva.")
     bd.commit()
     return len(abiertas)
 
@@ -825,11 +854,14 @@ class Corrida:
         """Corre en su propio hilo: solo consultas al sitio y reglas, nada de base ni IA. Para cada producto busca con
         la consulta de Compras o la descripción y, si no quedó claro, con el código de barras."""
         salida: dict[int, tuple[dict[str, tuple[co.Candidato, td.Resultado]], str | None]] = {}
-        ultima, fallas = [0.0], 0
+        ultima, fallas, bloqueo = [0.0], 0, None
         for n, t in enumerate(trabajos):
             if self.detenida():
                 break
             avance[tienda.nombre] = (n, len(trabajos), t.descripcion or "")
+            if bloqueo:  # bloqueó su sitio: no se le vuelve a preguntar; estos van al respaldo por Google (26 nov 2026)
+                salida[t.producto_id] = ({}, bloqueo)
+                continue
             if fallas >= FALLAS_PARA_PARAR:
                 salida[t.producto_id] = ({}, f"No se buscó: {tienda.nombre} falló {FALLAS_PARA_PARAR} veces seguidas en esta corrida")
                 continue
@@ -841,6 +873,8 @@ class Corrida:
                     fallas = 0
                 except td.ErrorTienda as e:
                     error, fallas = f"{tienda.nombre} {e}", fallas + 1
+                    if td.es_bloqueo(str(e)):
+                        bloqueo = error
                     break
                 except Exception:  # noqa: BLE001 - una tienda no detiene la corrida
                     log.exception("Falló la búsqueda en %s", tienda.nombre)
@@ -987,13 +1021,27 @@ class Corrida:
             except Exception:  # noqa: BLE001
                 log.exception("Falló la búsqueda en %s", nombre)
                 resultados[nombre] = {}
+        self._respaldo_google(conectores, procesados, planes, resultados)
+        self._guardar_tiendas(conectores, procesados, resultados, vigentes, rechazados, marcas, filas)
+
+    def _guardar_tiendas(self, conectores: list[td.Tienda], procesados: list[tuple[PrecioVigilado, Producto]],
+                         resultados: dict, vigentes: dict, rechazados: dict, marcas: set[str],
+                         filas: dict[int, PrecioCorridaProducto]) -> None:
+        """Decide en cada tienda con las mismas reglas e IA y guarda su precio (del sitio o visto en Google)."""
+        bd = self.bd
         vendedores = Vendedores(bd)
         for v, p in procesados:
-            pid, estados = p.producto_id, {}
+            pid = p.producto_id
+            try:  # lo que ya dijeron otras tiendas en esta corrida se conserva
+                estados = json.loads(filas[pid].tiendas or "{}")
+            except (ValueError, TypeError):
+                estados = {}
             for t in conectores:
                 cands, error = resultados[t.nombre].get(pid, ({}, f"No se buscó en {t.nombre}"))
                 if error:
-                    estados[t.nombre] = {"estado": "error", "mensaje": error[:300]}
+                    # «No aparece en Google» es «no lo tiene», no una falla (corrida a pedido real, 26 nov 2026)
+                    estado = "no_lo_tiene" if error.startswith("En Google no aparece") else "error"
+                    estados[t.nombre] = {"estado": estado, "mensaje": error[:300]}
                     continue
                 vig = vigentes[(pid, t.nombre)]
                 elegido, estado, motivo = self._elegir_en_tienda(p, v.consulta, cands, vig, rechazados[(pid, t.nombre)], marcas)
@@ -1015,10 +1063,101 @@ class Corrida:
                     vendedor=nombre, vendedor_original=original[:200], dominio=(dominio or t.dominio)[:200], liga=(r.liga or "")[:800] or None,
                     precio=r.precio, precio_comparable=r.precio, moneda="MXN",
                     disponibilidad="agotado" if r.disponible is False else None, es_propia=propio,
-                    datos=json.dumps({"title": r.titulo, "_publicacion": f"Sitio de {t.nombre}", "_tienda_directa": t.nombre,
+                    datos=json.dumps({"title": r.titulo, "_tienda_directa": t.nombre,
+                                      "_publicacion": f"Google (sitio de {t.nombre})"
+                                      if r.datos.get("_fuente") == td.FUENTE_GOOGLE_SITIO else f"Sitio de {t.nombre}",
                                       "clave": r.clave, "ean": r.ean, **r.datos}, ensure_ascii=False, default=str)))
             filas[pid].tiendas = json.dumps(estados, ensure_ascii=False)
             bd.commit()
+
+    def _enviar_tiendas_google(self, procesados: list[tuple[PrecioVigilado, Producto]]):
+        """Manda las búsquedas de las tiendas de Compras sin conector. No dependen de nada más, así que la corrida a
+        pedido las manda al arrancar y su respuesta ya está lista cuando se necesita (26 nov 2026: era una espera más
+        de la cola de DataForSEO). Regresa (tiendas, grupos, ids) o None."""
+        tiendas = td.sitios_google() if self.cfg.tiendas_google_activo else []
+        if not tiendas or not procesados or self.sin_presupuesto or dfs.configurado():
+            return None
+        bd = self.bd
+        grupos = td.grupos_google(tiendas, self.cfg.tiendas_google_por_busqueda)
+        texto = {}
+        for v, p in procesados:
+            plan = co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta)
+            texto[p.producto_id] = next((x for e, x in plan if e in ("consulta", "descripcion")), None)
+        tareas = [{"keyword": td.consulta_grupo(g, texto[p.producto_id]), "depth": 10, "tag": f"{p.producto_id}:{i}"}
+                  for _, p in procesados if texto[p.producto_id] for i, g in enumerate(grupos)]
+        if not tareas:
+            return None
+        try:
+            return tiendas, grupos, dfs.enviar(bd, self.c, "organico", tareas)
+        except dfs.SinPresupuesto as e:
+            self.sin_presupuesto = self.sin_presupuesto or str(e)
+        except dfs.ErrorDataForSEO as e:
+            log.warning("Radar de precios: falló la búsqueda de tiendas de Compras en Google: %s", e)
+        return None
+
+    def tiendas_google(self, procesados: list[tuple[PrecioVigilado, Producto]], filas: dict[int, PrecioCorridaProducto],
+                       enviado=None) -> None:
+        """Corridas a pedido: las tiendas de Compras sin conector (Farmacias del Ahorro, HEB, GNC…) en Google limitado a
+        su sitio, varias por búsqueda, en un solo envío. Se deciden y guardan igual que las tiendas directas (26 nov
+        2026). La revisión de noche no las usa (decisión de gasto pendiente de Diego)."""
+        enviado = enviado or self._enviar_tiendas_google(procesados)
+        if not enviado:
+            return
+        bd = self.bd
+        tiendas, grupos, ids = enviado
+        self.fase(f"Revisando {len(tiendas)} tiendas de Compras vía Google")
+        try:
+            respuesta = dfs.recoger("organico", ids, self.detenida)
+        except dfs.ErrorDataForSEO as e:
+            log.warning("Radar de precios: falló la búsqueda de tiendas de Compras en Google: %s", e)
+            return
+        resultados: dict[str, dict] = {t.nombre: {} for t in tiendas}
+        for tag, items in respuesta.items():
+            pid, i = (int(x) for x in tag.split(":"))
+            if not isinstance(items, list):
+                continue
+            for t in grupos[i]:
+                encontrados = td.de_google(t, items)
+                resultados[t.nombre][pid] = ({r.clave: (candidato_tienda(t, r, j + 1), r) for j, r in enumerate(encontrados)},
+                                             None if encontrados else "En Google no aparece este producto en su sitio")
+        marcas = _marcas(bd)
+        vigentes = {(p.producto_id, t.nombre): tienda_vigente(bd, p.producto_id, t.nombre) for _, p in procesados for t in tiendas}
+        rechazados = {(p.producto_id, t.nombre): _rechazados_tienda(bd, p.producto_id, t.nombre) for _, p in procesados for t in tiendas}
+        self._guardar_tiendas(tiendas, procesados, resultados, vigentes, rechazados, marcas, filas)
+
+    def _respaldo_google(self, conectores: list[td.Tienda], procesados: list[tuple[PrecioVigilado, Producto]],
+                         planes: dict[int, list[tuple[str, str]]], resultados: dict) -> None:
+        """Las tiendas que bloquearon su sitio (Walmart, San Pablo): una búsqueda normal de Google por producto, limitada
+        a su dominio, en un solo envío a DataForSEO y dentro del tope. Sus resultados se deciden igual que los del
+        sitio (26 nov 2026). La página de la tienda no se abre."""
+        for t in conectores:
+            suyos = resultados.get(t.nombre) or {}
+            bloqueados = [p for _, p in procesados if td.es_bloqueo((suyos.get(p.producto_id) or ({}, None))[1])]
+            texto = {p.producto_id: next((x for e, x in planes.get(p.producto_id, []) if e != "codigo_barras"), None)
+                     for p in bloqueados}
+            tareas = [{"keyword": td.consulta_sitio(t, texto[p.producto_id]), "depth": 10, "tag": str(p.producto_id)}
+                      for p in bloqueados if texto[p.producto_id]]
+            if not tareas or self.sin_presupuesto or dfs.configurado():
+                continue
+            self.fase(f"{t.nombre} no deja consultar su sitio: buscando sus {len(tareas)} productos en Google")
+            try:
+                ids = dfs.enviar(self.bd, self.c, "organico", tareas)
+                respuesta = dfs.recoger("organico", ids, self.detenida)
+            except dfs.SinPresupuesto as e:
+                self.sin_presupuesto = self.sin_presupuesto or str(e)
+                continue
+            except dfs.ErrorDataForSEO as e:
+                log.warning("Radar de precios: falló la búsqueda en Google de %s: %s", t.nombre, e)
+                continue
+            for tag, items in respuesta.items():
+                pid = int(tag)
+                bloqueo = suyos[pid][1]
+                if not isinstance(items, list):
+                    continue
+                encontrados = td.de_google(t, items)
+                cands = {r.clave: (candidato_tienda(t, r, i + 1), r) for i, r in enumerate(encontrados)}
+                suyos[pid] = (cands, None) if cands else (
+                    {}, f"{bloqueo}; en Google no aparece este producto en su sitio")
 
     # ---- precios
 
@@ -1194,9 +1333,13 @@ class Corrida:
         self.paso(1)
         self.fase(f"Preparando {len(procesados)} productos: {len(pendientes)} se buscan en Google Shopping"
                   + (f" y {ya} ya tienen su publicación de Google de corridas anteriores" if ya else ""), 0, len(pendientes) or None)
+        # Corrida a pedido: las tiendas de Compras vía Google se mandan ya y se recogen después (26 nov 2026)
+        enviado = self._enviar_tiendas_google(procesados) if c.origen == PEDIDO else None
         if pendientes:
             self.coincidencias(pendientes, filas)
         self.tiendas(procesados, filas)  # sin costo: también corre si se acabó el presupuesto de DataForSEO
+        if c.origen == PEDIDO:  # las tiendas de Compras sin conector, vía Google; la noche no las usa
+            self.tiendas_google(procesados, filas, enviado)
         self.precios({p.producto_id: filas[p.producto_id] for _, p in procesados})
         self.paso(4)
         self.fase("Calculando la diferencia contra la mediana y guardando los resultados")
@@ -1357,7 +1500,17 @@ def actualizar_aparte(corrida_id: int, producto_id: int) -> None:
 
 
 def correr(bd: Session, corrida: PrecioCorrida) -> PrecioCorrida:
-    """Nunca lanza: los errores quedan en la corrida."""
+    """Nunca lanza: los errores quedan en la corrida. Una corrida a pedido puede ir con prioridad alta en DataForSEO
+    (ajuste apagado de fábrica: cuesta el doble; 26 nov 2026, la de 10 productos tardó 39 min en la cola normal)."""
+    alta = corrida.origen == PEDIDO and configuracion().precios_pedido_prioridad_alta
+    token = dfs.PRIORIDAD.set(2 if alta else 1)
+    try:
+        return _correr(bd, corrida)
+    finally:
+        dfs.PRIORIDAD.reset(token)
+
+
+def _correr(bd: Session, corrida: PrecioCorrida) -> PrecioCorrida:
     try:
         return Corrida(bd, corrida).correr()
     except Detenida:  # una persona la detuvo: ya quedó cerrada, no se toca
@@ -1377,6 +1530,13 @@ def correr(bd: Session, corrida: PrecioCorrida) -> PrecioCorrida:
         for uid in _con_permiso(bd, ADMINISTRAR):
             notificar(bd, uid, "Falló el Radar de precios", f"La corrida del {corrida.fecha:%d/%m/%Y} falló: {corrida.error[:300]}",
                       liga="/compras/precios/corridas", modulo_id=modulo, clave=f"precios-error:{corrida.corrida_id}:{corrida.intentos}")
+        # Quien lanzó una corrida a pedido casi nunca administra el radar (Precios y Costos): también se le avisa a ella,
+        # o se quedaba esperando un aviso que nunca llegaba (revisión del 26 nov 2026)
+        if corrida.origen == PEDIDO and corrida.iniciado_por:
+            notificar(bd, corrida.iniciado_por, "Tu corrida del radar de precios no terminó",
+                      f"La corrida falló: {corrida.error[:300]} Puedes volver a lanzarla desde Corridas.",
+                      liga=f"/compras/precios/pedidos/{corrida.corrida_id}", modulo_id=modulo,
+                      clave=f"precios-pedido-error:{corrida.corrida_id}")
         bd.commit()
         return corrida
 
@@ -1516,6 +1676,13 @@ def estimado(bd: Session, pares: list[tuple[PrecioVigilado, Producto]] | None = 
         busquedas = 0 if m and not configuracion().precios_buscar_siempre else len(co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta))
         maximo = configuracion().precios_max_publicaciones
         total += dfs.maximo_producto(busquedas, len(publicaciones(m, maximo)) if m else maximo)
+    # Lo más: si todas las tiendas directas bloquean su sitio, una búsqueda normal de Google por producto y tienda
+    # (respaldo del 26 nov 2026)
+    n = len(_vigilados(bd) if pares is None else pares)
+    total += dfs.maximo_tarea("organico", 10, operadores=True) * len(tiendas_directas()) * n
+    # Las tiendas de Compras sin conector, vía Google (corridas a pedido): una búsqueda por grupo de tiendas y producto
+    if configuracion().tiendas_google_activo and (sitios := td.sitios_google()):
+        total += dfs.maximo_tarea("organico", 10, operadores=True) * len(td.grupos_google(sitios, configuracion().tiendas_google_por_busqueda)) * n
     return total
 
 

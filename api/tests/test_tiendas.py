@@ -75,3 +75,43 @@ def test_walmart_y_bloqueo(pedir):
 def test_precios_con_formato():
     assert td._decimal("$1,234.50") == Decimal("1234.50") and td._decimal("99,90") == Decimal("99.90")
     assert td._decimal("1,234") == Decimal("1234.00") and td._decimal(0) is None and td._decimal(True) is None
+
+
+def test_403_y_429_se_reportan_como_bloqueo(monkeypatch):
+    """Revisión del 26 nov 2026: San Pablo contesta 403 desde el servidor. Se dice que bloqueó, no un error cualquiera
+    (y nunca «no lo vende»); los demás errores siguen como error."""
+    import io
+    import urllib.error
+
+    def con_codigo(codigo):
+        def abrir(peticion, timeout=None):
+            raise urllib.error.HTTPError(peticion.full_url, codigo, "x", {}, io.BytesIO(b""))
+        return abrir
+
+    for codigo in (403, 429):
+        monkeypatch.setattr(td.urllib.request, "urlopen", con_codigo(codigo))
+        with pytest.raises(td.ErrorTienda, match=f"bloqueó la consulta automática \(error {codigo}\)"):
+            td._pedir("https://www.farmaciasanpablo.com.mx/x", {})
+    monkeypatch.setattr(td.urllib.request, "urlopen", con_codigo(500))
+    with pytest.raises(td.ErrorTienda, match="respondió con error 500"):
+        td._pedir("https://www.farmaciasanpablo.com.mx/x", {})
+
+
+def test_respaldo_de_google_toma_solo_lo_de_la_tienda_y_su_precio_visible():
+    """26 nov 2026: de la búsqueda «site:» se toma lo que es de esa tienda; el precio del campo de Google o, si no, un
+    solo precio con centavos del fragmento. Una página con varios precios no se adivina. Datos FICTICIOS."""
+    w = td.Walmart()
+    assert td.consulta_sitio(w, "Vidanat Spirulina 200 tabletas") == "site:walmart.com.mx Vidanat Spirulina 200 tabletas"
+    assert td.es_bloqueo("Walmart bloqueó la consulta automática: pidió verificar identidad") and not td.es_bloqueo("no contestó")
+    items = [
+        {"url": "https://www.walmart.com.mx/ip/a/1", "domain": "www.walmart.com.mx",
+         "title": "Spirulina Vidanat 200 tabletas | Walmart en línea", "price": {"current": 199, "currency": "MXN"}},
+        {"url": "https://www.walmart.com.mx/ip/b/2", "domain": "www.walmart.com.mx", "title": "Vitamina E 30 cápsulas",
+         "description": "Precio $158.00 en línea"},
+        {"url": "https://www.walmart.com.mx/browse/vidanat", "domain": "www.walmart.com.mx", "title": "Vidanat",
+         "description": "Desde $165.00 hasta $1,650.00"},
+        {"url": "https://otra.mx/c", "domain": "otra.mx", "title": "Spirulina 200 tabletas", "price": {"current": 10}}]
+    r = td.de_google(w, items)
+    assert [(x.titulo, x.precio) for x in r] == [("Spirulina Vidanat 200 tabletas", Decimal("199.00")),
+                                                 ("Vitamina E 30 cápsulas", Decimal("158.00")), ("Vidanat", None)]
+    assert all(x.datos["_fuente"] == td.FUENTE_GOOGLE_SITIO for x in r)

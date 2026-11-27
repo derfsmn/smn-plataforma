@@ -42,15 +42,21 @@ export default function UnaCorrida() {
   const [bajando, setBajando] = useState(false);
   const [deteniendo, setDeteniendo] = useState(false);
   const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fallas = useRef(0);
 
   const cargar = useCallback(() => {
     if (espera.current) clearTimeout(espera.current);
     api<DetallePedido>(`/api/compras/precios/pedidos/${id}`)
       .then((x) => {
+        fallas.current = 0;
         setD(x);
         if (x.pedido.estado === "en_curso" || x.pedido.estado === "en_espera") espera.current = setTimeout(cargar, 5000);
       })
-      .catch((e) => avisar(mensajeDe(e), "info"));
+      .catch((e) => {
+        // Una consulta que falla mientras corre no detiene el avance de la pantalla (revisión del 26 nov 2026)
+        if (!fallas.current++) avisar(mensajeDe(e), "info");
+        espera.current = setTimeout(cargar, 10000);
+      });
   }, [id, avisar]);
   useEffect(() => {
     cargar();
@@ -104,7 +110,7 @@ export default function UnaCorrida() {
               <p className="mt-0.5 text-[14px] text-smn-gris-500">
                 {cuando(p.creado_en)}
                 {p.usuario && ` · la pidió ${p.usuario}`} · {n(p.productos)} productos
-                {Number(p.costo_usd) > 0 && ` · búsquedas ${dolares(p.costo_usd)}`}
+                {puede("compras.precios.administrar") && Number(p.costo_usd) > 0 && ` · búsquedas ${dolares(p.costo_usd)}`}
               </p>
             </div>
             <div className="flex gap-2">

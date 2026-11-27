@@ -11,6 +11,7 @@ import { useSesion } from "@/componentes/sesion";
 import { SEMAFORO } from "@/lib/precios";
 import { Boton, Esqueleto } from "@/componentes/ui";
 import { api, haceCuanto, mensajeDe } from "@/lib/api";
+import { useSondeo } from "@/lib/sondeo";
 import { colorVigente, ESTADOS_IDEA, EVENTO_CAPTURAR, RUTA, type Color, type EvaluacionResumen } from "@/lib/productos";
 
 const TIPOS = [
@@ -66,11 +67,7 @@ export default function RadarProductos() {
 
   // Mientras alguna esté en curso, se vuelve a preguntar
   const enCurso = filas?.some((f) => f.estado === "en_curso");
-  useEffect(() => {
-    if (!enCurso) return;
-    const t = setInterval(cargar, 3000);
-    return () => clearInterval(t);
-  }, [enCurso, cargar]);
+  useSondeo(cargar, 3000, !!enCurso);
 
   const cuenta = (c: Color) => filas?.filter((f) => f.estado === "lista" && colorVigente(f) === c).length ?? 0;
   const buscar = sinAcentos(q.trim());
@@ -211,11 +208,7 @@ function Pantallas({ alTerminar }: { alTerminar: () => void }) {
     leer();
   }, [leer]);
   const corriendo = !!d?.trabajo;
-  useEffect(() => {
-    if (!corriendo) return;
-    const t = setInterval(leer, 3000);
-    return () => clearInterval(t);
-  }, [corriendo, leer]);
+  useSondeo(leer, 3000, corriendo);
   const [antes, setAntes] = useState(false);
   useEffect(() => {
     if (antes && !corriendo) {

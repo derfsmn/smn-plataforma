@@ -91,6 +91,17 @@ def _fecha(f) -> str:
     return f"{f.day} {MESES[f.month - 1]} {f.year}"
 
 
+def _local(iso: str) -> datetime:
+    """Las horas se guardan en UTC; lo que se lee en el reporte va en hora de México (26 nov 2026: a las 6 pm del 26
+    el reporte decía «precios del 27 nov»)."""
+    from datetime import timezone
+
+    from modulos.compras import precios as pc
+
+    f = datetime.fromisoformat(iso)
+    return (f if f.tzinfo else f.replace(tzinfo=timezone.utc)).astimezone(pc.zona())
+
+
 def margen_de(precio: Decimal | None, costo: Decimal | None) -> Decimal | None:
     """(precio ÷ 1.16 − costo) ÷ (precio ÷ 1.16), en %. Igual que el radar."""
     if not precio or not costo or precio <= 0:
@@ -389,6 +400,10 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
         if rp.es_de_la_marca(p, s.marca):  # no es competencia: es lo que sugiere la marca (22 nov 2026)
             donde = f"{donde} (precio sugerido de la marca)"
         afuera.append((p.get("titulo") or s.nombre, donde, precio, por))
+    # El mismo producto sin el tamaño confirmado: se enseña igual que en la pantalla y no cuenta (26 nov 2026)
+    for visto in sorted(getattr(mercado_, "vistos", None) or [], key=lambda x: float(x["precio"]))[:4]:
+        afuera.append((visto.get("titulo") or s.nombre, f"{visto.get('vendedor') or '—'} (tamaño sin confirmar, no cuenta)",
+                       Decimal(str(visto["precio"])), None))
     for precio, donde in s.mercado:
         if s.activo_g:  # es el mismo producto que vio Compras: mismo contenido
             por = f"{_pesos(precio / s.activo_g)} por gramo de {rp.solo_principal(s.ingrediente).lower() if s.ingrediente else 'activo'}"
@@ -418,14 +433,14 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
     kpis = []
     if margen is not None:
         kpis.append((_pct(margen), f"margen a {_pesos(s.precio)} con costo {_pesos(s.costo)} (mínimo {_n(minimo)} %"
-                     + (f"; {e.subcategoria.lower()} en SMN {_pct(margen_sub)})" if margen_sub else ")"), margen < minimo))
+                     + (f"; {e.subcategoria.capitalize()} en SMN {_pct(margen_sub)})" if margen_sub else ")"), margen < minimo))
         if (mm := s.margen_membresia) is not None and not mismo and mins.membresia is not None:
             kpis.append((_pct(mm), f"margen con membresía a {_pesos(s.precio_membresia)}"
                          + (", calculada con su lista" if s.membresia_calculada else "") + f" (mínimo {_n(mins.membresia)} %)",
                          mm < mins.membresia))
     if tend:
         cambio = (tend[0] / tend[1] - 1) * 100
-        kpis.append((f"{cambio:+.0f} %", f"piezas de {e.subcategoria.lower()} en SMN, últimas 13 semanas contra las 13 "
+        kpis.append(((f"{cambio:+.0f} %" if round(cambio) else "0 %"), f"piezas de {e.subcategoria.capitalize()} en SMN, últimas 13 semanas contra las 13 "
                      "anteriores", cambio < 0))
     if estimado:
         kpis.append((f"~{_n(estimado['piezas'])}", f"piezas al mes esperadas en {estimado['tiendas']} tiendas "
@@ -481,7 +496,7 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
     q["tendencia"] = []
     if tend:
         cambio = (tend[0] / tend[1] - 1) * 100
-        q["tendencia"].append(f"En SMN: {e.subcategoria.lower()} vendió {_n(tend[0])} piezas en las últimas 13 semanas, "
+        q["tendencia"].append(f"En SMN: {e.subcategoria.capitalize()} vendió {_n(tend[0])} piezas en las últimas 13 semanas, "
                               f"{abs(cambio):.0f} % {'más' if cambio >= 0 else 'menos'} que en las 13 anteriores, con "
                               f"{tend[2]} productos con venta.")
     if t and t.puntaje is not None:
@@ -528,7 +543,7 @@ def armar(bd: Session, e: ProductoEvaluacion, ahora: datetime | None = None, con
     if v:
         fuentes.append(f"SMNBI, venta de mostrador del {_fecha(v.desde)} al {_fecha(v.hasta)}")
     if mercado_ and mercado_.precios:
-        fuentes.append("precios públicos" + (f" del {_fecha(datetime.fromisoformat(mercado_.buscado_en))}" if mercado_.buscado_en else "")
+        fuentes.append("precios públicos" + (f" del {_fecha(_local(mercado_.buscado_en))}" if mercado_.buscado_en else "")
                        + ": " + ", ".join(dict.fromkeys(p["vendedor"] for p in mercado_.precios[:6])))
     fuentes.append("captura de Compras" if s.tipo == "idea" else "cuestionario del proveedor")
     if t and t.puntaje is not None:
@@ -556,12 +571,13 @@ def _acciones(s, veredicto, prueba, minimo, margen, referencia, metas, filas, fi
     elif margen is not None and margen < minimo and metas:
         costo, precio_meta, costo_meta, pasa = metas
         if pasa:
-            a.append((f"Negociar costo de {_pesos(costo_meta)} sin IVA o menos (hoy {_pesos(costo)}). Subirle el precio no "
-                      f"funciona: tendría que venderse en {_pesos(precio_meta)} y el mercado está en {_pesos(referencia)}.",
+            a.append((f"Para dejar {_n(minimo)} % al precio del mercado ({_pesos(referencia)}): negociar costo de "
+                      f"{_pesos(costo_meta)} sin IVA o menos (hoy {_pesos(costo)}). Subirle el precio no funciona: tendría "
+                      f"que venderse en {_pesos(precio_meta)} y el mercado está en {_pesos(referencia)}.",
                       "Compras"))
         else:
-            a.append((f"Negociar costo de {_pesos(costo_meta)} sin IVA (hoy {_pesos(costo)}) o venderlo en "
-                      f"{_pesos(precio_meta)} para dejar {_n(minimo)} %.", "Compras"))
+            a.append((f"Para dejar {_n(minimo)} % a nuestro precio: negociar costo de {_pesos(costo_meta)} sin IVA (hoy "
+                      f"{_pesos(costo)}) o venderlo en {_pesos(precio_meta)}.", "Compras"))
     elif s.precio:
         piso = f" (no bajar de {_pesos(metas[1])})" if metas and not metas[3] else ""
         costo = f" con costo de {_pesos(s.costo)} sin IVA" if s.costo else ""
@@ -698,7 +714,9 @@ SIN_TEMA_PRECIO = {"precio_afuera": "No cuenta: el radar de precios no lo encont
 def _valor_tema(f: str, x) -> str | None:
     if x.puntaje is None and f in SIN_TEMA_PRECIO:
         return SIN_TEMA_PRECIO[f]
-    return (("Provisional. " if x.provisional and f.startswith("precio") else "") + (x.valor or "")) or None
+    # Sin «Provisional.» al frente: la tarjeta enseña la primera oración y solo quedaba esa palabra (BDM Life, 26 nov
+    # 2026); además lo que va a Compras no lleva notas de método
+    return x.valor or None
 
 
 def _corto(x: str | None, largo: int = 95) -> str:
@@ -907,14 +925,15 @@ def generar(r: Reporte) -> bytes:
     titulo = "4. ¿Qué vendemos hoy parecido?" + (" (SMNBI)" if r.ventana else "")
     bloque = [Spacer(1, 6), _h2(titulo), Spacer(1, 3)]
     def tabla(lista):
-        filas = [[_p(x, "cab") for x in ("SKU", "Producto", "Clas. catálogo")] +
+        filas = [[_p(x, "cab") for x in ("SKU", "Producto", "Clase")] +
                  [_p(x, "cabn") for x in ("Piezas al mes", "Tiendas", "Pzas por tienda al mes", "Precio prom. con IVA", "Margen")]]
         for f in lista:
             nota = f" <font color='#777777'>({f.etiqueta})</font>" if f.etiqueta and f.etiqueta != "misma marca" else ""
             filas.append([_p(_t(f.sku)), _p(_t(f.descripcion) + nota), _p(_t(f.clasificacion) or "—"),
                           _p(_n(f.al_mes) if f.al_mes else "sin venta", "cn"), _p(str(f.tiendas) if f.tiendas else "—", "cn"),
                           _p(_n(f.por_tienda) if f.por_tienda else "—", "cn"), _p(_pesos(f.precio), "cn"), _p(_pct(f.margen), "cn")])
-        return _tabla(filas, [UTIL * x for x in (0.09, 0.37, 0.06, 0.1, 0.08, 0.11, 0.11, 0.08)])
+        # «Clase» con espacio para «NUEVO» sin partirse (BDM Life, 26 nov 2026)
+        return _tabla(filas, [UTIL * x for x in (0.08, 0.35, 0.09, 0.1, 0.08, 0.11, 0.11, 0.08)])
 
     # 25 nov 2026 (Diego, BDM Life Berberina): lo de la misma marca va aparte; no es contra lo que se compara
     if r.parecidos:

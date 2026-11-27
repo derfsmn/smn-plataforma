@@ -259,3 +259,104 @@ def test_ollama_recibe_formato_json(monkeypatch):
     enviado.clear()
     puerta._llamar_ollama("qwen3:4b", "i", "m", 10)
     assert "format" not in enviado
+
+
+def test_ollama_queda_cargado_y_se_precarga(monkeypatch):
+    """26 nov 2026: Ollama soltaba el modelo a los 5 min y la siguiente evaluación pagaba la carga. Cada llamada pide
+    tenerlo una hora y el programador lo precarga (una vez cada ~50 min). Sin Ollama real."""
+    import io
+    import json as _json
+
+    from core.config import configuracion
+    from ia import puerta
+
+    enviados = []
+
+    def abrir(peticion, timeout=None):
+        enviados.append((peticion.full_url, _json.loads(peticion.data)))
+        return io.BytesIO(b'{"message": {"content": "ok"}, "prompt_eval_count": 1, "eval_count": 1}')
+
+    monkeypatch.setattr(puerta.urllib.request, "urlopen", abrir)
+    monkeypatch.setattr(configuracion(), "ollama_url", "http://ollama-ej:11434")
+    monkeypatch.setattr(configuracion(), "ollama_modelo", "modelo-ej")
+    monkeypatch.setitem(puerta._PRECARGA, "cuando", -1e9)
+    assert puerta.precargar_ollama() and not puerta.precargar_ollama()  # la segunda vez, todavía cargado
+    assert enviados[0][0].endswith("/api/generate") and enviados[0][1] == {"model": "modelo-ej", "keep_alive": "60m", "options": {"num_ctx": 16384}}
+    puerta._llamar_ollama("modelo-ej", "instrucciones", "mensaje", 10)
+    assert enviados[-1][1]["keep_alive"] == "60m"
+
+
+def test_las_decisiones_de_si_o_no_se_piden_con_temperatura_cero(monkeypatch):
+    """Revisión de coherencia (26 nov 2026): el mismo magnesio aceptó iHerb en una evaluación y lo rechazó en otra."""
+    import json as _json
+
+    from ia import puerta
+
+    enviados = []
+
+    class R:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return _json.dumps({"message": {"content": "{}"}, "model": "m", "done_reason": "stop"}).encode()
+
+    def abrir(peticion, timeout=None):
+        enviados.append(_json.loads(peticion.data)["options"]["temperature"])
+        return R()
+
+    monkeypatch.setattr(puerta.urllib.request, "urlopen", abrir)
+    monkeypatch.setattr(puerta._json if hasattr(puerta, "_json") else puerta.json, "load", lambda r: _json.loads(r.read()))
+    puerta._llamar_ollama("m", "i", "x", 10)
+    with puerta.temperatura(0):
+        puerta._llamar_ollama("m", "i", "x", 10)
+    puerta._llamar_ollama("m", "i", "x", 10)
+    assert enviados == [0.3, 0, 0.3]
+
+
+def test_ollama_ocupado_no_se_reporta_como_sin_conexion(monkeypatch):
+    """26 nov 2026: con varias evaluaciones a la vez la espera vencía y el aviso decía «No hay conexión con Ollama»."""
+    import pytest as pt
+
+    from ia import puerta
+
+    def lento(peticion, timeout=None):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(puerta.urllib.request, "urlopen", lento)
+    with pt.raises(puerta.ErrorIA, match="ocupada"):
+        puerta._llamar_ollama("m", "i", "x", 10)
+
+
+def test_ollama_siempre_con_la_misma_ventana(monkeypatch):
+    """26 nov 2026: ventanas distintas hacían que Ollama recargara el modelo en cada cambio y se quedó atorado. Todas las
+    llamadas y la precarga piden la misma; solo un texto que no cabe pide más."""
+    import json as _json
+
+    from ia import puerta
+
+    vistos = []
+
+    class R:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return _json.dumps({"message": {"content": "{}"}, "model": "m", "done_reason": "stop"}).encode()
+
+    def abrir(peticion, timeout=None):
+        vistos.append(_json.loads(peticion.data).get("options", {}).get("num_ctx"))
+        return R()
+
+    monkeypatch.setattr(puerta.urllib.request, "urlopen", abrir)
+    monkeypatch.setattr(puerta.json, "load", lambda r: _json.loads(r.read()))
+    puerta._llamar_ollama("m", "i", "x", 10)
+    puerta._llamar_ollama("m", "i", "x", 10, contexto=8192)
+    puerta._llamar_ollama("m", "i", "x", 10, contexto=32768)
+    assert vistos == [16384, 16384, 32768]

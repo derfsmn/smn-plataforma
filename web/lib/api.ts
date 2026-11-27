@@ -44,8 +44,13 @@ export async function api<T = unknown>(ruta: string, opciones: { metodo?: string
   const datos = await respuesta.json().catch(() => null);
   if (!respuesta.ok) {
     const detalle = datos?.detail;
+    // Las validaciones propias de la API ya vienen en español («Value error, Escribe el contenido…»): se enseñan tal cual
+    // (revisión de formularios, 26 nov 2026); las genéricas de formato se quedan en un mensaje de negocio
+    const propio = Array.isArray(detalle)
+      ? detalle.map((x: { msg?: string }) => x?.msg ?? "").find((m: string) => m.startsWith("Value error, "))?.slice(13)
+      : undefined;
     const mensaje =
-      typeof detalle === "string" ? detalle : Array.isArray(detalle) ? "Revisa los datos del formulario." : "Algo salió mal. Intenta de nuevo.";
+      typeof detalle === "string" ? detalle : propio ? propio : Array.isArray(detalle) ? "Revisa los datos del formulario." : "Algo salió mal. Intenta de nuevo.";
     throw new ErrorApi(respuesta.status, mensaje);
   }
   return datos as T;

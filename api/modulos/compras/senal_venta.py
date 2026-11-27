@@ -129,6 +129,16 @@ class ErrorML(Exception):
     pass
 
 
+def _motivo_ml(e: urllib.error.HTTPError) -> str:
+    """El mensaje que manda Mercado Libre con el error (sin datos de la aplicación), para decir la causa verdadera."""
+    try:
+        d = json.loads(e.read(4000) or b"{}")
+    except (ValueError, OSError):
+        return ""
+    texto = " ".join(str(d.get(k)) for k in ("error", "message") if isinstance(d, dict) and d.get(k))
+    return f": {texto[:160]}" if texto else ""
+
+
 def _pedir_ml(url: str, token: str | None = None, datos: bytes | None = None) -> dict:
     encabezados = {"Accept": "application/json"}
     if token:
@@ -140,11 +150,22 @@ def _pedir_ml(url: str, token: str | None = None, datos: bytes | None = None) ->
         with urllib.request.urlopen(urllib.request.Request(url, data=datos, headers=encabezados), timeout=TIEMPO) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise ErrorML("Mercado Libre rechazó la aplicación; revisa el App ID y la clave secreta en Configuración") from e
+        # Revisión del 26 nov 2026: antes cualquier 401/403 decía «rechazó la aplicación», también cuando el permiso sí
+        # se dio y lo que Mercado Libre negó fue la búsqueda. Ahora se distingue el paso y se pone lo que contestó.
+        pidiendo_permiso = url.endswith("/oauth/token")
+        if e.code in (401, 403) and pidiendo_permiso:
+            raise ErrorML(f"Mercado Libre rechazó la aplicación al pedir permiso (error {e.code}{_motivo_ml(e)}); revisa "
+                          "el App ID y la clave secreta en Configuración") from e
+        if e.code == 401:
+            _TOKEN.update(valor=None)  # el permiso venció o lo revocaron: la siguiente vez se pide uno nuevo
+            raise ErrorML(f"Mercado Libre no aceptó el permiso de la aplicación (error 401{_motivo_ml(e)}); se pedirá "
+                          "uno nuevo en la siguiente evaluación") from e
+        if e.code == 403:
+            raise ErrorML(f"Mercado Libre sí dio permiso a la aplicación, pero no la deja hacer esta consulta (error "
+                          f"403{_motivo_ml(e)}); revisa los permisos de la aplicación en developers.mercadolibre.com.mx") from e
         if e.code == 404:
             return {}
-        raise ErrorML(f"Mercado Libre respondió con error {e.code}") from e
+        raise ErrorML(f"Mercado Libre respondió con error {e.code}{_motivo_ml(e)}") from e
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
         raise ErrorML("no se pudo conectar con Mercado Libre") from e
 
@@ -171,11 +192,30 @@ def _lugar_ml(token: str, categoria_id: str, ids: set[str]) -> int | None:
     return None
 
 
+def _sin_conectar(bd: Session | None) -> str:
+    """Por qué no hay aplicación de Mercado Libre. Si en Configuración sí se capturó pero no se puede leer (la clave
+    secreta se cifró con otra llave, p. ej. la base vino de otro equipo), se dice así y no «falta registrarla»."""
+    if bd is not None:
+        from core import ajustes
+
+        try:
+            guardado = ajustes.guardados(bd)
+        except Exception:  # noqa: BLE001 - solo es para el mensaje
+            guardado = {}
+        if guardado.get("mercado_libre_clave") and ajustes.descifrar(guardado["mercado_libre_clave"]) is None:
+            return ("Mercado Libre: sin conectar (la clave secreta guardada en Configuración no se puede leer en este "
+                    "equipo; vuelve a capturarla).")
+        if guardado.get("mercado_libre_app_id") or guardado.get("mercado_libre_clave"):
+            falta = "el App ID" if not guardado.get("mercado_libre_app_id") else "la clave secreta"
+            return f"Mercado Libre: sin conectar (falta {falta} en Configuración)."
+    return "Mercado Libre: sin conectar (falta registrar la aplicación en Configuración)."
+
+
 def mercado_libre(bd: Session, nombre: str, marca: str | None, consultas: list[tuple[str, str]], elegir) -> tuple[list[Senal], list[str], list]:
     """Busca el producto en Mercado Libre México. Regresa señales, notas y los candidatos elegidos (para sumar su precio)."""
     cfg = configuracion()
     if not cfg.mercado_libre_app_id or not cfg.mercado_libre_clave:
-        return [], ["Mercado Libre: sin conectar (falta registrar la aplicación en Configuración)."], []
+        return [], [_sin_conectar(bd)], []
     try:
         token = _token_ml()
         cands: dict[str, co.Candidato] = {}
@@ -240,6 +280,8 @@ def amazon(bd: Session, nombre: str, marca: str | None, consultas: list[tuple[st
     senales, notas, elegidos = [], [], []
     try:
         ids = dfs.enviar(bd, corrida, "amazon", [{"keyword": texto, "depth": 40, "se_domain": "amazon.com.mx", "tag": "0"}])
+        if not ids:  # DataForSEO no aceptó la búsqueda: queda en el registro para quien administra (26 nov 2026: era mudo)
+            log.warning("Amazon: DataForSEO no aceptó la búsqueda de «%s» (corrida %s)", texto[:80], corrida.corrida_id)
         for items in dfs.recoger("amazon", ids).values():
             if isinstance(items, str):
                 notas.append(f"Amazon: {items}.")

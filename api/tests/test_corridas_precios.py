@@ -1,6 +1,7 @@
 """Adecuaciones del radar de precios para su uso diario (Diego, 26 nov 2026): reporte por clasificación y lista de SKU,
 corridas a pedido con resumen y acciones, y tablero al día (solo precios). Datos ficticios (EJ)."""
 import io
+import json
 import uuid
 from decimal import Decimal
 
@@ -77,6 +78,11 @@ def test_corrida_a_pedido_resumen_acciones_y_excel(limpio, admin, monkeypatch):
     pedido = {"marcas": ["PEDIDO EJ"], "clasificaciones": ["AA"]}
     e = admin.post("/api/compras/precios/pedidos/estimar", json=pedido).json()
     assert e["productos"] == 2 and e["puede"] and Decimal(e["estimado_usd"]) > 0 and e["ocupado"] is None
+    from core.config import configuracion
+    monkeypatch.setattr(configuracion(), "precios_pedido_prioridad_alta", False)
+    normal = Decimal(admin.post("/api/compras/precios/pedidos/estimar", json=pedido).json()["estimado_usd"])
+    assert Decimal(e["estimado_usd"]) == normal * 2  # con prioridad alta (de fábrica) el estimado cuenta el doble
+    monkeypatch.setattr(configuracion(), "precios_pedido_prioridad_alta", True)
     assert not admin.post("/api/compras/precios/pedidos/estimar", json={}).json()["puede"]
     p = admin.post("/api/compras/precios/pedidos", json=pedido)
     assert p.status_code == 202
@@ -146,3 +152,92 @@ def test_tablero_al_dia(limpio, admin):
     assert t["agentes"][0]["agente"] == "Sin agente" and t["agentes"][0]["bajar"] == 1
     assert len(t["dias"]) == 14 and t["dias"][-1]["productos"] == 2
     assert "costo" not in " ".join(t.keys())  # solo radar de precios
+
+
+def test_corrida_a_pedido_que_falla_avisa_a_quien_la_lanzo(limpio, admin, monkeypatch):
+    """Revisión del 26 nov 2026: si la corrida a pedido truena, el aviso iba solo a quien administra el radar y quien la
+    lanzó (Precios y Costos, solo con «ver») se quedaba esperando. Ahora también le llega a ella."""
+    from tests.conftest import alta_usuario
+
+    _sincrono(monkeypatch)
+    a = producto("ESPIRULINA EJ 100 TABLETAS")
+    # Otras pruebas cambian los permisos de este rol: aquí se deja con «ver» y sin «administrar», como Precios y Costos
+    assert admin.put("/api/nucleo/roles/compras_consulta/permisos",
+                     json={"permisos": ["compras.solicitud.ver", "compras.radar.ver", "compras.precios.ver"]}).status_code == 200
+    _, consulta, uid = alta_usuario(admin, rol="compras_consulta")
+
+    def truena(self):
+        raise RuntimeError("falla de prueba")
+
+    monkeypatch.setattr(precios.Corrida, "correr", truena)
+    p = consulta.post("/api/compras/precios/pedidos", json={"producto_ids": [a]})
+    assert p.status_code == 202, p.text  # cualquiera con compras.precios.ver la lanza
+    d = consulta.get(f"/api/compras/precios/pedidos/{p.json()['id']}").json()
+    assert d["pedido"]["estado"] == "fallida" and "RuntimeError" in d["pedido"]["error"]
+    with Session(motor()) as bd:
+        aviso = bd.scalar(select(Notificacion).where(Notificacion.usuario_id == uid,
+                                                     Notificacion.titulo == "Tu corrida del radar de precios no terminó"))
+        assert aviso and aviso.liga == f"/compras/precios/pedidos/{p.json()['id']}"
+
+
+def test_corrida_a_pedido_busca_las_tiendas_de_compras_en_google(limpio, admin, monkeypatch):
+    """Diego (26 nov 2026): las tiendas de Compras sin conector (Farmacias del Ahorro, HEB…) se buscan en Google limitado
+    a su sitio, varias por búsqueda, solo en corridas a pedido. Cuentan como esa tienda, una vez. Datos FICTICIOS."""
+    from core.config import configuracion
+    from modulos.compras import tiendas as td
+
+    _sincrono(monkeypatch)
+    cfg = configuracion()
+    monkeypatch.setattr(cfg, "tiendas_google_activo", True)
+    monkeypatch.setattr(cfg, "tiendas_google_sitios", "Farmacias del Ahorro=fahorro.com; HEB=heb.com.mx; GNC=gnc.com.mx")
+    monkeypatch.setattr(cfg, "tiendas_google_por_busqueda", 3)
+    monkeypatch.setattr(cfg, "precios_tiendas_clave", "Walmart, Farmacias del Ahorro, HEB, GNC")
+    a = producto("COLAGENO EJ 300 G", lista="389.00", marca="PEDIDO EJ")
+    q = "PEDIDO EJ COLAGENO EJ 300 G"
+    limpio.resultados[q] = [item("Pedido EJ Colágeno EJ 300 g", "G-COL")]
+    limpio.vendedores["G-COL"] = [vendedor("Walmart", 300, "walmart.com.mx")]
+    limpio.organico[f"site:fahorro.com OR site:heb.com.mx OR site:gnc.com.mx {q}"] = [
+        {"url": "https://www.fahorro.com/colageno-ej.html", "domain": "www.fahorro.com", "title": "Pedido EJ Colágeno EJ 300 g",
+         "price": {"current": 320.0, "currency": "MXN"}},
+        {"url": "https://www.heb.com.mx/colageno-ej", "domain": "www.heb.com.mx", "title": "Pedido EJ Colágeno EJ 300 g",
+         "description": "Precio $310.00"}]
+    e = admin.post("/api/compras/precios/pedidos/estimar", json={"producto_ids": [a]}).json()
+    assert Decimal(e["estimado_usd"]) > 0
+    p = admin.post("/api/compras/precios/pedidos", json={"producto_ids": [a]}).json()
+    # Las tiendas vía Google se mandan primero, junto con Google Shopping (no esperan a que terminen las demás)
+    assert [t for t, _ in limpio.envios][:2] == ["organic", "products"], limpio.envios
+    with Session(motor()) as bd:
+        from modulos.compras.modelos_precios import PrecioCorridaProducto, PrecioObservacion
+        f = bd.scalar(select(PrecioCorridaProducto).where(PrecioCorridaProducto.corrida_id == p["id"]))
+        estados = json.loads(f.tiendas)
+        assert estados["Farmacias del Ahorro"]["estado"] == "encontrado" and estados["HEB"]["estado"] == "encontrado"
+        assert estados["GNC"]["estado"] == "no_lo_tiene"  # no aparece en Google: no es una falla
+        obs = {o.vendedor: o for o in bd.scalars(select(PrecioObservacion).where(PrecioObservacion.corrida_id == p["id"]))}
+        assert {"Walmart", "Farmacias del Ahorro", "HEB"} <= set(obs)
+        assert json.loads(obs["HEB"].datos)["_publicacion"] == "Google (sitio de HEB)"
+        assert f.vendedores == 3 and f.mediana == Decimal("310.00")  # 300, 310 y 320: tres tiendas, una vez cada una
+    # Una corrida que no es a pedido (la del programa o la noche) no las busca
+    organicas = sum(1 for tp, _ in limpio.tareas.values() if tp == "organic")
+    with Session(motor()) as bd:  # el pedido lo dejó vigilado para la noche; aquí entra a la corrida del programa
+        bd.scalar(select(PrecioVigilado).where(PrecioVigilado.producto_id == a)).origen = "pantalla"
+        bd.commit()
+    correr()
+    assert sum(1 for tp, _ in limpio.tareas.values() if tp == "organic") == organicas
+
+
+def test_corrida_a_pedido_prioridad_alta_solo_si_se_enciende(monkeypatch):
+    """26 nov 2026: la corrida a pedido de 10 productos tardó 39 min en la cola normal de DataForSEO. Con el ajuste
+    encendido va en la cola rápida (cuesta el doble); apagado de fábrica. La noche nunca."""
+    from core.config import configuracion
+    from modulos.compras import dataforseo as dfs
+    from types import SimpleNamespace
+
+    vistas = []
+    monkeypatch.setattr(precios, "_correr", lambda bd, c: vistas.append(dfs.PRIORIDAD.get()) or c)
+    assert configuracion().__class__().precios_pedido_prioridad_alta is True  # encendido de fábrica (Diego)
+    monkeypatch.setattr(configuracion(), "precios_pedido_prioridad_alta", False)
+    precios.correr(None, SimpleNamespace(origen=precios.PEDIDO))
+    monkeypatch.setattr(configuracion(), "precios_pedido_prioridad_alta", True)
+    precios.correr(None, SimpleNamespace(origen=precios.PEDIDO))
+    precios.correr(None, SimpleNamespace(origen=precios.NOCTURNA))
+    assert vistas == [1, 2, 1] and dfs.PRIORIDAD.get() == 1
