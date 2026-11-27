@@ -169,7 +169,9 @@ def _por_que_no(r: tb.Renglon) -> str:
         return "No se encontró el mismo producto en internet"
     if estado in ("sin_precios", "con_precios"):
         return "Sin precios validados"
-    return "No se pudo revisar (falla o sin presupuesto)"
+    if estado == "sin_presupuesto":
+        return "Se acabó el presupuesto de búsquedas antes de revisarlo"
+    return "No se pudo revisar (falla de la búsqueda)"
 
 
 def _filtrar(todos: list, grupo: str, clase: str, q: str, marca: str, agente: str, orden: str, precio: str):

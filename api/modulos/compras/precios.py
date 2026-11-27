@@ -540,6 +540,12 @@ class Corrida:
         self.cfg = configuracion()
         self.avisos: list[str] = []
         self.sin_presupuesto: str | None = None
+        # Presupuesto apartado (27 nov 2026): lo esencial es buscar el producto y traer sus precios; las búsquedas extra
+        # (tiendas vía Google) solo salen si después de ellas todavía alcanza para lo esencial
+        self.sin_extras: str | None = None
+        self.por_buscar: dict[int, Decimal] = {}  # lo más que cuesta buscar cada producto que falta de buscar
+        self.por_vendedores: dict[int, Decimal] = {}  # lo más que cuesta traer los vendedores de cada producto
+        self.con_reserva: set[int] = set()  # productos cuyos vendedores ya están apartados (con publicación o ya buscados)
         # Resultados de la búsqueda que son el mismo producto: cada uno trae tienda y precio (como n8n y Radar Precios)
         self.de_busqueda: dict[int, list[dict]] = {}
         self.variante_dudosa: set[int] = set()  # Google trajo varias variantes y no se supo cuál es la nuestra
@@ -593,6 +599,23 @@ class Corrida:
         tareas = [{"keyword": texto, "depth": self.cfg.precios_profundidad, "tag": f"{pid}:{n}"}
                   for pid, consultas in ronda.items() for n, (_, texto) in enumerate(consultas)]
         self.revisar()
+        # Solo se busca un producto si también alcanza para traer después sus vendedores: buscarlo sin poder traer sus
+        # precios es dinero perdido (27 nov 2026). Los que no caben se quedan pendientes: «sin presupuesto» al cerrar.
+        por = dfs.POR_PRIORIDAD.get(dfs.PRIORIDAD.get(), 1)
+        una = dfs.maximo_tarea("productos", self.cfg.precios_profundidad) * por
+        libre = dfs.queda(self.bd, self.c) - sum((self.por_vendedores.get(x, Decimal("0")) for x in self.con_reserva), Decimal("0"))
+        for pid in list(ronda):
+            costo = una * len(ronda[pid]) + (Decimal("0") if pid in self.con_reserva else self.por_vendedores.get(pid, Decimal("0")))
+            if costo > libre:
+                self.sin_presupuesto = self.sin_presupuesto or dfs.motivo_tope(self.bd, self.c)
+                del ronda[pid]
+                continue
+            libre -= costo
+            self.con_reserva.add(pid)
+            self.por_buscar.pop(pid, None)
+        if not ronda:
+            return {}
+        tareas = [t for t in tareas if int(t["tag"].split(":")[0]) in ronda]
         ids = dfs.enviar(self.bd, self.c, "productos", tareas)
         aceptados = {int(tag.split(":")[0]) for tag in ids}
         errores = {pid: "DataForSEO no aceptó la búsqueda" for pid in ronda if pid not in aceptados}
@@ -738,7 +761,7 @@ class Corrida:
         rondas = max((len(pl) for pl in planes.values()), default=0)
         for ronda_n in range(rondas):
             ronda = {pid: planes[pid][ronda_n] for pid in sin_resolver if len(planes[pid]) > ronda_n}
-            if not ronda:
+            if not ronda or self.sin_presupuesto:
                 break
             if rondas > 1:
                 self.paso(1, f" · intento {ronda_n + 1} de {rondas}" + (
@@ -1088,9 +1111,10 @@ class Corrida:
         if not tareas:
             return None
         try:
-            return tiendas, grupos, dfs.enviar(bd, self.c, "organico", tareas)
+            return tiendas, grupos, dfs.enviar(bd, self.c, "organico", tareas,
+                                               reserva=self._esencial())
         except dfs.SinPresupuesto as e:
-            self.sin_presupuesto = self.sin_presupuesto or str(e)
+            self.sin_extras = self.sin_extras or str(e)
         except dfs.ErrorDataForSEO as e:
             log.warning("Radar de precios: falló la búsqueda de tiendas de Compras en Google: %s", e)
         return None
@@ -1137,14 +1161,14 @@ class Corrida:
                      for p in bloqueados}
             tareas = [{"keyword": td.consulta_sitio(t, texto[p.producto_id]), "depth": 10, "tag": str(p.producto_id)}
                       for p in bloqueados if texto[p.producto_id]]
-            if not tareas or self.sin_presupuesto or dfs.configurado():
+            if not tareas or self.sin_presupuesto or self.sin_extras or dfs.configurado():
                 continue
             self.fase(f"{t.nombre} no deja consultar su sitio: buscando sus {len(tareas)} productos en Google")
             try:
-                ids = dfs.enviar(self.bd, self.c, "organico", tareas)
+                ids = dfs.enviar(self.bd, self.c, "organico", tareas, reserva=self._esencial())
                 respuesta = dfs.recoger("organico", ids, self.detenida)
             except dfs.SinPresupuesto as e:
-                self.sin_presupuesto = self.sin_presupuesto or str(e)
+                self.sin_extras = self.sin_extras or str(e)
                 continue
             except dfs.ErrorDataForSEO as e:
                 log.warning("Radar de precios: falló la búsqueda en Google de %s: %s", t.nombre, e)
@@ -1219,12 +1243,11 @@ class Corrida:
         pubs = {pid: publicaciones(m, self.cfg.precios_max_publicaciones) for pid, m in coincid.items() if m}
         tareas = [{**ids, "depth": 10, "tag": f"{pid}~{n}"} for pid in pubs for n, (ids, _) in enumerate(pubs[pid])]
         ids = {}
-        if tareas and not self.sin_presupuesto:
+        if tareas:  # también si las búsquedas toparon: lo ya encontrado sí trae sus precios (27 nov 2026)
             self.revisar()
-            try:
-                ids = dfs.enviar(self.bd, self.c, "vendedores", tareas)
-            except dfs.SinPresupuesto as e:
-                self.sin_presupuesto = str(e)
+            ids = dfs.enviar(self.bd, self.c, "vendedores", tareas, parcial=True)
+            if ids.sin_presupuesto:
+                self.sin_presupuesto = self.sin_presupuesto or ids.sin_presupuesto
         self.paso(3)
         nombres = {tag: self.nombre(int(tag.split("~")[0])) for tag in ids}
 
@@ -1304,9 +1327,28 @@ class Corrida:
 
     # ---- todo
 
+    def _apartar(self, procesados: list[tuple[PrecioVigilado, Producto]], pendientes: list[tuple[PrecioVigilado, Producto]]) -> None:
+        """Lo más que cuesta lo esencial de cada producto: buscarlo (si falta) y traer sus vendedores."""
+        por = dfs.POR_PRIORIDAD.get(dfs.PRIORIDAD.get(), 1)
+        maximo = self.cfg.precios_max_publicaciones
+        una, vend = dfs.maximo_tarea("productos", self.cfg.precios_profundidad) * por, dfs.maximo_tarea("vendedores", 10) * por
+        self.por_buscar = {p.producto_id: una * len(co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta))
+                           for v, p in pendientes}
+        for _, p in procesados:
+            m = None if p.producto_id in self.por_buscar else vigente(self.bd, p.producto_id)
+            self.por_vendedores[p.producto_id] = vend * (len(publicaciones(m, maximo)) if m else maximo)
+            if m:
+                self.con_reserva.add(p.producto_id)
+
+    def _esencial(self) -> Decimal:
+        """Lo que debe quedar libre después de una búsqueda extra: las búsquedas que faltan y los vendedores de todos."""
+        return sum(self.por_buscar.values(), Decimal("0")) + sum(self.por_vendedores.values(), Decimal("0"))
+
     def correr(self) -> PrecioCorrida:
         bd, c = self.bd, self.c
         c.tope_usd = Decimal(str(self.cfg.precios_tope_corrida_usd)) if self.cfg.precios_tope_corrida_usd else None
+        if c.tope_usd is not None and c.origen == PEDIDO:  # al continuarla, el tope cuenta para lo que falta
+            c.tope_usd += dfs.gasto_corrida(bd, c.corrida_id)
         vigilados = de_lista(bd, c) if c.origen in (PRUEBA, NOCTURNA, PEDIDO) else _vigilados(bd)
         filas: dict[int, PrecioCorridaProducto] = {
             f.producto_id: f for f in bd.scalars(select(PrecioCorridaProducto).where(PrecioCorridaProducto.corrida_id == c.corrida_id))}
@@ -1316,6 +1358,8 @@ class Corrida:
             m = vigente(bd, p.producto_id)
             if fila and fila.estado == "con_precios" and m and fila.coincidencia_id == m.coincidencia_id:
                 continue  # reintento del mismo día: ya tiene precios y nadie cambió su coincidencia
+            if fila and c.origen == PEDIDO and (c.intentos or 1) > 1 and fila.estado == "sin_coincidencia" and not m:
+                continue  # corrida a pedido que se continúa: ya se buscó y no está en internet; no se paga otra vez
             if not fila:
                 fila = PrecioCorridaProducto(corrida_id=c.corrida_id, producto_id=p.producto_id)
                 bd.add(fila)
@@ -1333,6 +1377,7 @@ class Corrida:
         self.paso(1)
         self.fase(f"Preparando {len(procesados)} productos: {len(pendientes)} se buscan en Google Shopping"
                   + (f" y {ya} ya tienen su publicación de Google de corridas anteriores" if ya else ""), 0, len(pendientes) or None)
+        self._apartar(procesados, pendientes)
         # Corrida a pedido: las tiendas de Compras vía Google se mandan ya y se recogen después (26 nov 2026)
         enviado = self._enviar_tiendas_google(procesados) if c.origen == PEDIDO else None
         if pendientes:
@@ -1349,6 +1394,9 @@ class Corrida:
                 fila.mensaje = (self.sin_presupuesto or "No se completó")[:400]
         if self.sin_presupuesto:
             self.avisos.append(self.sin_presupuesto + " Los productos que faltaron quedan para la siguiente corrida.")
+        elif self.sin_extras:
+            self.avisos.append("El presupuesto alcanzó para Google Shopping y los sitios de las tiendas, pero no para buscar "
+                               "en las demás tiendas vía Google.")
         self.terminar(filas)
         return c
 
@@ -1668,14 +1716,20 @@ def revisar_programa(bd: Session) -> PrecioCorrida | None:
     return corrida
 
 
-def estimado(bd: Session, pares: list[tuple[PrecioVigilado, Producto]] | None = None) -> Decimal:
-    """Lo más que costaría una corrida hoy: productos sin coincidencia pagan sus búsquedas; todos, vendedores."""
+def esencial(bd: Session, pares: list[tuple[PrecioVigilado, Producto]] | None = None) -> Decimal:
+    """Lo más que cuesta lo indispensable: buscar los productos sin publicación y traer los vendedores de todos."""
     total = Decimal("0")
     for v, p in (_vigilados(bd) if pares is None else pares):
         m = vigente(bd, p.producto_id)
         busquedas = 0 if m and not configuracion().precios_buscar_siempre else len(co.consultas(p.descripcion, p.marca, p.codigo_barras, v.consulta))
         maximo = configuracion().precios_max_publicaciones
         total += dfs.maximo_producto(busquedas, len(publicaciones(m, maximo)) if m else maximo)
+    return total
+
+
+def estimado(bd: Session, pares: list[tuple[PrecioVigilado, Producto]] | None = None) -> Decimal:
+    """Lo más que costaría una corrida hoy: productos sin coincidencia pagan sus búsquedas; todos, vendedores."""
+    total = esencial(bd, pares)
     # Lo más: si todas las tiendas directas bloquean su sitio, una búsqueda normal de Google por producto y tienda
     # (respaldo del 26 nov 2026)
     n = len(_vigilados(bd) if pares is None else pares)

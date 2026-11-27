@@ -3,12 +3,12 @@
 // más caros, igual o más baratos, sin comparar), qué conviene con cada producto y su Excel. Al picar un producto se abre su
 // detalle (tiendas, historial y «Algo está mal») sin salir de la corrida.
 
-import { ArrowLeft, Download, Square } from "lucide-react";
+import { ArrowLeft, Download, RotateCw, Square, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, dolares, mensajeDe } from "@/lib/api";
-import { descargar, hora, type DetallePedido } from "@/lib/precios";
+import { descargar, hora, type ContinuarPedido, type DetallePedido } from "@/lib/precios";
 import { useAvisos } from "@/componentes/avisos";
 import { useSesion } from "@/componentes/sesion";
 import { Boton, Entrada, Esqueleto } from "@/componentes/ui";
@@ -41,6 +41,8 @@ export default function UnaCorrida() {
   const [abierto, setAbierto] = useState<number | null>(null);
   const [bajando, setBajando] = useState(false);
   const [deteniendo, setDeteniendo] = useState(false);
+  const [falta, setFalta] = useState<ContinuarPedido | null>(null);
+  const [continuando, setContinuando] = useState(false);
   const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallas = useRef(0);
 
@@ -64,6 +66,21 @@ export default function UnaCorrida() {
       if (espera.current) clearTimeout(espera.current);
     };
   }, [cargar]);
+
+  // Una corrida a pedido que quedó a medias se puede continuar: se pregunta qué falta y si alcanza
+  const estado = d?.pedido.estado;
+  const aMedias = d?.pedido.origen === "pedido" && (estado === "parcial" || estado === "fallida");
+  useEffect(() => {
+    setFalta(null);
+    if (!aMedias) return;
+    let vivo = true;
+    api<ContinuarPedido>(`/api/compras/precios/pedidos/${id}/continuar`)
+      .then((x) => vivo && setFalta(x))
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [id, aMedias, estado]);
 
   if (!d) return <Esqueleto className="h-72" />;
   const p = d.pedido;
@@ -91,7 +108,20 @@ export default function UnaCorrida() {
       setDeteniendo(false);
     }
   };
+  const continuar = async () => {
+    setContinuando(true);
+    try {
+      await api(`/api/compras/precios/pedidos/${p.id}/continuar`, { metodo: "POST" });
+      avisar("La corrida continúa con lo que faltó", "exito");
+      cargar();
+    } catch (e) {
+      avisar(mensajeDe(e), "info");
+    } finally {
+      setContinuando(false);
+    }
+  };
   const acciones = ACCIONES.filter((a) => d.acciones[a.clave]);
+  const comparados = d.cuadros.con_precio;
 
   return (
     <div className="space-y-5">
@@ -119,6 +149,11 @@ export default function UnaCorrida() {
                   <Square className="h-4 w-4" /> {p.estado === "en_espera" ? "Quitar de la fila" : "Detener"}
                 </Boton>
               )}
+              {!corre && suya && falta && falta.faltan > 0 && falta.puede && (
+                <Boton variante="secundario" onClick={continuar} cargando={continuando}>
+                  <RotateCw className="h-4 w-4" /> Continuar corrida
+                </Boton>
+              )}
               {!corre && d.filas.length > 0 && (
                 <Boton onClick={excel} cargando={bajando}>
                   <Download className="h-4 w-4" /> Descargar Excel
@@ -133,6 +168,20 @@ export default function UnaCorrida() {
             </div>
           )}
           {p.estado === "fallida" && p.error && <p className="mt-3 text-[14px] text-smn-gris-700">{p.error}</p>}
+          {!corre && falta && falta.faltan > 0 && (
+            <p className="mt-3 flex gap-2 rounded-lg bg-aviso-fondo p-3 text-[14px] text-aviso-texto">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {falta.faltan === 1 ? "Quedó 1 producto sin revisar" : `Quedaron ${n(falta.faltan)} productos sin revisar`}
+                {p.avisos.some((a) => a.toLowerCase().includes("tope")) ? " porque se acabó el presupuesto de búsquedas" : ""}.{" "}
+                {falta.puede
+                  ? suya
+                    ? "Con «Continuar corrida» se retoman solo esos; lo ya encontrado no se vuelve a buscar."
+                    : "Quien la pidió puede continuarla."
+                  : falta.motivo}
+              </span>
+            </p>
+          )}
           {p.no_encontrados.length > 0 && (
             <p className="mt-3 text-[13px] text-smn-gris-500">
               {p.no_encontrados.length === 1 ? "1 SKU del Excel no está" : `${n(p.no_encontrados.length)} SKU del Excel no están`} en el catálogo:{" "}
@@ -164,7 +213,9 @@ export default function UnaCorrida() {
             <section className="grid gap-4 rounded-xl border border-smn-gris-100 bg-superficie p-4 sm:p-5 md:grid-cols-2">
               <div>
                 <h3 className="text-[15px] font-semibold">Qué conviene</h3>
-                {acciones.length === 0 ? (
+                {comparados === 0 ? (
+                  <p className="mt-1 text-[14px] text-smn-gris-500">Todavía no hay nada que recomendar: ningún producto quedó con precio confirmado.</p>
+                ) : acciones.length === 0 ? (
                   <p className="mt-1 text-[14px] text-smn-gris-500">Ningún producto pide acción: los precios están en línea con el mercado.</p>
                 ) : (
                   <ul className="mt-2 space-y-1 text-[14px]">

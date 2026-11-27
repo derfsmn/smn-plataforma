@@ -241,3 +241,60 @@ def test_corrida_a_pedido_prioridad_alta_solo_si_se_enciende(monkeypatch):
     precios.correr(None, SimpleNamespace(origen=precios.PEDIDO))
     precios.correr(None, SimpleNamespace(origen=precios.NOCTURNA))
     assert vistas == [1, 2, 1] and dfs.PRIORIDAD.get() == 1
+
+
+def test_corrida_que_no_cabe_no_se_lanza_y_lo_que_alcanza_sale_con_precio(limpio, admin, monkeypatch):
+    """Diego, 27 nov 2026: una corrida de 113 productos tardó una hora, topó con el tope por corrida y terminó sin un
+    solo precio. Ahora no se lanza si no cabe y, si el dinero se acaba, lo que alcanzó sale completo."""
+    from core.config import configuracion
+    from modulos.compras import dataforseo as dfs
+    cfg = configuracion()
+    a = producto("COLAGENO EJ 300 G", lista="389.00", mem="300.00", marca="TOPE EJ")
+    b = producto("CREATINA EJ 450 G", lista="599.00", marca="TOPE EJ")
+    limpio.resultados["TOPE EJ COLAGENO EJ 300 G"] = [item("Tope EJ Colágeno EJ 300 g", "G-TOPE")]
+    limpio.resultados["TOPE EJ CREATINA EJ 450 G"] = [item("Tope EJ Creatina EJ 450 g", "G-TOPE-B")]
+    limpio.vendedores["G-TOPE"] = [vendedor("Walmart", 300, "walmart.com.mx"), vendedor("Chedraui", 310, "chedraui.com.mx")]
+    limpio.vendedores["G-TOPE-B"] = [vendedor("Walmart", 500, "walmart.com.mx"), vendedor("Chedraui", 510, "chedraui.com.mx")]
+    pedido = {"marcas": ["TOPE EJ"]}
+    e = admin.post("/api/compras/precios/pedidos/estimar", json=pedido).json()
+    assert e["puede"] and e["cabe"] and e["caben"] == 2
+    costo = Decimal(e["estimado_usd"])
+    # No cabe en el tope por corrida: no se lanza y dice cuántos caben
+    monkeypatch.setattr(cfg, "precios_tope_corrida_usd", float(costo * Decimal("0.6")))
+    e = admin.post("/api/compras/precios/pedidos/estimar", json=pedido).json()
+    assert not e["puede"] and not e["cabe"] and e["caben"] == 1 and "tope por corrida" in e["motivo"]
+    assert admin.post("/api/compras/precios/pedidos", json=pedido).status_code == 400
+    # Si el tope baja con la corrida ya lanzada: alcanza para lo esencial de un producto y ese sale con precio
+    monkeypatch.setattr(cfg, "precios_tope_corrida_usd", float(costo))
+    monkeypatch.setattr(precios, "correr_aparte", lambda corrida_id: None)
+    pid = admin.post("/api/compras/precios/pedidos", json=pedido).json()["id"]
+    por = dfs.POR_PRIORIDAD[2 if cfg.precios_pedido_prioridad_alta else 1]
+    with Session(motor()) as bd:
+        consultas = len(precios.co.consultas("COLAGENO EJ 300 G", "TOPE EJ", None, None))
+    uno = dfs.maximo_producto(consultas, cfg.precios_max_publicaciones) * por
+    monkeypatch.setattr(cfg, "precios_tope_corrida_usd", float(uno * Decimal("1.5")))
+    token = dfs.PRIORIDAD.set(2 if cfg.precios_pedido_prioridad_alta else 1)
+    try:
+        with Session(motor()) as bd:
+            precios.correr(bd, bd.get(PrecioCorrida, pid))
+    finally:
+        dfs.PRIORIDAD.reset(token)
+    d = admin.get(f"/api/compras/precios/pedidos/{pid}").json()
+    assert d["pedido"]["estado"] == "parcial" and any("tope de gasto por corrida" in x for x in d["pedido"]["avisos"])
+    assert d["cuadros"]["con_precio"] == 1 and d["cuadros"]["sin_comparar"] == 1
+    assert d["sin_comparar"] == {"Se acabó el presupuesto de búsquedas antes de revisarlo": 1}
+    assert Decimal(d["pedido"]["costo_usd"]) <= uno * Decimal("1.5")
+    # «Continuar corrida»: la misma corrida retoma lo que faltó, sin volver a pagar lo ya encontrado, y sigue a su nombre
+    monkeypatch.setattr(cfg, "precios_tope_corrida_usd", float(uno * Decimal("0.5")))
+    r = admin.get(f"/api/compras/precios/pedidos/{pid}/continuar").json()
+    assert r["faltan"] == 1 and not r["puede"] and "tope por corrida" in r["motivo"]
+    assert admin.post(f"/api/compras/precios/pedidos/{pid}/continuar").status_code == 400
+    monkeypatch.setattr(cfg, "precios_tope_corrida_usd", float(costo))
+    _sincrono(monkeypatch)
+    gastado = Decimal(d["pedido"]["costo_usd"])
+    r = admin.post(f"/api/compras/precios/pedidos/{pid}/continuar")
+    assert r.status_code == 202 and r.json()["id"] == pid and r.json()["usuario_id"] == d["pedido"]["usuario_id"]
+    d = admin.get(f"/api/compras/precios/pedidos/{pid}").json()
+    assert d["pedido"]["estado"] == "completa" and d["cuadros"]["con_precio"] == 2 and d["pedido"]["avisos"] == []
+    assert Decimal(d["pedido"]["costo_usd"]) - gastado <= uno
+    assert admin.post(f"/api/compras/precios/pedidos/{pid}/continuar").status_code == 400  # ya no quedó a medias

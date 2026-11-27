@@ -2,6 +2,14 @@
 
 Actualizar al final de cada sesión (Claude Code o Codex). Lo más reciente arriba.
 
+## Novedades (2026-11-27)
+
+- **Arreglo (2026-11-27): una corrida a pedido ya no se queda sin precios por el tope** (Diego: corrida de Daniela, 113 productos, 1 h, «Parcial» con 0 confirmados; «no puede pasar», «debería ser esta misma que se pueda lanzar»). Causa: el tope por corrida (`precios_tope_corrida_usd`, 2.00) se gastaba en búsquedas y ya no se pedían los vendedores; el estimador de «Nueva corrida» solo comparaba contra el mes.
+  - **No se lanza lo que no cabe:** `rutas_corridas_precios._estimar` compara el «hasta» contra el tope por corrida y lo que queda del mes; el motivo dice cuántos productos caben (sin dólares: el gasto solo lo ve quien administra).
+  - **Dinero apartado** (`precios.Corrida._apartar`, `_esencial`; `dataforseo.enviar(reserva=, parcial=)`, `queda`, `motivo_tope`): un producto solo se busca si también alcanza para sus vendedores; los vendedores se piden aunque las búsquedas hayan topado y, si no caben todos, salen los que caben; las búsquedas extra (tiendas vía Google) solo si sobra (`sin_extras`, no marca la corrida como parcial).
+  - **«Continuar corrida»** (`GET/POST /api/compras/precios/pedidos/{id}/continuar`): la misma corrida retoma lo que faltó (ni lo que ya tiene precio ni lo que ya se buscó sin encontrarse), sigue a nombre de quien la pidió; la continúa quien la pidió o quien administra. Al continuar, el tope por corrida cuenta para lo que falta.
+  - Pantalla de la corrida: aviso de cuántos quedaron sin revisar y por qué; «Qué conviene» ya no dice «en línea con el mercado» si no se comparó nada. Motivo nuevo «Se acabó el presupuesto de búsquedas antes de revisarlo». Pruebas `tests/test_corridas_precios.py` (8).
+
 ## Novedades (2026-11-26)
 
 - **Corrección (2026-11-26, noche: revisión para la presentación a Dirección, sin commit):**

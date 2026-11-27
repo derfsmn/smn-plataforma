@@ -90,6 +90,12 @@ export default function NuevaCorrida() {
                       {dolares(e.disponible_usd)} de {dolares(e.tope_mes_usd)}
                     </dd>
                   </div>
+                  {e.tope_corrida_usd && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-smn-gris-700">Tope por corrida</dt>
+                      <dd className="tabular-nums">{dolares(e.tope_corrida_usd)}</dd>
+                    </div>
+                  )}
                 </dl>}
                 {e.motivo ? (
                   <p className="mt-3 flex gap-2 rounded-lg bg-aviso-fondo p-3 text-[14px] text-aviso-texto">
@@ -97,11 +103,6 @@ export default function NuevaCorrida() {
                   </p>
                 ) : (
                   <>
-                    {!e.cabe && (
-                      <p className="mt-3 rounded-lg bg-aviso-fondo p-3 text-[14px] text-aviso-texto">
-                        {administra ? "Puede que no alcance lo que queda del mes; los" : "Puede que no alcance para todos este mes; los"} productos que falten quedan para la revisión de noche.
-                      </p>
-                    )}
                     {(e.ocupado || e.en_espera > 0) && (
                       <p className="mt-3 rounded-lg bg-smn-gris-100/60 p-3 text-[14px]">
                         {[e.ocupado, e.en_espera > 0 && (e.en_espera === 1 ? "hay 1 corrida formada" : `hay ${e.en_espera} corridas formadas`)]

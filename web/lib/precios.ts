@@ -559,7 +559,9 @@ export type EstimadoPedido = {
   gasto_mes_usd: string;
   tope_mes_usd: string;
   disponible_usd: string;
+  tope_corrida_usd: string | null;
   cabe: boolean;
+  caben: number;
   ocupado: string | null;
   en_espera: number;
   falta_configurar: string[];
@@ -580,6 +582,7 @@ export type Pedido = {
   fase: string | null;
   costo_usd: string;
   error: string | null;
+  avisos: string[];
   archivo: string | null;
   no_encontrados: string[];
   creado_en: string;
@@ -587,6 +590,8 @@ export type Pedido = {
   terminado_en: string | null;
   origen: string;
 };
+
+export type ContinuarPedido = { faltan: number; estimado_usd: string; puede: boolean; motivo: string | null };
 
 export type DetallePedido = {
   pedido: Pedido;

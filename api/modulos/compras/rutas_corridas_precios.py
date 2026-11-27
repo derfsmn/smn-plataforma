@@ -14,7 +14,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from core.bd import obtener_bd
@@ -61,7 +61,9 @@ class Estimado(BaseModel):
     gasto_mes_usd: Decimal
     tope_mes_usd: Decimal
     disponible_usd: Decimal
-    cabe: bool  # el costo estimado cabe en lo que queda del mes
+    tope_corrida_usd: Decimal | None  # lo más que puede gastar una sola corrida (None: sin tope)
+    cabe: bool  # el costo estimado cabe en lo que queda del mes y en el tope por corrida
+    caben: int  # cuántos productos de esta selección sí caben (aproximado)
     ocupado: str | None  # qué corre ahora (la corrida se formará)
     en_espera: int  # corridas a pedido formadas antes que esta
     falta_configurar: list[str]
@@ -82,6 +84,7 @@ class Pedido(BaseModel):
     fase: str | None
     costo_usd: Decimal
     error: str | None
+    avisos: list[str]  # p. ej. que se acabó el presupuesto a media corrida
     archivo: str | None
     no_encontrados: list[str]
     creado_en: datetime
@@ -117,7 +120,8 @@ def _pedido(bd: Session, c: PrecioCorrida) -> Pedido:
     return Pedido(id=c.corrida_id, nombre=nombre, usuario=u.nombre if u else None, usuario_id=c.iniciado_por, estado=c.estado,
                   productos=len(d.get("producto_ids", [])) or c.productos, con_precios=c.con_precios, hechos=hechos,
                   avance=avance, fase=precios.FASE.get(c.corrida_id) if c.estado == "en_curso" else None,
-                  costo_usd=c.costo_usd or Decimal(0), error=c.error, archivo=d.get("archivo"),
+                  costo_usd=c.costo_usd or Decimal(0), error=c.error,
+                  avisos=json.loads(c.avisos) if c.avisos else [], archivo=d.get("archivo"),
                   no_encontrados=d.get("no_encontrados", []), creado_en=datetime.fromisoformat(d["creado"]) if d.get("creado")
                   else c.iniciado_en, iniciado_en=c.iniciado_en, terminado_en=c.terminado_en, origen=c.origen)
 
@@ -157,8 +161,20 @@ def _estimar(bd: Session, datos: Pedir) -> tuple[Estimado, list[Producto]]:
         motivo = f"Son {len(ps):,} productos; una corrida acepta hasta {MAX_PRODUCTOS}. Acota con la clasificación o divide la lista."
     elif disponible <= 0:
         motivo = "Ya se usó todo el presupuesto de búsquedas de este mes."
+    # Una corrida que no cabe no se lanza (Diego, 27 nov 2026: una de 113 productos tardó una hora, topó a la mitad y
+    # terminó sin un solo precio). Se compara lo más que puede costar contra el tope por corrida y lo que queda del mes.
+    tope_corrida = Decimal(str(cfg.precios_tope_corrida_usd)) if cfg.precios_tope_corrida_usd else None
+    limite = min(disponible, tope_corrida) if tope_corrida is not None else disponible
+    cabe = costo <= limite
+    caben = len(pares) if cabe or not costo else int(len(pares) * limite / costo)
+    if motivo is None and not cabe:  # sin cifras en dólares: el gasto solo lo ve quien administra (lo trae aparte)
+        cual = "del tope por corrida" if tope_corrida is not None and tope_corrida <= disponible else "de lo que queda este mes"
+        motivo = (f"Esta corrida no cabe en el presupuesto de búsquedas ({cual}), así que no se lanza para que no se quede a "
+                  "medias. " + (f"Caben unos {caben} productos: acota la selección o divídela en varias corridas. " if caben
+                                else "Hoy no cabe ni un producto. ")
+                  + "Quien administra la plataforma puede subir el tope en Configuración → Radar de precios.")
     return Estimado(productos=len(ps), maximo=MAX_PRODUCTOS, estimado_usd=costo, gasto_mes_usd=gasto, tope_mes_usd=tope,
-                    disponible_usd=disponible, cabe=costo <= disponible, ocupado=_ocupado(bd),
+                    disponible_usd=disponible, tope_corrida_usd=tope_corrida, cabe=cabe, caben=caben, ocupado=_ocupado(bd),
                     en_espera=len(precios.en_espera(bd)), falta_configurar=falta, puede=motivo is None, motivo=motivo), ps
 
 
@@ -288,6 +304,74 @@ def detener(corrida_id: int, request: Request, ctx: Contexto = Depends(VER), bd:
     registrar(bd, "precios_detener", usuario_id=ctx.usuario.usuario_id, entidad="precio_corrida", entidad_id=c.corrida_id,
               ip=ip_de(request))
     bd.commit()
+    return _pedido(bd, c)
+
+
+class Continuar(BaseModel):
+    faltan: int  # productos que se quedaron sin precio y se retoman
+    estimado_usd: Decimal  # lo más que cuesta lo indispensable de esos productos
+    puede: bool
+    motivo: str | None
+
+
+def _continuar(bd: Session, c: PrecioCorrida) -> tuple[Continuar, list[int]]:
+    """Qué falta de una corrida a pedido que terminó a medias y si alcanza para retomarla."""
+    cfg = configuracion()
+    # Lo que ya tiene precio y lo que ya se buscó sin encontrarlo en internet no se repite
+    con = set(bd.scalars(select(PrecioCorridaProducto.producto_id).where(
+        PrecioCorridaProducto.corrida_id == c.corrida_id, PrecioCorridaProducto.estado.in_(("con_precios", "sin_coincidencia")))))
+    ps = [p for p in _productos(bd, c) if p.producto_id not in con]
+    vigilados = {}
+    ids = [p.producto_id for p in ps]
+    for i in range(0, len(ids), 1500):
+        for v in bd.scalars(select(PrecioVigilado).where(PrecioVigilado.producto_id.in_(ids[i:i + 1500]))):
+            vigilados[v.producto_id] = v
+    costo = precios.esencial(bd, [(vigilados.get(p.producto_id) or PrecioVigilado(producto_id=p.producto_id), p) for p in ps])
+    if cfg.precios_pedido_prioridad_alta:
+        costo *= dfs.POR_PRIORIDAD[2]
+    disponible = max(Decimal(0), Decimal(str(cfg.precios_tope_mensual_usd or 0)) - dfs.gasto_mes(bd))
+    tope = Decimal(str(cfg.precios_tope_corrida_usd)) if cfg.precios_tope_corrida_usd else None
+    limite = min(disponible, tope) if tope is not None else disponible
+    motivo = None
+    if c.origen != precios.PEDIDO:
+        motivo = "Solo se continúan aquí las corridas a pedido."
+    elif c.estado not in ("parcial", "fallida"):
+        motivo = "Esta corrida no quedó a medias."
+    elif not ps:
+        motivo = "No quedó ningún producto por retomar."
+    elif falta := dfs.configurado():
+        motivo = "Falta capturar en Configuración: " + ", ".join(falta) + "."
+    elif costo > limite:
+        cual = "del tope por corrida" if tope is not None and tope <= disponible else "de lo que queda este mes"
+        motivo = (f"Lo que falta no cabe en el presupuesto de búsquedas ({cual}). Quien administra la plataforma puede subir "
+                  "el tope en Configuración → Radar de precios; después se continúa.")
+    return Continuar(faltan=len(ps), estimado_usd=costo, puede=motivo is None, motivo=motivo), ids
+
+
+@router.get("/pedidos/{corrida_id}/continuar", response_model=Continuar)
+def por_continuar(corrida_id: int, _: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Continuar:
+    return _continuar(bd, _de(bd, corrida_id))[0]
+
+
+@router.post("/pedidos/{corrida_id}/continuar", response_model=Pedido, status_code=status.HTTP_202_ACCEPTED)
+def continuar(corrida_id: int, request: Request, ctx: Contexto = Depends(VER), bd: Session = Depends(obtener_bd)) -> Pedido:
+    """Retoma la misma corrida con lo que faltó (Diego, 27 nov 2026: «debería ser esta misma que se pueda lanzar»).
+    Sigue siendo de quien la pidió; lo ya encontrado no se vuelve a pagar. Si algo corre, se forma."""
+    c = _de(bd, corrida_id)
+    if c.iniciado_por != ctx.usuario.usuario_id and not ctx.puede(precios.ADMINISTRAR):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo quien la pidió o quien administra el radar puede continuarla.")
+    e, _ids = _continuar(bd, c)
+    if not e.puede:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, e.motivo)
+    cambio = bd.execute(update(PrecioCorrida).where(PrecioCorrida.corrida_id == c.corrida_id, PrecioCorrida.estado == c.estado)
+                        .values(estado=precios.EN_ESPERA, terminado_en=None, error=None, avisos=None,
+                                intentos=(c.intentos or 0) + 1))
+    registrar(bd, "precios_pedido_continuar", usuario_id=ctx.usuario.usuario_id, entidad="precio_corrida", entidad_id=c.corrida_id,
+              detalle={"faltan": e.faltan, "estimado_usd": str(e.estimado_usd)}, ip=ip_de(request))
+    bd.commit()
+    if cambio.rowcount == 1:
+        precios.arrancar_en_espera(bd)  # si nada corre arranca ya; si no, espera su turno
+    bd.refresh(c)
     return _pedido(bd, c)
 
 
